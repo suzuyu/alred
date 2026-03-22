@@ -32,8 +32,11 @@ uv pip install pyinstaller
 
 ```sh
 uv run pyinstaller \
+  --clean \
+  --noconfirm \
   --onefile \
   --name alred \
+  --collect-data alred \
   alred.py
 ```
 
@@ -47,6 +50,7 @@ uv run pyinstaller \
 - PyInstaller の中間生成物として `build/` や `*.spec` も作成されます
 - これらは配布用成果物ではないため、通常は Git 管理しません
 - `dist/` 配下は release asset の作業領域として扱う想定です
+- `sample_configs/` や `j2/` などの package data を bundle するため、`--collect-data alred` を付けています
 
 ## 動作確認
 
@@ -207,8 +211,11 @@ Linux x86_64 向けの一連の例:
 uv sync
 uv pip install pyinstaller
 uv run pyinstaller \
+  --clean \
+  --noconfirm \
   --onefile \
   --name alred \
+  --collect-data alred \
   alred.py
 ./dist/alred --version
 ./dist/alred --help

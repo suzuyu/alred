@@ -96,6 +96,9 @@ from .parsing import (
 from .render import (
     render_mermaid_markdown_lines,
 )
+from .resources import (
+    get_resource_dir,
+)
 from .templates import (
     render_named_template_lines,
 )
@@ -2441,7 +2444,7 @@ def cmd_generate_sample_config(args: argparse.Namespace) -> None:
     logger = setup_logging(args.log_file, args.verbose)
     outdir = Path(args.output_dir)
     outdir.mkdir(parents=True, exist_ok=True)
-    templates_dir = Path(__file__).resolve().parent / "sample_configs"
+    templates_dir = get_resource_dir("sample_configs")
     if not templates_dir.exists():
         raise FileNotFoundError(f"Sample config templates directory not found: {templates_dir}")
 

@@ -4,10 +4,11 @@ Template helpers for alred.
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any, Dict, List
 
 from jinja2 import Environment
+
+from .resources import get_resource_dir
 
 
 _JINJA_ENV = Environment(
@@ -16,7 +17,7 @@ _JINJA_ENV = Environment(
     lstrip_blocks=True,
 )
 
-_TEMPLATE_DIR = Path(__file__).resolve().parent / "j2"
+_TEMPLATE_DIR = get_resource_dir("j2")
 
 
 def load_template_text(template_name: str) -> str:
