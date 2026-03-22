@@ -1,0 +1,13 @@
+target_roles:
+  - super-spine
+  - spine
+  - leaf
+  - border-gateway
+vrf: default
+interfaces:
+  - name: loopback0
+    label: lo0
+    vrf: default
+  - name: loopback1
+    label: lo1
+    vrf: default

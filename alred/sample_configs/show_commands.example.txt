@@ -1,0 +1,28 @@
+# show_commands.txt
+[device_type:nxos]
+show clock
+show version
+show interface status
+show logging
+
+[spine]
+show ip ospf neighbors
+
+[underlay-route-reflector]
+show bgp l2vpn evpn summary
+show bgp l2vpn evpn
+show bgp l2vpn evpn neighbors
+
+[leaf]
+show nve peers
+show nve vni
+show bgp l2vpn evpn summary
+show bgp l2vpn evpn
+show l2route evpn mac all
+show l2route evpn mac-ip all
+show vpc brief
+show ip route vrf all
+show port-channel summary
+
+[lfsw0101]
+show int description

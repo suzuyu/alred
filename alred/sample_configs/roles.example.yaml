@@ -1,0 +1,39 @@
+role_detection:
+  border-gateway:
+    priority: 0
+    contains:
+      - bgw
+
+  super-spine:
+    priority: 1
+    contains:
+      - ss
+
+  spine:
+    priority: 2
+    contains:
+      - sp
+
+  underlay-route-reflector:
+    priority: 2
+    contains:
+      - sp
+
+  leaf:
+    priority: 3
+    contains:
+      - lf
+
+  network-functions:
+    priority: 4
+    contains:
+      - bgrt
+
+  server:
+    priority: 5
+    contains:
+      - server
+      - host
+      - srv
+      - worker
+      - control-plane

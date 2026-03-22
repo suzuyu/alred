@@ -1,0 +1,22 @@
+include_device_types:
+  - nxos
+
+include_hostname_contains: []
+
+exclude_device_types:
+  - linux
+  - server
+
+exclude_hostname_contains:
+  - worker
+  - backup
+
+collect_running_config_for:
+  - nxos
+  - ios
+  - iosxe
+  - iosxr
+  - eos
+  - junos
+  - asa
+  - asav

@@ -1,0 +1,7 @@
+hostname,VLAN_ID,IP_CIDR,DEF_GW,IPV6_CIDR,DEF_GW6,LEAF1,LEAF1_IF,LEAF2,LEAF2_IF
+controller-server01,2001,100.64.0.1/24,100.64.0.254,fd12:0:0:1::101/64,fd12:0:0:1::1,lfsw0101,Ethernet1/1,lfsw0102,Ethernet1/1
+tenant1-server01,100,172.16.0.1/24,172.16.0.254,fd21:0:0:1::101/64,fd21:0:0:1::1,lfsw0101,Ethernet1/2,lfsw0102,Ethernet1/2
+tenant1-server02,10,172.16.0.2/24,172.16.0.254,fd21:0:0:1::102/64,fd21:0:0:1::1,lfsw0103,Ethernet1/1,lfsw0104,Ethernet1/1
+tenant1-server03,11,172.16.1.1/24,172.16.1.254,fd21:0:0:2::101/64,fd21:0:0:2::1,lfsw0103,Ethernet1/2,lfsw0104,Ethernet1/2
+tenant2-server01,200,172.17.0.1/24,172.17.0.254,fd22:0:0:1::101/64,fd22:0:0:1::1,lfsw0101,Ethernet1/3,lfsw0102,Ethernet1/3
+tenant2-server02,20,172.17.0.2/24,172.17.0.254,fd22:0:0:1::102/64,fd22:0:0:1::1,lfsw0103,Ethernet1/3,lfsw0104,Ethernet1/3

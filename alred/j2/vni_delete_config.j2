@@ -1,0 +1,31 @@
+{% if nve_members %}
+interface nve1
+{% for member in nve_members %}
+  no member vni {{ member }}
+{% endfor %}
+!
+{% endif %}
+{% if evpn_l2vnis %}
+evpn
+{% for l2vni in evpn_l2vnis %}
+  no vni {{ l2vni }} l2
+{% endfor %}
+!
+{% endif %}
+{% for vlan in vlans %}
+no interface Vlan{{ vlan }}
+{% endfor %}
+{% if vlans %}
+!
+{% endif %}
+{% for vlan in vlans %}
+no vlan {{ vlan }}
+{% endfor %}
+{% if vlans or l3vnis %}
+!
+{% endif %}
+{% for l3 in l3vnis %}
+vrf context {{ l3.vrf }}
+  no vni {{ l3.l3vni }}
+!
+{% endfor %}

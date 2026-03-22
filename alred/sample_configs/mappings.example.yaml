@@ -1,0 +1,16 @@
+# node_name_map:
+#   lfsw0101: leaf01
+#   lfsw0102: leaf02
+#   spsw0101: spine01
+#   spsw0102: spine02
+
+# interface_map:
+#   Eth1/1: eth1
+#   Eth1/2: eth2
+#   Eth1/49: eth49
+#   Eth1/50: eth50
+
+exclude_interfaces:
+  - mgmt0
+  - loopback0
+  - vlan1

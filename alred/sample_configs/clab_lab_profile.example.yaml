@@ -1,0 +1,5 @@
+topology:
+  nodes:
+    ext-server01:
+      kind: linux
+      image: alpine:latest

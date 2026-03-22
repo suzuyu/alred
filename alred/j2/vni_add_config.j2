@@ -1,0 +1,63 @@
+{% for l3 in l3vnis %}
+vrf context {{ l3.vrf }}
+  vni {{ l3.l3vni }} l3
+  rd auto
+  address-family ipv4 unicast
+    route-target both auto
+    route-target both auto evpn
+  address-family ipv6 unicast
+    route-target both auto
+    route-target both auto evpn
+!
+{% endfor %}
+{% for vlan in vlans %}
+vlan {{ vlan.vlan }}
+{% if vlan.vlan_name %}
+  name {{ vlan.vlan_name }}
+{% endif %}
+{% if vlan.l2vni %}
+  vn-segment {{ vlan.l2vni }}
+{% endif %}
+!
+{% endfor %}
+{% for svi in svis %}
+interface Vlan{{ svi.vlan }}
+{% if svi.vlan_name %}
+  description {{ svi.vlan_name }}
+{% endif %}
+  no shutdown
+{% if svi.vrf %}
+  vrf member {{ svi.vrf }}
+{% endif %}
+{% if svi.gateway_ipv4 %}
+  no ip redirects
+  ip address {{ svi.gateway_ipv4 }}
+{% endif %}
+{% if svi.gateway_ipv6 %}
+  ipv6 address {{ svi.gateway_ipv6 }}
+  ipv6 nd suppress-ra
+  no ipv6 redirects
+{% endif %}
+  fabric forwarding mode anycast-gateway
+!
+{% endfor %}
+{% if nve_members or nve_l3vnis %}
+interface nve1
+{% for member in nve_members %}
+  member vni {{ member }}
+{% endfor %}
+{% for l3vni in nve_l3vnis %}
+  member vni {{ l3vni }} associate-vrf
+{% endfor %}
+!
+{% endif %}
+{% if evpn_l2vnis %}
+evpn
+{% for l2vni in evpn_l2vnis %}
+  vni {{ l2vni }} l2
+    rd auto
+    route-target import auto
+    route-target export auto
+{% endfor %}
+!
+{% endif %}
