@@ -23,8 +23,10 @@ import yaml
 
 try:
     from netmiko import ConnectHandler
-except ImportError:
+    NETMIKO_IMPORT_ERROR: BaseException | None = None
+except ImportError as exc:
     ConnectHandler = None
+    NETMIKO_IMPORT_ERROR = exc
 
 from .constants import (
     DEFAULT_CISCO_N9KV_KIND_ENV,
@@ -117,6 +119,7 @@ from .utils import (
     get_credentials_for_device,
     get_default_log_dir,
     get_links_dir,
+    get_netmiko_unavailable_message,
     get_output_dir,
     get_raw_dir,
     get_ssh_options,
@@ -197,7 +200,7 @@ def connect_to_host(
     Open a Netmiko connection and enter enable mode when required.
     """
     if ConnectHandler is None:
-        raise RuntimeError("netmiko is not installed. Please install with: pip install netmiko")
+        raise RuntimeError(get_netmiko_unavailable_message(NETMIKO_IMPORT_ERROR))
 
     hostname = host["hostname"]
     ip = host["ip"]

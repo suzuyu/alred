@@ -75,6 +75,7 @@ logs/*
 build/*
 dist/*
 *.spec
+!alred.spec
 
 # uv lock file
 uv.lock

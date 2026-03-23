@@ -255,3 +255,20 @@ def get_ssh_options() -> Dict[str, Any]:
         "port": int(os.environ.get("ALRED_SSH_PORT", os.environ.get("NW_TOOL_SSH_PORT", 22))),
         "timeout": int(os.environ.get("ALRED_TIMEOUT", os.environ.get("NW_TOOL_TIMEOUT", 60))),
     }
+
+
+def get_netmiko_unavailable_message(import_error: BaseException | None = None) -> str:
+    """
+    Return a context-aware error message for missing Netmiko.
+    """
+    if getattr(sys, "frozen", False):
+        message = (
+            "netmiko is not available in this binary build. "
+            "Rebuild the PyInstaller binary with netmiko bundled "
+            '(for example, `--collect-submodules netmiko`) or use an updated release binary.'
+        )
+    else:
+        message = "netmiko is not installed. Please install with: pip install netmiko"
+    if import_error is not None:
+        return f"{message} Root import error: {import_error}"
+    return message

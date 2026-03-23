@@ -12,11 +12,13 @@ from urllib.request import Request, urlopen
 
 try:
     from netmiko import ConnectHandler
-except ImportError:  # pragma: no cover
+    NETMIKO_IMPORT_ERROR: BaseException | None = None
+except ImportError as exc:  # pragma: no cover
     ConnectHandler = None
+    NETMIKO_IMPORT_ERROR = exc
 
 from .constants import PRIVILEGED_EXEC_DEVICE_TYPES
-from .utils import get_ssh_options
+from .utils import get_netmiko_unavailable_message, get_ssh_options
 
 TransportType = Literal["auto", "nxapi", "ssh"]
 
@@ -113,7 +115,7 @@ class SshCollector(BaseCollector):
         if self._conn is not None:
             return self._conn
         if ConnectHandler is None:
-            raise RuntimeError("netmiko is not installed. Please install with: pip install netmiko")
+            raise RuntimeError(get_netmiko_unavailable_message(NETMIKO_IMPORT_ERROR))
 
         netmiko_device_type = self.host.get("netmiko_device_type")
         if not netmiko_device_type:
