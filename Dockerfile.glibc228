@@ -1,0 +1,73 @@
+FROM quay.io/pypa/manylinux_2_28_x86_64
+
+WORKDIR /work
+
+ARG PYTHON_VERSION=3.11.11
+ARG OPENSSL_VERSION=3.0.16
+
+ENV OPENSSL_PREFIX=/opt/openssl
+ENV PYTHON_PREFIX=/opt/python-shared/cp311
+ENV PYTHON_BIN=/opt/python-shared/cp311/bin/python3.11
+ENV CPPFLAGS=-I/opt/openssl/include
+ENV LD_LIBRARY_PATH=/opt/python-shared/cp311/lib:/opt/openssl/lib64:/opt/openssl/lib:${LD_LIBRARY_PATH}
+ENV PKG_CONFIG_PATH=/opt/openssl/lib64/pkgconfig:/opt/openssl/lib/pkgconfig
+
+RUN dnf install -y \
+        bzip2-devel \
+        gcc \
+        gdbm-devel \
+        libffi-devel \
+        make \
+        ncurses-devel \
+        openssl-devel \
+        perl \
+        perl-IPC-Cmd \
+        readline-devel \
+        sqlite-devel \
+        tar \
+        tk-devel \
+        wget \
+        xz-devel \
+        zlib-devel \
+    && dnf clean all \
+    && rm -rf /var/cache/dnf
+
+RUN curl -fsSLO "https://www.openssl.org/source/openssl-${OPENSSL_VERSION}.tar.gz" \
+    && tar -xzf "openssl-${OPENSSL_VERSION}.tar.gz" \
+    && cd "openssl-${OPENSSL_VERSION}" \
+    && ./Configure \
+        --prefix="${OPENSSL_PREFIX}" \
+        --openssldir="${OPENSSL_PREFIX}" \
+        linux-x86_64 \
+        shared \
+        zlib \
+    && make -j"$(nproc)" \
+    && make install_sw \
+    && cd /work \
+    && rm -rf "openssl-${OPENSSL_VERSION}" "openssl-${OPENSSL_VERSION}.tar.gz"
+
+RUN curl -fsSLO "https://www.python.org/ftp/python/${PYTHON_VERSION}/Python-${PYTHON_VERSION}.tgz" \
+    && tar -xzf "Python-${PYTHON_VERSION}.tgz" \
+    && cd "Python-${PYTHON_VERSION}" \
+    && ./configure \
+        --prefix="${PYTHON_PREFIX}" \
+        --enable-shared \
+        --with-ensurepip=install \
+        --with-openssl="${OPENSSL_PREFIX}" \
+        --with-openssl-rpath=auto \
+        LDFLAGS="-L${OPENSSL_PREFIX}/lib64 -L${OPENSSL_PREFIX}/lib -Wl,-rpath,${PYTHON_PREFIX}/lib" \
+    && make -j"$(nproc)" \
+    && make install \
+    && "${PYTHON_BIN}" -c "import ssl; print(ssl.OPENSSL_VERSION)" \
+    && cd /work \
+    && rm -rf "Python-${PYTHON_VERSION}" "Python-${PYTHON_VERSION}.tgz"
+
+RUN "${PYTHON_BIN}" -m pip install --no-cache-dir --upgrade pip \
+    && "${PYTHON_BIN}" -m pip install --no-cache-dir \
+        pyinstaller \
+        Jinja2>=3.1.4 \
+        netmiko>=4.4.0 \
+        PyYAML>=6.0.2 \
+        python-dotenv>=1.0.1
+
+CMD ["/bin/bash"]

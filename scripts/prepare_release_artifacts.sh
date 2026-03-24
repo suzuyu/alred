@@ -21,3 +21,4 @@ sha256sum "${OUTPUT_BINARY}" > "${OUTPUT_CHECKSUM}"
 
 echo "prepared artifact: ${OUTPUT_BINARY}"
 echo "prepared checksum: ${OUTPUT_CHECKSUM}"
+echo "artifact basename: ${ARTIFACT_BASENAME}"
