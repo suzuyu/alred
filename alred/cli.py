@@ -36,6 +36,7 @@ from .constants import (
     DEFAULT_CISCO_N9KV_STARTUP_CONFIG_TEMPLATE,
     DEFAULT_CLAB_SET_CMDS,
     DEFAULT_CLAB_TOPOLOGY_NAME,
+    DEFAULT_DESCRIPTION_RULES_PATH,
     DEFAULT_KIND_CLUSTER_CONFIG_BASE_DIR,
     DEFAULT_KIND_CLUSTER_CONFIG_CONTAINER_MOUNT_PATH,
     DEFAULT_KIND_CLUSTER_CONFIG_FILENAME_TEMPLATE,
@@ -54,6 +55,7 @@ from .constants import (
     DEFAULT_HOSTS_PATH,
     DEFAULT_LINKS_CANDIDATES_FILENAME,
     DEFAULT_LINKS_CONFIRMED_FILENAME,
+    DEFAULT_ROLES_PATH,
     DEFAULT_SAMPLES_DIR,
     DEFAULT_SHOW_COMMANDS_PATH,
     DEFAULT_TOPOLOGY_CLAB_FILENAME,
@@ -3053,7 +3055,13 @@ def cmd_normalize_links(args: argparse.Namespace) -> None:
     for f in run_files:
         local_hostname = get_collect_hostname_from_path(f, "run")
         text = load_run_text_from_collect_file(f)
-        records = build_description_records(local_hostname, text, mappings, description_rules)
+        records = build_description_records(
+            local_hostname,
+            text,
+            mappings,
+            description_rules,
+            include_svi=args.include_svi,
+        )
         logger.info("PARSED RUN %s: %d description links", f.name, len(records))
         description_records.extend(records)
 
@@ -4393,6 +4401,7 @@ def build_clab_set_step_args(
         "kind_cluster_csv": getattr(args, "kind_cluster_csv", None),
         "clab_merge": getattr(args, "clab_merge", None),
         "clab_lab_profile": getattr(args, "clab_lab_profile", None),
+        "include_svi": getattr(args, "include_svi", None),
     }
     for key, value in common_optional_overrides.items():
         if value is not None:
@@ -4498,7 +4507,10 @@ def build_parser() -> argparse.ArgumentParser:
     ) -> None:
         p.add_argument("--hosts", help=f"Input hosts.yaml (default: ./{DEFAULT_HOSTS_PATH})")
         p.add_argument("--policy", help="Policy YAML path")
-        p.add_argument("--roles", help="Role detection YAML path for grouped show commands")
+        p.add_argument(
+            "--roles",
+            help=f"Role detection YAML path for grouped show commands (default: ./{DEFAULT_ROLES_PATH} if exists)",
+        )
         p.add_argument("--username", help="SSH username")
         p.add_argument("--password", help="SSH password")
         p.add_argument("--enable-secret", help="Enable password for devices that require privileged exec")
@@ -4654,19 +4666,33 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_clab_set.add_argument("--workers", type=int, default=5, help="Number of parallel device collections")
     p_clab_set.add_argument("--mappings", help="Mappings YAML path override for normalize/render steps")
-    p_clab_set.add_argument("--description-rules", help="Description rules YAML path override for normalize step")
-    p_clab_set.add_argument("--roles", help="Role detection YAML path override for render steps")
+    p_clab_set.add_argument(
+        "--description-rules",
+        help=f"Description rules YAML path override for normalize step (default: ./{DEFAULT_DESCRIPTION_RULES_PATH} if exists)",
+    )
+    p_clab_set.add_argument(
+        "--roles",
+        help=f"Role detection YAML path override for render steps (default: ./{DEFAULT_ROLES_PATH} if exists)",
+    )
     p_clab_set.add_argument("--linux-csv", help="CSV override for generate-clab")
     p_clab_set.add_argument("--kind-cluster-csv", help="Kind cluster CSV override for generate-clab")
     p_clab_set.add_argument("--clab-merge", help="YAML override for generate-clab")
     p_clab_set.add_argument("--clab-lab-profile", help="Lab profile YAML override for generate-clab")
+    p_clab_set.add_argument(
+        "--include-svi",
+        action="store_true",
+        help="Include SVI (interface Vlan*) links in Mermaid output",
+    )
     p_clab_set.add_argument("--verbose", action="store_true", help="Verbose logging")
     p_clab_set.set_defaults(func=cmd_clab_set_cmds)
 
     def add_push_target_arguments(p: argparse.ArgumentParser) -> None:
         p.add_argument("--hosts", help=f"Input hosts.yaml (default: ./{DEFAULT_HOSTS_PATH})")
         p.add_argument("--policy", help="Policy YAML path")
-        p.add_argument("--roles", help="Role detection YAML path")
+        p.add_argument(
+            "--roles",
+            help=f"Role detection YAML path (default: ./{DEFAULT_ROLES_PATH} if exists)",
+        )
         p.add_argument("--username", help="SSH username")
         p.add_argument("--password", help="SSH password")
         p.add_argument("--enable-secret", help="Enable password for devices that require privileged exec")
@@ -4743,7 +4769,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="Raw root directory (reads <input>/lldp and <input>/config when present)",
     )
     p_norm.add_argument("--mappings", help="Mappings YAML path")
-    p_norm.add_argument("--description-rules", help="Description rules YAML path")
+    p_norm.add_argument(
+        "--description-rules",
+        help=f"Description rules YAML path (default: ./{DEFAULT_DESCRIPTION_RULES_PATH} if exists)",
+    )
+    p_norm.add_argument(
+        "--include-svi",
+        action="store_true",
+        help="Include SVI (interface Vlan*) descriptions during normalization",
+    )
     p_norm.add_argument(
         "--output-confirmed",
         default=f"{default_links_dir}/{DEFAULT_LINKS_CONFIRMED_FILENAME}",
@@ -4766,7 +4800,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_gen.add_argument("--hosts", help=f"Input hosts.yaml (default: ./{DEFAULT_HOSTS_PATH} if exists)")
     p_gen.add_argument("--mappings", help="Mappings YAML path")
-    p_gen.add_argument("--roles", help="Role detection YAML path")
+    p_gen.add_argument("--roles", help=f"Role detection YAML path (default: ./{DEFAULT_ROLES_PATH} if exists)")
     p_gen.add_argument("--min-confidence", choices=["low", "medium", "high"], default="low")
     p_gen.add_argument(
         "--include-nodes",
@@ -4821,7 +4855,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_mermaid.add_argument("--input-candidates", help="Optional input candidate links CSV")
     p_mermaid.add_argument("--hosts", help=f"Input hosts.yaml (default: ./{DEFAULT_HOSTS_PATH} if exists)")
     p_mermaid.add_argument("--mappings", help="Mappings YAML path")
-    p_mermaid.add_argument("--roles", help="Role detection YAML path")
+    p_mermaid.add_argument("--roles", help=f"Role detection YAML path (default: ./{DEFAULT_ROLES_PATH} if exists)")
     p_mermaid.add_argument("--min-confidence", choices=["low", "medium", "high"], default="low")
     p_mermaid.add_argument("--direction", choices=["TD", "LR", "BT", "RL"], default="TD")
     p_mermaid.add_argument("--group-by-role", action="store_true")
@@ -4848,7 +4882,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_doc.add_argument("--input-candidates", help="Optional input candidate links CSV")
     p_doc.add_argument("--hosts", help=f"Input hosts.yaml (default: ./{DEFAULT_HOSTS_PATH} if exists)")
     p_doc.add_argument("--mappings", help="Mappings YAML path")
-    p_doc.add_argument("--roles", help="Role detection YAML path")
+    p_doc.add_argument("--roles", help=f"Role detection YAML path (default: ./{DEFAULT_ROLES_PATH} if exists)")
     p_doc.add_argument("--min-confidence", choices=["low", "medium", "high"], default="low")
     p_doc.add_argument("--include-nodes", action="store_true")
     p_doc.add_argument("--direction", choices=["TD", "LR", "BT", "RL"], default="TD")
@@ -5000,7 +5034,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_tf = subparsers.add_parser("generate-tf", help="Generate Terraform main.tf from hosts.yaml")
     p_tf.add_argument("--hosts", help=f"Input hosts.yaml (default: ./{DEFAULT_HOSTS_PATH})")
-    p_tf.add_argument("--roles", help="Role detection YAML path")
+    p_tf.add_argument("--roles", help=f"Role detection YAML path (default: ./{DEFAULT_ROLES_PATH} if exists)")
     p_tf.add_argument("--provider-version", help='Terraform provider version constraint, e.g. ">= 0.5.0"')
     p_tf.add_argument("--output", required=True, help="Output main.tf")
     p_tf.add_argument("--log-file", default=f"{default_log_dir}/generate-tf.log", help="Log file path")

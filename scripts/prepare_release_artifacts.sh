@@ -17,7 +17,10 @@ if [[ ! -f "${INPUT_BINARY}" ]]; then
 fi
 
 cp "${INPUT_BINARY}" "${OUTPUT_BINARY}"
-sha256sum "${OUTPUT_BINARY}" > "${OUTPUT_CHECKSUM}"
+(
+  cd "${DIST_DIR}"
+  sha256sum "${ARTIFACT_BASENAME}" > "${ARTIFACT_BASENAME}.sha256"
+)
 
 echo "prepared artifact: ${OUTPUT_BINARY}"
 echo "prepared checksum: ${OUTPUT_CHECKSUM}"

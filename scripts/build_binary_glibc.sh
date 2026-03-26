@@ -31,7 +31,8 @@ docker run --rm \
   "${IMAGE_NAME}" \
   /bin/bash -lc "
     set -euo pipefail
-    rm -rf build dist
+    rm -rf build
+    rm -f dist/alred dist/alred.exe
     ${PYTHON_BIN} -m PyInstaller --clean --noconfirm alred.spec
     chown -R $(id -u):$(id -g) build dist
   "

@@ -477,6 +477,13 @@ uv run python alred.py normalize-links \
   --description-rules description_rules.yaml
 ```
 
+補足:
+
+- `normalize-links` では既定で SVI (`interface Vlan*`) の description を除外します
+- SVI 由来の description もリンク候補に含めたい場合は `--include-svi` を指定してください
+- `roles.yaml` が実行ディレクトリにあれば、role を使うコマンドは `--roles` 未指定でも既定でそれを利用します
+- `description_rules.yaml` が実行ディレクトリにあれば、`normalize-links` は `--description-rules` 未指定でも既定でそれを利用します
+
 ### `generate-vni-map`
 
 収集した config から VNI / VRF / Gateway の対応表を生成します。
@@ -538,6 +545,19 @@ alred generate-mermaid \
   --group-by-role \
   --add-comments
 ```
+
+補足:
+
+- `--min-confidence low` は confirmed links の `low` / `medium` / `high` をすべて表示します
+- `--min-confidence medium` は confirmed links の `medium` / `high` のみ表示します
+- `--min-confidence high` は confirmed links の `high` のみ表示します
+- `high` は双方向 LLDP (`bidirectional-lldp`) です
+- `medium` は LLDP と description の突合 (`lldp-plus-description`) です
+- `low` は双方向 description (`bidirectional-description`) です
+- `--min-confidence` は `--input` で渡した confirmed links にのみ適用されます
+- `--input-candidates` で渡した candidate links は `--min-confidence` では除外されません
+- `one-way-description` / `one-way-lldp` は candidate links であり、confirmed links の confidence 判定とは別扱いです
+- `one-way-description` などの候補リンクを Mermaid に出したくない場合は `--input-candidates` を指定しないでください
 
 underlay 表示設定の詳細は [CONFIG.md](./CONFIG.md) を参照してください。
 

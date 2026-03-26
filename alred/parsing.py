@@ -13,9 +13,11 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 from .constants import (
     CONFIDENCE_RANK,
     DEFAULT_DESCRIPTION_RULES,
+    DEFAULT_DESCRIPTION_RULES_PATH,
     DEFAULT_MAPPINGS,
     DEFAULT_POLICY,
     DEFAULT_ROLES,
+    DEFAULT_ROLES_PATH,
 )
 from .utils import load_yaml
 
@@ -75,6 +77,10 @@ def load_roles(path: str | None) -> Dict[str, Any]:
         Role rules.
     """
     if not path:
+        default_path = Path(DEFAULT_ROLES_PATH)
+        if default_path.exists():
+            loaded = load_yaml(str(default_path))
+            return loaded.get("role_detection", {}) or {}
         import yaml
         return yaml.safe_load(yaml.safe_dump(DEFAULT_ROLES["role_detection"]))
 
@@ -93,6 +99,10 @@ def load_description_rules(path: str | None) -> List[Dict[str, str]]:
         Description rule list.
     """
     if not path:
+        default_path = Path(DEFAULT_DESCRIPTION_RULES_PATH)
+        if default_path.exists():
+            loaded = load_yaml(str(default_path))
+            return loaded.get("description_rules", []) or []
         import yaml
         return yaml.safe_load(yaml.safe_dump(DEFAULT_DESCRIPTION_RULES)).get("description_rules", [])
 
@@ -483,7 +493,7 @@ def parse_remote_from_description(description: str, rules: List[Dict[str, str]])
             remote_host = m.groupdict().get("remote_host", "").strip()
             remote_if = m.groupdict().get("remote_if", "").strip()
 
-            if remote_host and remote_if:
+            if remote_host:
                 return {
                     "remote_host": remote_host,
                     "remote_if": remote_if,
@@ -498,6 +508,7 @@ def build_description_records(
     run_text: str,
     mappings: Dict[str, Any],
     description_rules: List[Dict[str, str]],
+    include_svi: bool = False,
 ) -> List[Dict[str, str]]:
     """
     Build directional records from interface descriptions.
@@ -507,6 +518,7 @@ def build_description_records(
         run_text: Raw running-config.
         mappings: Mapping config.
         description_rules: Regex rules.
+        include_svi: Whether to include SVI (interface Vlan*) descriptions.
 
     Returns:
         Directional description-based records.
@@ -517,13 +529,16 @@ def build_description_records(
         local_if = item["local_if"]
         desc = item["description"]
 
+        if not include_svi and local_if.lower().startswith("vlan"):
+            continue
+
         parsed = parse_remote_from_description(desc, description_rules)
         if not parsed:
             continue
 
         if is_excluded_interface(local_if, mappings):
             continue
-        if is_excluded_interface(parsed["remote_if"], mappings):
+        if parsed["remote_if"] and is_excluded_interface(parsed["remote_if"], mappings):
             continue
 
         records.append({

@@ -8,12 +8,7 @@ from logging import Logger
 from typing import Any, Dict, List, Optional, Tuple
 
 from .constants import DEVICE_TYPE_TO_KIND, NETWORK_DEVICE_TYPES
-from .parsing import (
-    confidence_allowed,
-    is_excluded_interface,
-    normalize_hostname,
-    normalize_interface_name,
-)
+from .parsing import confidence_allowed, is_excluded_interface, normalize_hostname, normalize_interface_name
 
 
 def is_network_device_type(device_type: str) -> bool:

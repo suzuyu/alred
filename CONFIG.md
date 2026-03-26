@@ -220,7 +220,8 @@ description_rules:
 
 注意:
 
-- `regex` には `remote_host` と `remote_if` の名前付きキャプチャを含めてください
+- `regex` には `remote_host` の名前付きキャプチャを含めてください
+- `remote_if` は任意です。ホスト名のみを拾いたい場合は `remote_host` だけのルールでも構いません
 
 ## 9. show commands (`show_commands.txt`)
 

@@ -68,6 +68,7 @@ Linux binary を配布先の `glibc` に合わせて build したい場合は、
 - image build 中に shared library 付き Python 3.11 を作成
 - container 内で `PyInstaller` により `alred.spec` を build
 - 生成物をホスト側の `dist/` と `build/` に書き戻す
+- 既存の `dist/alred-linux-x86_64-glibc217` など release 用 artifact は削除せず、`dist/alred` だけを更新する
 
 各 variant の build 実行例:
 
@@ -173,15 +174,15 @@ cp dist/alred.exe dist/alred-windows-x86_64.exe
 release 用ファイル名に合わせた例:
 
 ```sh
-sha256sum dist/alred-linux-x86_64 > dist/alred-linux-x86_64.sha256
+(cd dist && sha256sum alred-linux-x86_64 > alred-linux-x86_64.sha256)
 ```
 
 ```sh
-sha256sum dist/alred-linux-aarch64 > dist/alred-linux-aarch64.sha256
+(cd dist && sha256sum alred-linux-aarch64 > alred-linux-aarch64.sha256)
 ```
 
 ```sh
-sha256sum dist/alred-windows-x86_64.exe > dist/alred-windows-x86_64.exe.sha256
+(cd dist && sha256sum alred-windows-x86_64.exe > alred-windows-x86_64.exe.sha256)
 ```
 
 生成される checksum ファイル名の例:

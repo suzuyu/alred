@@ -1,5 +1,6 @@
 description_rules:
-  # regex には remote_host と remote_if の名前付きキャプチャを含める
+  # regex には remote_host の名前付きキャプチャを含める
+  # remote_if は任意。ホスト名のみの description を扱う場合は省略できる
   #
   # 解析イメージ:
   # local interface の running-config に以下の description があるとする
@@ -15,15 +16,31 @@ description_rules:
   #   dst_if   = Ethernet1/49
   #   protocol = description
   #
+  # host 名のみの場合:
+  #   description lfsw0102
+  # は以下として解釈される
+  #   remote_host = lfsw0102
+  #   remote_if   = ""
+  #
+  - name: to_hostname_interface
+    # 例:
+    #   description TO_lfsw0102_Ethernet1/49
+    #   description to bgrt0101 Po10
+    #   description to accesssw01 Gi1/0/1
+    #   description tenant1-server01 ens2
+    regex: 'TO[_ -]?(?P<remote_host>[A-Za-z0-9._-]+)[_ -]+(?P<remote_if>(?:Eth|eth|Ethernet|Gi|gi|GigabitEthernet|Te|te|TenGigabitEthernet|Po|po|Port-channel|ens|enp|eno|bond|br)\S*)'
+
   - name: hostname_interface_space
     # 例:
     #   description lfsw0102 Ethernet1/49
     #   description lfsw0102_Ethernet1/49
     #   description BGRT0101 Po10
-    regex: '(?P<remote_host>[A-Za-z0-9._-]+)[ _:-]+(?P<remote_if>(?:Eth|eth|Ethernet|Po|po|Port-channel)\S*)'
+    #   description accesssw01 Gi1/0/1
+    #   description distsw01 Te1/1
+    #   description tenant1-server01 ens2
+    regex: '(?P<remote_host>[A-Za-z0-9._-]+)[ _:-]+(?P<remote_if>(?:Eth|eth|Ethernet|Gi|gi|GigabitEthernet|Te|te|TenGigabitEthernet|Po|po|Port-channel|ens|enp|eno|bond|br)\S*)'
 
-  - name: to_hostname_interface
+  - name: hostname_only
     # 例:
-    #   description TO_lfsw0102_Ethernet1/49
-    #   description to bgrt0101 Po10
-    regex: 'TO[_ -]?(?P<remote_host>[A-Za-z0-9._-]+)[_ -]+(?P<remote_if>(?:Eth|eth|Ethernet|Po|po|Port-channel)\S*)'
+    #   description lfsw0102
+    regex: '^(?P<remote_host>[A-Za-z0-9._-]+)$'

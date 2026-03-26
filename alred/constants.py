@@ -123,12 +123,16 @@ DEFAULT_ROLES = {
 DEFAULT_DESCRIPTION_RULES = {
     "description_rules": [
         {
-            "name": "hostname_interface_space",
-            "regex": r"(?P<remote_host>[A-Za-z0-9._-]+)[ _:-]+(?P<remote_if>(?:Eth|eth|Ethernet|Po|po|Port-channel|port-channel)\S*)",
+            "name": "to_hostname_interface",
+            "regex": r"TO[_ -]?(?P<remote_host>[A-Za-z0-9._-]+)[_ -]+(?P<remote_if>(?:Eth|eth|Ethernet|Gi|gi|GigabitEthernet|Te|te|TenGigabitEthernet|Po|po|Port-channel|port-channel|ens|enp|eno|bond|br)\S*)",
         },
         {
-            "name": "to_hostname_interface",
-            "regex": r"TO[_ -]?(?P<remote_host>[A-Za-z0-9._-]+)[_ -]+(?P<remote_if>(?:Eth|eth|Ethernet|Po|po|Port-channel|port-channel)\S*)",
+            "name": "hostname_interface_space",
+            "regex": r"(?P<remote_host>[A-Za-z0-9._-]+)[ _:-]+(?P<remote_if>(?:Eth|eth|Ethernet|Gi|gi|GigabitEthernet|Te|te|TenGigabitEthernet|Po|po|Port-channel|port-channel|ens|enp|eno|bond|br)\S*)",
+        },
+        {
+            "name": "hostname_only",
+            "regex": r"^(?P<remote_host>[A-Za-z0-9._-]+)$",
         },
     ]
 }
@@ -187,12 +191,15 @@ PUSH_CONFIG_EXCLUDE_LINE_PREFIXES_MAP = {
 
 DEFAULT_LOG_ROTATION = 20
 DEFAULT_HOSTS_PATH = "hosts.yaml"
+DEFAULT_DESCRIPTION_RULES_PATH = "description_rules.yaml"
+DEFAULT_ROLES_PATH = "roles.yaml"
 DEFAULT_SHOW_COMMANDS_PATH = "show_commands.txt"
 DEFAULT_SAMPLES_DIR = "samples"
 DEFAULT_LINKS_CONFIRMED_FILENAME = "links_confirmed.csv"
 DEFAULT_LINKS_CANDIDATES_FILENAME = "links_candidates.csv"
 DEFAULT_TOPOLOGY_CLAB_FILENAME = "topology.clab.yaml"
 DEFAULT_TOPOLOGY_MERMAID_FILENAME = "topology.md"
+DEFAULT_TOPOLOGY_NO_CANDIDATE_MERMAID_FILENAME = "topology_no_candidates.md"
 DEFAULT_VNI_MAP_CSV_FILENAME = "vni_gateway_map.csv"
 DEFAULT_VNI_MAP_MD_FILENAME = "vni_gateway_map.md"
 DEFAULT_CLAB_TOPOLOGY_NAME = "network01"
@@ -282,6 +289,28 @@ DEFAULT_CLAB_SET_CMDS = [
             "underlay_raw": "raw",
             "title": "Network Topology",
             "output": f"output/{DEFAULT_TOPOLOGY_MERMAID_FILENAME}",
+            "log_file": "logs/generate-mermaid.log",
+        },
+    },
+    {
+        "name": "generate-mermaid-no-candidates",
+        "command": "generate-mermaid",
+        "args": {
+            "command": "generate-mermaid",
+            "input": f"output/{DEFAULT_LINKS_CONFIRMED_FILENAME}",
+            "input_candidates": None,
+            "hosts": None,
+            "mappings": None,
+            "roles": "roles.yaml",
+            "min_confidence": "low",
+            "direction": "LR",
+            "group_by_role": True,
+            "add_comments": False,
+            "underlay": False,
+            "underlay_config": None,
+            "underlay_raw": "raw",
+            "title": "Network Topology (No Candidate)",
+            "output": f"output/{DEFAULT_TOPOLOGY_NO_CANDIDATE_MERMAID_FILENAME}",
             "log_file": "logs/generate-mermaid.log",
         },
     },
