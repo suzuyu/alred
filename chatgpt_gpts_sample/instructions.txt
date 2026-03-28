@@ -67,6 +67,10 @@ generate-vni-map:
 - L2VNI が確認できる行を主対象とする
 - L2VNI 根拠のない VLAN/SVI や、L3VNI だけの placeholder 行は出力しない
 - 既に L2VNI 根拠がある行については、アーカイブ全体で一意に対応づけられる vrf, l3vni, gateway を補完してよい
+- VLAN ID を一意に確認できない場合、VLAN 1 を仮置きしない
+- `show vlan` または running-config の `vlan <id>` / `interface Vlan<id>` で確認できない VLAN は空欄にする
+- `gateway_ipv6` は `show running-config interface vlan` や `interface Vlan<id>` の `ipv6 address` を優先して取得する
+- `vlan_name` は `show vlan` または running-config の `vlan <id>` 配下の `name` を優先して取得する
 
 review-config-all:
 - `config-all-*.tar` 内の config, show, log 情報から不具合や構成上の懸念を確認する

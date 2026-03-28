@@ -44,6 +44,8 @@
 - `show running-config`
 - `show running-config interface`
 
+`show logging` は raw/show_lists/<hostname>/<hostname>_shows.log の中にあります
+
 ### 確認観点
 
 - shutdown, errdisable, link down, notconnect, suspend などの IF 異常
@@ -216,6 +218,8 @@
   - `show nve vni` または `vn-segment` で明示された値のみ
 - `vlan`, `vlan_name`:
   - L2VNI に対応づく VLAN のみ
+  - VLAN ID を一意に確認できない場合、VLAN 1 を仮置きしない
+  - `show vlan` または running-config の `vlan <id>` / `interface Vlan<id>` で確認できない VLAN は空欄にする
 - `vrf`:
   - 設定、NVE、EVPN、VLAN 名、SVI 名などから一意に対応づけられる場合は記載してよい
   - `interface Vlan<id>` の `vrf member <vrf>` は強い根拠として扱う
@@ -227,11 +231,20 @@
   - `interface Vlan<id>` の `ip address` と `ipv6 address` は強い根拠として扱う
   - `fabric forwarding mode anycast-gateway` がある場合は tenant 向け gateway の候補として扱ってよい
   - transit/p2p/underlay 用は採用しない
+- `gateway_ipv6`:
+  - `interface Vlan<id>` の `ipv6 address` を最優先の根拠として使う
+  - IPv4 が確認できて IPv6 も同じ SVI に明示されている場合は、IPv6 も記載する
+  - `fd..../64` などの IPv6 プレフィクスが running-config にある場合、未検出扱いにしない
 - `device`:
   - device ごとに行を分ける
   - その device 上で該当 L2VNI または対応 VLAN の存在が確認できた場合のみ
   - `device` にはホスト名のみを入れる
   - `config`, `running-config`, `show`, `vlan`, `nve`, `evpn` などのファイル種別名やコマンド種別名を入れてはいけない
+- `vlan_name`:
+  - `show vlan` の VLAN 名を最優先で使う
+  - `show vlan` がない場合は running-config の `vlan <id>` 配下の `name <vlan_name>` を使う
+  - L2VNI と VLAN が結びついている場合、対応 VLAN の名前は可能な限り埋める
+  - VLAN 名を確認できない場合だけ空欄にする
 
 ### device 判定ルール
 
@@ -263,6 +276,8 @@
 - VLAN, L2VNI, VRF, gateway の対応が running-config で一意に結びつく場合は、その値を表に反映してよい
 - `vrf context <vrf>` と、その配下または関連設定にある `vni <l3vni>` は、VRF と L3VNI の強い根拠として扱ってよい
 - `show running-config` にある VRF 名、VLAN 名、SVI 名が一致している場合は、保守的に関連づけてよい
+- `interface Vlan<id>` に `ipv6 address` がある場合、`gateway_ipv6` を空欄にしてはいけない
+- `show vlan` または `vlan <id>` に名前がある場合、`vlan_name` を空欄にしてはいけない
 
 ### 関連づけルール
 
@@ -273,6 +288,7 @@
 - `vlan -> l2vni` は、`vn-segment` または `show nve vni` の明示値を優先する
 - `vlan -> gateway` は、その VLAN に対応する `interface Vlan<id>` がある場合のみ採用する
 - `vlan 11` と `vlan 103` のように別 VLAN なら別行として扱い、異なる VLAN を1つの行にまとめない
+- VLAN を確認できない場合、デフォルトの VLAN 1 を推測で入れてはいけない
 
 ### 列の厳格チェック
 
@@ -290,6 +306,7 @@
 - `device` に IP アドレスや VLAN ID や設定種別名を入れてはいけない
 - `gateway_ipv4` と `gateway_ipv6` が空欄なのに device や vlan に値がずれて入っていないか確認する
 - `l3vni` と `l2vni` が逆転していないか確認する
+- `vlan` が `1` の場合は、`show vlan` または running-config に明示根拠があるか再確認する
 
 ### 事前チェック
 

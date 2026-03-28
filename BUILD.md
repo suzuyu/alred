@@ -313,6 +313,14 @@ GitHub Releases へ公開するまでの最小手順は次の通りです。
 Linux x86_64 向けの一連の例:
 
 ```sh
+./scripts/build_release_artifacts_linux_x86_64.sh
+git tag -a <tag> -m "Release <tag>"
+git push origin <tag>
+```
+
+この script は次を順に実行します。
+
+```sh
 ./scripts/build_binary_glibc217.sh
 ./dist/alred --version
 ./dist/alred --help
@@ -321,8 +329,6 @@ Linux x86_64 向けの一連の例:
 ./scripts/prepare_release_artifacts.sh dist/alred alred-linux-x86_64-glibc228
 ./scripts/build_binary_glibc234.sh
 ./scripts/prepare_release_artifacts.sh dist/alred alred-linux-x86_64-glibc234
-git tag -a <tag> -m "Release <tag>"
-git push origin <tag>
 ```
 
 Releases に添付する最小構成の例:

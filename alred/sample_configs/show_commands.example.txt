@@ -1,9 +1,50 @@
 # show_commands.txt
 [device_type:nxos]
 show clock
+show boot
 show version
+show environment
+show inventory
+show processes cpu
+show processes cpu history
+show processes memory
+show processes memory shared
+show system resources
+show running-config
+show module
+show feature
+show ntp status
+show ntp peers
+show ntp peer-status
+show license usage 
+show license all
+show interface
 show interface status
+show interface description
+show interface brief
+show interface switchport
+show interface counters
+show interface counters table
+show interface counters errors
+show interface counters errors non-zero
+show interface counters storm-control
+show interface transceiver
+show interface transceiver detail
+show vrf
+show ip interface brief vrf all
+show ipv6 interface brief vrf all
+show ip arp vrf all
+show ip route
+show ip route vrf all
+show ip route summary vrf all
+show ipv6 neighbor vrf all 
+show ipv6 route vrf all
+show ipv6 route summary vrf all
+show spanning-tree
 show lldp neighbors
+show hardware capacity
+show hardware capacity forwarding 
+show hardware access-list resource utilization
 show logging
 
 [spine]
@@ -15,16 +56,69 @@ show bgp l2vpn evpn
 show bgp l2vpn evpn neighbors
 
 [leaf]
-show nve peers
+show vlan
+show vlan brief
+show vpc
+show vpc brief
+show vpc peer-keepalive
+show vpc orphan-ports
+show lacp internal info
+show port-channel summary
+show port-channel load-balance
+show nve interface
+show nve vrf
 show nve vni
-show bgp l2vpn evpn summary
+show nve peers
+show nve peers detail
+show nve interface nve1 detail
+show nve internal export nve
+show nve internal export vni
+show nve peers control-plane-vni 
+show nve internal platform interface detail 
+show system internal l3vm sdb vrf 
+show mac address-table
+show ip bgp vrf all
+show ip bgp summary vrf all
+show ip bgp neighbors vrf all
+show ip bgp flap-statistics vrf all
+show bgp all vrf all
 show bgp l2vpn evpn
+show bgp l2vpn evpn vrf all
+show bgp l2vpn evpn detail vrf all
+show bgp l2vpn evpn summary
+show bgp l2vpn evpn summary vrf all
+show bgp evi
+show bgp ipv4 unicast vrf all
+show bgp ipv4 unicast neighbors vrf all
+show bgp ipv4 unicast summary vrf all
+show bgp ipv6 unicast vrf all
+show bgp ipv6 unicast neighbors vrf all
+show bgp ipv6 unicast summary vrf all
+show bgp vpnv4 unicast vrf all
+show bgp vpnv4 unicast neighbors vrf all
+show bgp vpnv4 unicast summary vrf all
+show bgp vpnv6 unicast vrf all
+show bgp vpnv6 unicast neighbors vrf all
+show bgp vpnv6 unicast summary vrf all
+show l2route evpn fl all
+show l2route evpn imet all
+show l2route evpn imet all detail
 show l2route evpn mac all
 show l2route evpn mac-ip all
-show vpc brief
-show ip route vrf all
-show port-channel summary
-show vlan
+show l2route evpn mac-ip all detail
+show l2route topology
+show bfd clients
+show bfd neighbors vrf all
+show bfd neighbors vrf all detail
+# show hsrp
+# show hsrp summary
+# show hsrp brief
+# show hsrp detail
+# show hsrp ipv6
+# show hsrp brief ipv6
+show ip access-lists
+show access-lists
+show ipv6 access-lists
 
-[lfsw0101]
-show int description
+# [lfsw0101]
+# show int description
