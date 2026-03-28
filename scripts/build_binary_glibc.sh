@@ -5,7 +5,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 GLIBC_VARIANT="${1:-glibc217}"
-DOCKERFILE_PATH="${REPO_ROOT}/Dockerfile.${GLIBC_VARIANT}"
+DOCKERFILE_PATH="${REPO_ROOT}/packaging/linux/Dockerfile.${GLIBC_VARIANT}"
 IMAGE_NAME="${ALRED_DOCKER_IMAGE:-alred-build-${GLIBC_VARIANT}}"
 PYTHON_BIN="${ALRED_DOCKER_PYTHON_BIN:-/opt/python-shared/cp311/bin/python3.11}"
 DOCKER_BUILD_ARGS=()

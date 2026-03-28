@@ -40,6 +40,9 @@ show ip route summary vrf all
 show ipv6 neighbor vrf all 
 show ipv6 route vrf all
 show ipv6 route summary vrf all
+show bfd clients
+show bfd neighbors vrf all
+show bfd neighbors vrf all detail
 show spanning-tree
 show lldp neighbors
 show hardware capacity
@@ -107,9 +110,6 @@ show l2route evpn mac all
 show l2route evpn mac-ip all
 show l2route evpn mac-ip all detail
 show l2route topology
-show bfd clients
-show bfd neighbors vrf all
-show bfd neighbors vrf all detail
 # show hsrp
 # show hsrp summary
 # show hsrp brief

@@ -57,13 +57,13 @@ Linux binary を配布先の `glibc` に合わせて build したい場合は、
 
 このリポジトリでは次の 3 系統を用意しています。
 
-- `Dockerfile.glibc217`: `quay.io/pypa/manylinux2014_x86_64`
-- `Dockerfile.glibc228`: `quay.io/pypa/manylinux_2_28_x86_64`
-- `Dockerfile.glibc234`: `quay.io/pypa/manylinux_2_34_x86_64`
+- `packaging/linux/Dockerfile.glibc217`: `quay.io/pypa/manylinux2014_x86_64`
+- `packaging/linux/Dockerfile.glibc228`: `quay.io/pypa/manylinux_2_28_x86_64`
+- `packaging/linux/Dockerfile.glibc234`: `quay.io/pypa/manylinux_2_34_x86_64`
 
 共通 build script は次を実施します。
 
-- 対応する `Dockerfile.glibcXXX` から build image を作成
+- 対応する `packaging/linux/Dockerfile.glibcXXX` から build image を作成
 - image build 中に OpenSSL を build
 - image build 中に shared library 付き Python 3.11 を作成
 - container 内で `PyInstaller` により `alred.spec` を build
@@ -88,7 +88,7 @@ Linux binary を配布先の `glibc` に合わせて build したい場合は、
 script を使わずに直接実行する例:
 
 ```sh
-docker build -f Dockerfile.glibc228 -t alred-build-glibc228 .
+docker build -f packaging/linux/Dockerfile.glibc228 -t alred-build-glibc228 .
 docker run --rm \
   -v "$PWD:/work" \
   -w /work \
@@ -314,21 +314,10 @@ Linux x86_64 向けの一連の例:
 
 ```sh
 ./scripts/build_release_artifacts_linux_x86_64.sh
-git tag -a <tag> -m "Release <tag>"
-git push origin <tag>
-```
-
-この script は次を順に実行します。
-
-```sh
-./scripts/build_binary_glibc217.sh
 ./dist/alred --version
 ./dist/alred --help
-./scripts/prepare_release_artifacts.sh
-./scripts/build_binary_glibc228.sh
-./scripts/prepare_release_artifacts.sh dist/alred alred-linux-x86_64-glibc228
-./scripts/build_binary_glibc234.sh
-./scripts/prepare_release_artifacts.sh dist/alred alred-linux-x86_64-glibc234
+git tag -a <tag> -m "Release <tag>"
+git push origin <tag>
 ```
 
 Releases に添付する最小構成の例:
@@ -374,4 +363,4 @@ Assets:
 - PyInstaller binary は build した OS / アーキテクチャに依存します
 - 配布対象ごとに適切な環境で build してください
 - Linux では `glibc` 差異の影響を受ける場合があります
-- より古い環境まで含めて広く配布したい場合は `Dockerfile.glibc217` を優先し、対象を限定して最適化したい場合は `glibc228` / `glibc234` を使い分けてください
+- より古い環境まで含めて広く配布したい場合は `packaging/linux/Dockerfile.glibc217` を優先し、対象を限定して最適化したい場合は `glibc228` / `glibc234` を使い分けてください

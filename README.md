@@ -353,9 +353,16 @@ containerlab 向けの一連の処理をまとめて実行します。
 alred clab-set-cmds --hosts hosts.yaml
 ```
 
+`collect-all` の tar を展開済みで、実機アクセスを行わずに後続処理だけ実行したい場合:
+
+```sh
+alred clab-set-cmds --hosts hosts.yaml --without-collect
+```
+
 主なポイント:
 
 - `collect-clab` から `generate-vni-map` までを順番に実行します
+- `--without-collect` を指定すると `collect-clab` をスキップし、展開済みの `raw/` を使って後続処理だけを実行できます
 - `--transport auto` が既定です
 - `--mappings`、`--roles`、`--description-rules` などの上書き指定ができます
 - `clab` 用の補助ファイルは、存在すれば自動で取り込みます
@@ -395,7 +402,7 @@ alred collect-clab --hosts hosts.yaml --output raw --workers 10
 ### `collect-all`
 
 `collect-clab`、`collect-list`、`collect-run-diff`、`collect-run-diff-cmd` をまとめて順番に実行します。  
-最後に `old/` を除く最新成果物を `collect-all-<YYYYMMDD-HHMMSS>.tar` として `<output>/` 配下へ出力します。tar を展開すると先頭に `<output>/` ディレクトリが復元されます。
+最後に `old/` を除く最新成果物を `collect-all-<YYYYMMDD-HHMMSS>.tar` として `<output>/` 配下へ出力します。tar を展開すると先頭に `<output>/` ディレクトリが復元され、`show_commands.txt`、`roles.yaml`、`hosts.yaml` が存在する場合はあわせて同梱されます。`collect-all-*.tar` も `ALRED_LOG_ROTATION` に従って古いものから自動削除されます。
 
 ```sh
 alred collect-all --hosts hosts.yaml --show-commands-file show_commands.txt --output raw

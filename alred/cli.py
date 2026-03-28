@@ -1021,11 +1021,18 @@ def save_current_and_old_snapshot(
 def create_collect_archive(output_dir: str | Path, generation: str, logger: Logger) -> Path:
     """
     Archive current collect outputs excluding any old/ directories.
+    Keep only the latest configured collect-all tar archives.
     """
     base = Path(output_dir)
     base.mkdir(parents=True, exist_ok=True)
     archive_path = base / f"collect-all-{generation[:8]}-{generation[8:]}.tar"
     archive_root = base.name
+    keep_archives = get_log_rotation_limit()
+    optional_root_files = [
+        "show_commands.txt",
+        "roles.yaml",
+        "hosts.yaml",
+    ]
 
     with tarfile.open(archive_path, "w") as tar:
         for path in sorted(base.rglob("*")):
@@ -1036,6 +1043,23 @@ def create_collect_archive(output_dir: str | Path, generation: str, logger: Logg
             if "old" in path.relative_to(base).parts:
                 continue
             tar.add(path, arcname=str(Path(archive_root) / path.relative_to(base)))
+
+        for filename in optional_root_files:
+            candidate = Path(filename)
+            if not candidate.is_file():
+                continue
+            tar.add(candidate, arcname=candidate.name)
+            logger.info("ADDED COLLECT ARCHIVE EXTRA %s", candidate)
+
+    if keep_archives > 0:
+        archives = sorted(base.glob("collect-all-*.tar"), key=lambda p: p.name)
+        excess = len(archives) - keep_archives
+        if excess > 0:
+            for stale in archives[:excess]:
+                if stale == archive_path:
+                    continue
+                stale.unlink(missing_ok=True)
+                logger.info("REMOVED OLD COLLECT ARCHIVE %s", stale)
 
     logger.info("WROTE COLLECT ARCHIVE %s", archive_path)
     return archive_path
@@ -4544,6 +4568,9 @@ def cmd_clab_set_cmds(args: argparse.Namespace) -> None:
     for index, step in enumerate(DEFAULT_CLAB_SET_CMDS, start=1):
         name = str(step.get("name", f"step-{index}"))
         command = str(step.get("command", ""))
+        if getattr(args, "without_collect", False) and command == "collect":
+            print(f"[{index}/{len(DEFAULT_CLAB_SET_CMDS)}] {name} ({command}) [skip: --without-collect]")
+            continue
         handler = step_handlers.get(command)
         if handler is None:
             raise ValueError(f"Unsupported clab-set-cmds step command: {command}")
@@ -4801,6 +4828,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--include-svi",
         action="store_true",
         help="Include SVI (interface Vlan*) links in Mermaid output",
+    )
+    p_clab_set.add_argument(
+        "--without-collect",
+        action="store_true",
+        help="Skip collect-clab and use existing raw inputs, for example after extracting a collect-all tar",
     )
     p_clab_set.add_argument("--verbose", action="store_true", help="Verbose logging")
     p_clab_set.set_defaults(func=cmd_clab_set_cmds)
