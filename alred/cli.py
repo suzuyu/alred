@@ -12,6 +12,7 @@ from datetime import datetime
 import difflib
 import json
 import os
+import tarfile
 from logging import Logger
 from pathlib import Path
 import re
@@ -272,13 +273,13 @@ def collect_from_host(
         policy: Policy dictionary.
         logger: Logger.
         transport: Preferred command transport.
-        show_commands: Optional extra commands to run and save to <hostname>_shows_YYYYMMDD-HHMMSS.log.
+        show_commands: Optional extra commands to run and save to old/<generation>/<hostname>_shows.log.
         show_read_timeout: Read timeout used for extra show commands.
         show_only: If True, skip LLDP/running-config collection.
         run_config_only: If True, collect only running-config and skip LLDP.
         show_run_diff: If True, collect running-config and return unified diff against existing <hostname>_run.txt.
         show_run_diff_comands: If True, run device-native diff command and return output section.
-        old_generation_id: Old rotation generation id (YYYYMMDDHHMMSS) shared per collect run.
+        old_generation_id: Shared generation id (YYYYMMDDHHMMSS) used for rotating timestamped outputs.
 
     """
     hostname = host["hostname"]
@@ -305,29 +306,10 @@ def collect_from_host(
             return lines
         return [line for line in lines if not any(line.lstrip().startswith(p) for p in prefixes)]
 
-    def rotate_existing_file_to_old(path: Path) -> None:
+    def prune_old_generations(old_dir: Path) -> None:
         """
-        Move existing file to <output_dir>/old/<YYYYMMDDHHMMSS>/ before overwrite.
-        Keep only latest ALRED_LOG_ROTATION generations in old/.
+        Keep only the latest configured generations below old/.
         """
-        if not path.exists():
-            return
-        old_dir = path.parent / "old"
-        old_dir.mkdir(parents=True, exist_ok=True)
-        generation = old_generation_id or datetime.now().astimezone().strftime("%Y%m%d%H%M%S")
-        generation_dir = old_dir / generation
-        generation_dir.mkdir(parents=True, exist_ok=True)
-        candidate = generation_dir / path.name
-        if candidate.exists():
-            seq = 1
-            while True:
-                candidate = generation_dir / f"{path.stem}_{seq:02d}{path.suffix}"
-                if not candidate.exists():
-                    break
-                seq += 1
-        path.replace(candidate)
-        logger.info("MOVED OLD %s -> %s", path, candidate)
-
         if rotation_limit > 0:
             generations = sorted([p for p in old_dir.iterdir() if p.is_dir()])
             excess = len(generations) - rotation_limit
@@ -336,46 +318,45 @@ def collect_from_host(
                     shutil.rmtree(stale, ignore_errors=True)
                     logger.info("REMOVED OLD GENERATION %s", stale)
 
-    def rotate_collect_output_variants_once(output_dir: Path, suffix: str) -> None:
+    def reset_collect_output_variants_once(output_dir: Path, suffix: str) -> None:
         """
-        Rotate existing .txt/.json variants at most once per host/suffix in this run.
+        Remove existing current .txt/.json variants at most once per host/suffix in this run.
         """
         key = (str(output_dir), suffix)
         if key in rotated_output_keys:
             return
         rotated_output_keys.add(key)
         for candidate in get_collect_output_variants(output_dir, hostname, suffix):
-            rotate_existing_file_to_old(candidate)
+            if candidate.exists():
+                candidate.unlink()
+                logger.info("REMOVED CURRENT MIRROR %s", candidate)
 
     def save_command_result(output_dir: Path, suffix: str, command_result: Any) -> None:
         """
-        Save one successful command result using its native extension.
+        Save one successful command result to old/<generation>/ and update the latest mirror.
         """
-        rotate_collect_output_variants_once(output_dir, suffix)
+        generation = old_generation_id or datetime.now().astimezone().strftime("%Y%m%d%H%M%S")
+        old_dir = output_dir / "old"
+        generation_dir = old_dir / generation
+        generation_dir.mkdir(parents=True, exist_ok=True)
+        old_path = build_collect_output_path(generation_dir, hostname, suffix, command_result.output_format)
+        old_path.write_text(command_result.output, encoding="utf-8")
+        prune_old_generations(old_dir)
+
+        reset_collect_output_variants_once(output_dir, suffix)
         output_path = build_collect_output_path(output_dir, hostname, suffix, command_result.output_format)
         output_path.write_text(command_result.output, encoding="utf-8")
         logger.info(
             "SAVED %s transport=%s%s",
-            output_path,
+            old_path,
             command_result.transport,
             f" fallback_from={command_result.fallback_from}" if command_result.fallback_from else "",
         )
-
-    def rotate_show_json_sidecar_once(output_dir: Path, command: str) -> None:
-        """
-        Rotate previous show JSON sidecars once per host/command in this run.
-        """
-        command_token = sanitize_command_for_filename(command)
-        key = (str(output_dir), f"show-json:{command_token}")
-        if key in rotated_output_keys:
-            return
-        rotated_output_keys.add(key)
-        archive_files_to_old_generation(
-            base_dir=output_dir,
-            pattern=f"{hostname}_{command_token}_*.json",
-            generation=old_generation_id or datetime.now().astimezone().strftime("%Y%m%d%H%M%S"),
-            keep_generations=rotation_limit,
-            logger=logger,
+        logger.info(
+            "UPDATED CURRENT MIRROR %s transport=%s%s",
+            output_path,
+            command_result.transport,
+            f" fallback_from={command_result.fallback_from}" if command_result.fallback_from else "",
         )
 
     def collect_base_command_both(command: str, read_timeout: int) -> List[Any]:
@@ -539,9 +520,8 @@ def collect_from_host(
                     logger.info("RUN DIFF COMMAND NO CHANGE %s", hostname)
 
         if show_commands:
-            file_ts = datetime.now().astimezone().strftime("%Y%m%d-%H%M%S")
-            show_path = show_outdir / f"{hostname}_shows_{file_ts}.log"
             host_json_outdir = show_outdir / hostname
+            host_show_outdir = show_outdir / hostname
             sections: List[str] = []
             command_list_header = [
                 "### COMMAND_LIST",
@@ -585,20 +565,19 @@ def collect_from_host(
 
                 if json_result is not None:
                     host_json_outdir.mkdir(parents=True, exist_ok=True)
-                    rotate_show_json_sidecar_once(host_json_outdir, cmd)
-                    json_ts = collected_at_dt.strftime("%Y%m%d-%H%M%S")
-                    json_filename = f"{hostname}_{sanitize_command_for_filename(cmd)}_{json_ts}.json"
-                    json_path = host_json_outdir / json_filename
+                    json_filename = f"{hostname}_{sanitize_command_for_filename(cmd)}.json"
                     try:
                         json_text = json.dumps(json.loads(json_result.output), ensure_ascii=False, indent=2) + "\n"
                     except Exception:
                         json_text = json_result.output.rstrip() + "\n"
-                    json_path.write_text(json_text, encoding="utf-8")
-                    logger.info(
-                        "SAVED %s transport=%s command=%s",
-                        json_path,
-                        json_result.transport,
-                        cmd,
+                    save_current_and_old_snapshot(
+                        output_dir=host_json_outdir,
+                        filename=json_filename,
+                        content=json_text,
+                        generation=old_generation_id or datetime.now().astimezone().strftime("%Y%m%d%H%M%S"),
+                        keep_generations=rotation_limit,
+                        logger=logger,
+                        log_label=f"SHOW JSON {hostname} command={cmd}",
                     )
 
                 section = [
@@ -627,8 +606,15 @@ def collect_from_host(
                 sections.append("\n".join(section).rstrip())
 
             body = "\n\n".join(sections).strip()
-            show_path.write_text("\n".join(command_list_header).rstrip() + "\n\n" + body + "\n", encoding="utf-8")
-            logger.info("SAVED %s", show_path)
+            save_current_and_old_snapshot(
+                output_dir=host_show_outdir,
+                filename=f"{hostname}_shows.log",
+                content="\n".join(command_list_header).rstrip() + "\n\n" + body + "\n",
+                generation=old_generation_id or datetime.now().astimezone().strftime("%Y%m%d%H%M%S"),
+                keep_generations=rotation_limit,
+                logger=logger,
+                log_label=f"SHOW LIST {hostname}",
+            )
     finally:
         collector.close()
 
@@ -939,20 +925,6 @@ def get_log_rotation_limit() -> int:
         return DEFAULT_LOG_ROTATION
 
 
-def rotate_files_by_pattern(base_dir: str | Path, pattern: str, keep: int, logger: Logger) -> None:
-    """
-    Keep only latest N files matching pattern in base_dir.
-    """
-    if keep <= 0:
-        return
-    files = sorted(Path(base_dir).glob(pattern), key=lambda p: p.name)
-    excess = len(files) - keep
-    if excess > 0:
-        for stale in files[:excess]:
-            stale.unlink(missing_ok=True)
-            logger.info("REMOVED ROTATED FILE %s", stale)
-
-
 def archive_files_to_old_generation(
     base_dir: str | Path,
     pattern: str,
@@ -997,6 +969,76 @@ def archive_files_to_old_generation(
                 logger.info("REMOVED OLD GENERATION %s", stale)
 
     return moved
+
+
+def prune_old_generations(old_dir: Path, keep_generations: int, logger: Logger) -> None:
+    """
+    Keep only latest N generations below old/.
+    """
+    if keep_generations <= 0:
+        return
+
+    generations = sorted([p for p in old_dir.iterdir() if p.is_dir()])
+    excess = len(generations) - keep_generations
+    if excess > 0:
+        for stale in generations[:excess]:
+            shutil.rmtree(stale, ignore_errors=True)
+            logger.info("REMOVED OLD GENERATION %s", stale)
+
+
+def save_current_and_old_snapshot(
+    output_dir: str | Path,
+    filename: str,
+    content: str,
+    generation: str,
+    keep_generations: int,
+    logger: Logger,
+    log_label: str,
+) -> tuple[Path, Path]:
+    """
+    Save one snapshot to old/<generation>/ and update the current mirror.
+    """
+    base = Path(output_dir)
+    base.mkdir(parents=True, exist_ok=True)
+
+    old_dir = base / "old"
+    generation_dir = old_dir / generation
+    generation_dir.mkdir(parents=True, exist_ok=True)
+
+    old_path = generation_dir / filename
+    old_path.write_text(content, encoding="utf-8")
+    prune_old_generations(old_dir, keep_generations, logger)
+
+    current_path = base / filename
+    current_path.write_text(content, encoding="utf-8")
+
+    logger.info("SAVED %s %s", log_label, old_path)
+    logger.info("UPDATED CURRENT MIRROR %s %s", log_label, current_path)
+
+    return old_path, current_path
+
+
+def create_collect_archive(output_dir: str | Path, generation: str, logger: Logger) -> Path:
+    """
+    Archive current collect outputs excluding any old/ directories.
+    """
+    base = Path(output_dir)
+    base.mkdir(parents=True, exist_ok=True)
+    archive_path = base / f"collect-all-{generation[:8]}-{generation[8:]}.tar"
+    archive_root = base.name
+
+    with tarfile.open(archive_path, "w") as tar:
+        for path in sorted(base.rglob("*")):
+            if not path.is_file():
+                continue
+            if path.name.startswith("collect-all-") and path.suffix == ".tar":
+                continue
+            if "old" in path.relative_to(base).parts:
+                continue
+            tar.add(path, arcname=str(Path(archive_root) / path.relative_to(base)))
+
+    logger.info("WROTE COLLECT ARCHIVE %s", archive_path)
+    return archive_path
 
 
 def get_lldp_input_dir(raw_dir: str | Path) -> Path:
@@ -2468,14 +2510,10 @@ def cmd_generate_sample_config(args: argparse.Namespace) -> None:
     logger.info("Generated sample config set from %s into %s", templates_dir, outdir)
 
 
-def cmd_collect(args: argparse.Namespace) -> None:
+def run_collect(args: argparse.Namespace, logger: Logger, old_generation_id: str | None = None) -> None:
     """
     Collect raw LLDP and optional running-config files.
-
-    Args:
-        args: Parsed CLI args.
     """
-    logger = setup_logging(args.log_file, args.verbose)
     hosts_path = resolve_hosts_path(args.hosts, required=True)
     inventory_data = load_yaml(hosts_path)
     hosts = load_inventory_data(inventory_data)
@@ -2537,50 +2575,35 @@ def cmd_collect(args: argparse.Namespace) -> None:
     run_output_dir = str(Path(args.output) / "config")
     before_run_input_dir = str(get_run_input_dir(before_show_run_dir or args.output))
     is_collect_list = args.command == "collect-list"
-    is_collect_run_diff_cmd = args.command == "collect-run-diff-cmd"
     show_output_dir = str(Path(args.output) / "show_lists") if is_collect_list else str(Path(args.output))
-    run_diff_cmd_output_dir = (
-        str(Path(args.output) / "show_run_diff_commands")
-        if is_collect_run_diff_cmd
+    run_diff_output_dir = (
+        str(Path(args.output) / "show_run_diff")
+        if args.show_run_diff
         else str(Path(args.output))
     )
-    old_generation_id = datetime.now().astimezone().strftime("%Y%m%d%H%M%S")
+    run_diff_cmd_output_dir = (
+        str(Path(args.output) / "show_run_diff_commands")
+        if args.show_run_diff_comands
+        else str(Path(args.output))
+    )
+    generation_id = old_generation_id or datetime.now().astimezone().strftime("%Y%m%d%H%M%S")
     Path(lldp_output_dir).mkdir(parents=True, exist_ok=True)
     Path(run_output_dir).mkdir(parents=True, exist_ok=True)
     Path(show_output_dir).mkdir(parents=True, exist_ok=True)
+    Path(run_diff_output_dir).mkdir(parents=True, exist_ok=True)
     Path(run_diff_cmd_output_dir).mkdir(parents=True, exist_ok=True)
     if args.show_run_diff and not Path(before_run_input_dir).exists():
         raise FileNotFoundError(f"before show-run directory not found: {before_run_input_dir}")
     logger.info(
-        "Collect output dirs: lldp=%s config=%s before-run=%s show=%s run-diff-cmd=%s old-generation=%s",
+        "Collect output dirs: lldp=%s config=%s before-run=%s show=%s run-diff=%s run-diff-cmd=%s old-generation=%s",
         lldp_output_dir,
         run_output_dir,
         before_run_input_dir,
         show_output_dir,
+        run_diff_output_dir,
         run_diff_cmd_output_dir,
-        old_generation_id,
+        generation_id,
     )
-    if is_collect_list:
-        moved = archive_files_to_old_generation(
-            base_dir=show_output_dir,
-            pattern="*_shows_*.log",
-            generation=old_generation_id,
-            keep_generations=get_log_rotation_limit(),
-            logger=logger,
-        )
-        if moved > 0:
-            logger.info("Archived %d previous show list files into old/%s", moved, old_generation_id)
-    if is_collect_run_diff_cmd:
-        moved = archive_files_to_old_generation(
-            base_dir=run_diff_cmd_output_dir,
-            pattern="running_config_diff_commands_*.log",
-            generation=old_generation_id,
-            keep_generations=get_log_rotation_limit(),
-            logger=logger,
-        )
-        if moved > 0:
-            logger.info("Archived %d previous run-diff-cmd files into old/%s", moved, old_generation_id)
-
     collected = skipped = failed = 0
     run_diff_sections: List[str] = []
     run_diff_no_change_hosts: List[str] = []
@@ -2632,7 +2655,7 @@ def cmd_collect(args: argparse.Namespace) -> None:
                 run_config_only,
                 args.show_run_diff and (not show_hosts or host["hostname"] in show_hosts),
                 args.show_run_diff_comands and (not show_hosts or host["hostname"] in show_hosts),
-                old_generation_id,
+                generation_id,
             ): host
             for host in targets
         }
@@ -2659,55 +2682,138 @@ def cmd_collect(args: argparse.Namespace) -> None:
                 failed += 1
 
     if args.show_run_diff:
-        outdir = Path(args.output)
-        outdir.mkdir(parents=True, exist_ok=True)
-        file_ts = datetime.now().astimezone().strftime("%Y%m%d-%H%M%S")
-        diff_path = outdir / f"running_config_diff_{file_ts}.log"
         if run_diff_sections:
             diff_parts: List[str] = ["\n\n".join(sorted(run_diff_sections)).rstrip()]
             if run_diff_no_change_hosts:
                 no_diff_lines = ["### NO_DIFF_HOSTS", *sorted(run_diff_no_change_hosts)]
                 diff_parts.append("\n".join(no_diff_lines).rstrip())
             diff_body = "\n\n".join([x for x in diff_parts if x]).rstrip()
-            diff_path.write_text(diff_body + "\n", encoding="utf-8")
-            logger.info("SAVED RUN DIFF %s (hosts=%d)", diff_path, len(run_diff_sections))
         else:
             no_diff_lines = ["### NO_DIFF", "No differences detected in compared hosts."]
             if run_diff_no_change_hosts:
                 no_diff_lines.extend(["", "### NO_DIFF_HOSTS", *sorted(run_diff_no_change_hosts)])
-            diff_path.write_text("\n".join(no_diff_lines).rstrip() + "\n", encoding="utf-8")
             logger.info("RUN DIFF: no host differences detected (%d hosts)", len(run_diff_no_change_hosts))
-            logger.info("SAVED RUN DIFF %s", diff_path)
-        rotate_files_by_pattern(outdir, "running_config_diff_*.log", get_log_rotation_limit(), logger)
+            diff_body = "\n".join(no_diff_lines).rstrip()
+        save_current_and_old_snapshot(
+            output_dir=run_diff_output_dir,
+            filename="running_config_diff.log",
+            content=diff_body + "\n",
+            generation=generation_id,
+            keep_generations=get_log_rotation_limit(),
+            logger=logger,
+            log_label="RUN DIFF",
+        )
+        logger.info("SAVED RUN DIFF SUMMARY (hosts=%d)", len(run_diff_sections))
 
     if args.show_run_diff_comands:
-        outdir = Path(run_diff_cmd_output_dir)
-        outdir.mkdir(parents=True, exist_ok=True)
-        file_ts = datetime.now().astimezone().strftime("%Y%m%d-%H%M%S")
-        diff_path = outdir / f"running_config_diff_commands_{file_ts}.log"
         if run_diff_command_sections:
             diff_parts: List[str] = ["\n\n".join(sorted(run_diff_command_sections)).rstrip()]
             if run_diff_command_no_change_hosts:
                 no_diff_lines = ["### NO_DIFF_HOSTS", *sorted(run_diff_command_no_change_hosts)]
                 diff_parts.append("\n".join(no_diff_lines).rstrip())
             diff_body = "\n\n".join([x for x in diff_parts if x]).rstrip()
-            diff_path.write_text(diff_body + "\n", encoding="utf-8")
-            logger.info("SAVED RUN DIFF COMMANDS %s (hosts=%d)", diff_path, len(run_diff_command_sections))
         else:
             no_diff_lines = ["### NO_DIFF", "No differences detected in compared hosts."]
             if run_diff_command_no_change_hosts:
                 no_diff_lines.extend(["", "### NO_DIFF_HOSTS", *sorted(run_diff_command_no_change_hosts)])
-            diff_path.write_text("\n".join(no_diff_lines).rstrip() + "\n", encoding="utf-8")
             logger.info(
                 "RUN DIFF COMMANDS: no host differences detected (%d hosts)",
                 len(run_diff_command_no_change_hosts),
             )
-            logger.info("SAVED RUN DIFF COMMANDS %s", diff_path)
+            diff_body = "\n".join(no_diff_lines).rstrip()
+        save_current_and_old_snapshot(
+            output_dir=run_diff_cmd_output_dir,
+            filename="running_config_diff_commands.log",
+            content=diff_body + "\n",
+            generation=generation_id,
+            keep_generations=get_log_rotation_limit(),
+            logger=logger,
+            log_label="RUN DIFF COMMANDS",
+        )
+        logger.info("SAVED RUN DIFF COMMANDS SUMMARY (hosts=%d)", len(run_diff_command_sections))
 
     logger.info(
         "SUMMARY collected=%d skipped=%d failed=%d output_dir=%s",
         collected, skipped, failed, args.output
     )
+
+
+def cmd_collect(args: argparse.Namespace) -> None:
+    """
+    Collect raw LLDP and optional running-config files.
+
+    Args:
+        args: Parsed CLI args.
+    """
+    logger = setup_logging(args.log_file, args.verbose)
+    run_collect(args, logger)
+
+
+def cmd_collect_all(args: argparse.Namespace) -> None:
+    """
+    Run all collect-family flows and package current outputs.
+    """
+    logger = setup_logging(args.log_file, args.verbose)
+    generation_id = datetime.now().astimezone().strftime("%Y%m%d%H%M%S")
+    logger.info("START COLLECT-ALL generation=%s", generation_id)
+
+    step_definitions = [
+        (
+            "collect-clab",
+            {
+                "command": "collect-clab",
+                "show_commands_file": None,
+                "show_run_diff": False,
+                "show_run_diff_comands": False,
+                "show_only": False,
+                "run_config_only": False,
+                "before_show_run_dir": None,
+            },
+        ),
+        (
+            "collect-list",
+            {
+                "command": "collect-list",
+                "show_run_diff": False,
+                "show_run_diff_comands": False,
+                "show_only": True,
+                "run_config_only": False,
+                "before_show_run_dir": None,
+            },
+        ),
+        (
+            "collect-run-diff",
+            {
+                "command": "collect-run-diff",
+                "show_commands_file": None,
+                "show_run_diff": True,
+                "show_run_diff_comands": False,
+                "show_only": True,
+                "run_config_only": False,
+            },
+        ),
+        (
+            "collect-run-diff-cmd",
+            {
+                "command": "collect-run-diff-cmd",
+                "show_commands_file": None,
+                "show_run_diff": False,
+                "show_run_diff_comands": True,
+                "show_only": True,
+                "run_config_only": False,
+                "before_show_run_dir": None,
+            },
+        ),
+    ]
+
+    for step_name, overrides in step_definitions:
+        step_args = argparse.Namespace(**vars(args))
+        for key, value in overrides.items():
+            setattr(step_args, key, value)
+        logger.info("COLLECT-ALL STEP %s", step_name)
+        run_collect(step_args, logger, old_generation_id=generation_id)
+
+    create_collect_archive(args.output, generation_id, logger)
 
 
 def cmd_push_config(args: argparse.Namespace) -> None:
@@ -4634,6 +4740,19 @@ def build_parser() -> argparse.ArgumentParser:
     add_collect_common_arguments(p_collect_clab, require_show_commands_file=False)
     p_collect_clab.set_defaults(
         func=cmd_collect,
+        show_run_diff=False,
+        show_run_diff_comands=False,
+        show_only=False,
+        run_config_only=False,
+    )
+
+    p_collect_all = subparsers.add_parser(
+        "collect-all",
+        help="Run collect-clab, collect-list, collect-run-diff, and collect-run-diff-cmd in one flow",
+    )
+    add_collect_common_arguments(p_collect_all, require_show_commands_file=False)
+    p_collect_all.set_defaults(
+        func=cmd_collect_all,
         show_run_diff=False,
         show_run_diff_comands=False,
         show_only=False,

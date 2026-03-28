@@ -3,6 +3,7 @@
 show clock
 show version
 show interface status
+show lldp neighbors
 show logging
 
 [spine]
@@ -23,6 +24,7 @@ show l2route evpn mac-ip all
 show vpc brief
 show ip route vrf all
 show port-channel summary
+show vlan
 
 [lfsw0101]
 show int description

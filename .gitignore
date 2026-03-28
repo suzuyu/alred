@@ -118,7 +118,8 @@ show_commands.txt
 hosts.txt
 /*.example.yaml
 /*.example
-/*sample*
+/sample*
+/clab_lab_profile.sample.yaml
 /clab_kind_cluster.csv
 /clab_linux_server.csv
 /clab_linux_server.md

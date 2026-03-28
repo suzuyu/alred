@@ -167,6 +167,7 @@ uv run python alred.py --help
 実行内容:
 
 - `collect-clab`
+- `collect-all`
 - `normalize-links`
 - `generate-clab`
 - `generate-mermaid`
@@ -387,8 +388,23 @@ alred collect-clab --hosts hosts.yaml --output raw --workers 10
 主なポイント:
 
 - `--workers` (実行並列度) の既定値は `5`
-- 既存ファイルは上書き前に `old/<YYYYMMDDHHMMSS>/` へ退避します
+- 収集結果は取得時に `old/<YYYYMMDDHHMMSS>/` へ保存し、トップレベルの固定名ファイルは最新ミラーとして更新します
+- `collect-run-diff` は `<output>/show_run_diff/`、`collect-run-diff-cmd` は `<output>/show_run_diff_commands/` に保存します
 - `--transport auto` / `nxapi` / `ssh` を切り替えられます
+
+### `collect-all`
+
+`collect-clab`、`collect-list`、`collect-run-diff`、`collect-run-diff-cmd` をまとめて順番に実行します。  
+最後に `old/` を除く最新成果物を `collect-all-<YYYYMMDD-HHMMSS>.tar` として `<output>/` 配下へ出力します。tar を展開すると先頭に `<output>/` ディレクトリが復元されます。
+
+```sh
+alred collect-all --hosts hosts.yaml --show-commands-file show_commands.txt --output raw
+```
+
+主な用途:
+
+- ベース収集、追加 show、差分確認を一度にまとめて取りたいとき
+- 収集直後の最新成果物だけを tar で受け渡したいとき
 
 ### `collect-list`
 
@@ -412,6 +428,8 @@ alred collect-list \
 
 - 任意の show コマンド結果をまとめて採取したいとき
 - `show_commands.txt` の内容を role ごとに振り分けたいとき
+- 出力は `<output>/show_lists/<hostname>/` に保存され、`old/<YYYYMMDDHHMMSS>/` が履歴、`<hostname>_shows.log` が最新ミラーになります
+- JSON sidecar も同じ `<output>/show_lists/<hostname>/` 配下で `old/<YYYYMMDDHHMMSS>/` と最新ミラーに分かれて保存されます
 
 ### `collect-run-config`
 
