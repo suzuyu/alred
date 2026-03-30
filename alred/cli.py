@@ -107,6 +107,11 @@ from .resources import (
 from .templates import (
     render_named_template_lines,
 )
+from .transform import (
+    parse_mgmt_ipv4_subnet,
+    transform_inventory_mgmt_subnet,
+    transform_run_config_text,
+)
 from .topology import (
     build_node_definitions_from_links,
     build_node_mgmt_ip_map,
@@ -896,6 +901,24 @@ def resolve_hosts_path(raw: str | None, required: bool = False) -> str | None:
         raise FileNotFoundError(
             f"hosts file not found. Specify --hosts or place ./{DEFAULT_HOSTS_PATH}"
         )
+    return None
+
+
+def resolve_generate_clab_hosts_path(raw: str | None) -> str | None:
+    """
+    Resolve hosts file path for generate-clab.
+
+    Priority:
+    1. --hosts value
+    2. ./hosts.lab.yaml if exists
+    3. ./hosts.yaml if exists
+    """
+    if raw:
+        return raw
+    for candidate in ("hosts.lab.yaml", DEFAULT_HOSTS_PATH):
+        path = Path(candidate)
+        if path.exists():
+            return str(path)
     return None
 
 
@@ -2505,6 +2528,72 @@ def cmd_prepare_hosts(args: argparse.Namespace) -> None:
     logger.info("Generated %s", args.output)
 
 
+def cmd_transform_config(args: argparse.Namespace) -> None:
+    """
+    Transform hosts.yaml and NX-OS running-config files for lab use.
+
+    Args:
+        args: Parsed CLI args.
+    """
+    logger = setup_logging(args.log_file, args.verbose)
+    hosts_path = resolve_hosts_path(args.hosts, required=True)
+    inventory_data = load_yaml(hosts_path)
+    clab_env_path = args.clab_env
+    if not clab_env_path and Path("clab_merge.yaml").exists():
+        clab_env_path = "clab_merge.yaml"
+    clab_env_data = load_yaml(clab_env_path)
+    mgmt_subnet = parse_mgmt_ipv4_subnet(clab_env_data)
+
+    transformed_inventory = transform_inventory_mgmt_subnet(inventory_data, mgmt_subnet)
+    save_yaml(transformed_inventory, args.output_hosts)
+    logger.info(
+        "WROTE TRANSFORMED HOSTS %s mgmt_subnet=%s",
+        args.output_hosts,
+        str(mgmt_subnet) if mgmt_subnet is not None else "disabled",
+    )
+
+    raw_dir = Path(args.input)
+    run_dir = get_run_input_dir(raw_dir)
+    output_dir = Path(args.output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    hosts = inventory_data.get("all", {}).get("hosts", {})
+    if not isinstance(hosts, dict):
+        raise ValueError(f"Invalid hosts inventory format: {hosts_path}")
+
+    transformed_count = 0
+    missing_files: List[str] = []
+
+    for hostname in sorted(hosts.keys()):
+        source_path = run_dir / f"{hostname}_run.txt"
+        if not source_path.exists():
+            missing_files.append(str(source_path))
+            logger.warning("SKIP MISSING RUN CONFIG %s", source_path)
+            continue
+
+        source_text = source_path.read_text(encoding="utf-8", errors="ignore")
+        transformed_text, stats = transform_run_config_text(source_text, mgmt_subnet)
+        output_path = output_dir / source_path.name
+        output_path.write_text(transformed_text, encoding="utf-8")
+        transformed_count += 1
+        logger.info(
+            "WROTE LAB CONFIG %s subif_conversions=%d mgmt_sections=%d parent_added=%d parent_merged=%d svi_merged=%d",
+            output_path,
+            stats["subinterface_conversions"],
+            stats["management_section_updates"],
+            stats["generated_parent_interfaces"],
+            stats["merged_existing_parent_interfaces"],
+            stats["merged_existing_svis"],
+        )
+
+    logger.info(
+        "TRANSFORM COMPLETE hosts=%d configs=%d missing=%d",
+        len(hosts),
+        transformed_count,
+        len(missing_files),
+    )
+
+
 def cmd_generate_sample_config(args: argparse.Namespace) -> None:
     """
     Generate sample config/input files used by command arguments.
@@ -4059,7 +4148,7 @@ def cmd_generate_clab(args: argparse.Namespace) -> None:
     roles = load_roles(args.roles)
 
     inventory_map: Dict[str, Dict[str, Any]] = {}
-    hosts_path = resolve_hosts_path(args.hosts, required=False)
+    hosts_path = resolve_generate_clab_hosts_path(args.hosts)
     if hosts_path:
         inventory_data = load_yaml(hosts_path)
         inventory_map = load_inventory_map_from_list(load_inventory_data(inventory_data))
@@ -4529,6 +4618,7 @@ def build_clab_set_step_args(
         "roles": getattr(args, "roles", None),
         "linux_csv": getattr(args, "linux_csv", None),
         "kind_cluster_csv": getattr(args, "kind_cluster_csv", None),
+        "clab_env": getattr(args, "clab_env", None),
         "clab_merge": getattr(args, "clab_merge", None),
         "clab_lab_profile": getattr(args, "clab_lab_profile", None),
         "include_svi": getattr(args, "include_svi", None),
@@ -4541,6 +4631,9 @@ def build_clab_set_step_args(
     if raw_output is not None:
         if handler_command == "collect":
             data["output"] = raw_output
+        elif handler_command == "clab-transform-config":
+            data["input"] = raw_output
+            data["output_dir"] = f"{raw_output}/labconfig"
         elif handler_command in {"normalize-links", "generate-vni-map"}:
             data["input"] = raw_output
         if "underlay_raw" in data:
@@ -4558,6 +4651,7 @@ def cmd_clab_set_cmds(args: argparse.Namespace) -> None:
     """
     step_handlers = {
         "collect": cmd_collect,
+        "clab-transform-config": cmd_transform_config,
         "normalize-links": cmd_normalize_links,
         "generate-clab": cmd_generate_clab,
         "generate-mermaid": cmd_generate_mermaid,
@@ -4610,6 +4704,38 @@ def build_parser() -> argparse.ArgumentParser:
     p_prepare.add_argument("--log-file", default=f"{default_log_dir}/prepare-hosts.log", help="Log file path")
     p_prepare.add_argument("--verbose", action="store_true", help="Verbose logging")
     p_prepare.set_defaults(func=cmd_prepare_hosts)
+
+    p_transform = subparsers.add_parser(
+        "clab-transform-config",
+        help="Transform hosts.yaml and NX-OS running-config files for containerlab / NX-OS 9000v lab use",
+    )
+    p_transform.add_argument("--hosts", help=f"Input hosts.yaml (default: ./{DEFAULT_HOSTS_PATH})")
+    p_transform.add_argument(
+        "--clab-env",
+        help="containerlab env YAML used to read mgmt.ipv4-subnet (default: ./clab_merge.yaml if exists)",
+    )
+    p_transform.add_argument(
+        "--input",
+        default=default_raw_dir,
+        help="Raw root directory for source running-config files (reads <input>/config when present)",
+    )
+    p_transform.add_argument(
+        "--output-hosts",
+        default="hosts.lab.yaml",
+        help="Output transformed hosts inventory",
+    )
+    p_transform.add_argument(
+        "--output-dir",
+        default=f"{default_raw_dir}/labconfig",
+        help="Output directory for transformed running-config files",
+    )
+    p_transform.add_argument(
+        "--log-file",
+        default=f"{default_log_dir}/clab-transform-config.log",
+        help="Log file path",
+    )
+    p_transform.add_argument("--verbose", action="store_true", help="Verbose logging")
+    p_transform.set_defaults(func=cmd_transform_config)
 
     p_sample = subparsers.add_parser(
         "generate-sample-config",
@@ -4822,6 +4948,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_clab_set.add_argument("--linux-csv", help="CSV override for generate-clab")
     p_clab_set.add_argument("--kind-cluster-csv", help="Kind cluster CSV override for generate-clab")
+    p_clab_set.add_argument("--clab-env", help="YAML override for clab-transform-config")
     p_clab_set.add_argument("--clab-merge", help="YAML override for generate-clab")
     p_clab_set.add_argument("--clab-lab-profile", help="Lab profile YAML override for generate-clab")
     p_clab_set.add_argument(
@@ -4949,7 +5076,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=f"{default_links_dir}/{DEFAULT_LINKS_CONFIRMED_FILENAME}",
         help="Input confirmed links CSV",
     )
-    p_gen.add_argument("--hosts", help=f"Input hosts.yaml (default: ./{DEFAULT_HOSTS_PATH} if exists)")
+    p_gen.add_argument("--hosts", help="Input hosts YAML (default: ./hosts.lab.yaml, then ./hosts.yaml)")
     p_gen.add_argument("--mappings", help="Mappings YAML path")
     p_gen.add_argument("--roles", help=f"Role detection YAML path (default: ./{DEFAULT_ROLES_PATH} if exists)")
     p_gen.add_argument("--min-confidence", choices=["low", "medium", "high"], default="low")

@@ -110,6 +110,10 @@ all:
       netmiko_device_type: cisco_nxos
 ```
 
+補足:
+
+- `clab-transform-config` はこの `ansible_host` を `mgmt.ipv4-subnet` セグメントへ変換した `hosts.lab.yaml` を生成できます
+
 ## 5. ポリシー (`policy.yaml`)
 
 `collect --policy` で使用します。未指定時は内部デフォルトが使われます。
@@ -298,6 +302,7 @@ uv run python alred.py collect \
 name: dc-fabric-lab
 mgmt:
   network: clab-mgmt
+  ipv4-subnet: 192.168.129.0/24
 topology:
   kinds:
     cisco_n9kv:
@@ -309,6 +314,7 @@ topology:
 - 辞書同士は再帰的にマージ
 - それ以外の値 (文字列・配列など) は後勝ちで上書き
 - `topology.links` は追加マージ (generated links の後ろに merge 側 links を連結)
+- `clab-transform-config` は `--clab-env` で指定した YAML の `mgmt.ipv4-subnet` を参照して `hosts.lab.yaml` と `raw/labconfig/<hostname>_run.txt` の管理 IP を変換します
 
 ## 11. Linux サーバ CSV (`clab_linux_server.csv`)
 

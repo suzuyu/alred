@@ -198,7 +198,7 @@ DEFAULT_SAMPLES_DIR = "samples"
 DEFAULT_LINKS_CONFIRMED_FILENAME = "links_confirmed.csv"
 DEFAULT_LINKS_CANDIDATES_FILENAME = "links_candidates.csv"
 DEFAULT_TOPOLOGY_CLAB_FILENAME = "topology.clab.yaml"
-DEFAULT_TOPOLOGY_MERMAID_FILENAME = "topology.md"
+DEFAULT_TOPOLOGY_MERMAID_FILENAME = "topology-graph.md"
 DEFAULT_TOPOLOGY_NO_CANDIDATE_MERMAID_FILENAME = "topology_no_candidates.md"
 DEFAULT_VNI_MAP_CSV_FILENAME = "vni_gateway_map.csv"
 DEFAULT_VNI_MAP_MD_FILENAME = "vni_gateway_map.md"
@@ -233,6 +233,19 @@ DEFAULT_CLAB_SET_CMDS = [
             "show_commands_file": None,
             "show_hosts": None,
             "log_file": "logs/collect-clab.log",
+        },
+    },
+    {
+        "name": "clab-transform-config",
+        "command": "clab-transform-config",
+        "args": {
+            "command": "clab-transform-config",
+            "hosts": None,
+            "clab_env": None,
+            "input": "raw",
+            "output_hosts": "hosts.lab.yaml",
+            "output_dir": "raw/labconfig",
+            "log_file": "logs/clab-transform-config.log",
         },
     },
     {
@@ -624,7 +637,7 @@ DEFAULT_KIND_NODE_INIT_SCRIPT = "/scripts/init-bond-singlevlan-route.sh"
 
 DEFAULT_CISCO_N9KV_KIND_NAME = "cisco_n9kv"
 DEFAULT_CISCO_N9KV_KIND_IMAGE = "vrnetlab/cisco_n9kv:10.5.4.M.lite"
-DEFAULT_CISCO_N9KV_STARTUP_CONFIG_TEMPLATE = "{raw_dir}/config/__clabNodeName___run.txt"
+DEFAULT_CISCO_N9KV_STARTUP_CONFIG_TEMPLATE = "{raw_dir}/labconfig/__clabNodeName___run.txt"
 DEFAULT_CISCO_N9KV_KIND_ENV = {
     "QEMU_MEMORY": 6144,
     "QEMU_SMP": 4,

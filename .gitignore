@@ -91,6 +91,7 @@ output/*
 
 # gen file
 hosts.yaml
+hosts.lab.yaml
 
 # test code
 test*

@@ -1,0 +1,5 @@
+interface {{ interface_name }}
+  switchport mode trunk
+{% for vlan in vlans %}
+  switchport trunk allowed vlan add {{ vlan }}
+{% endfor %}
