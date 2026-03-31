@@ -69,6 +69,7 @@ from .constants import (
     RUNNING_CONFIG_DIFF_COMMAND_MAP,
     RUNNING_CONFIG_DIFF_EXCLUDE_PREFIXES_MAP,
     SAVE_CONFIG_COMMAND_MAP,
+    SAVE_CONFIG_SUCCESS_MARKER_MAP,
     PUSH_CONFIG_EXCLUDE_LINE_PREFIXES_MAP,
 )
 from .collect import TransportType, build_collector, is_nxos_host
@@ -138,7 +139,6 @@ from .utils import (
     write_text,
 )
 
-
 def get_lldp_command(device_type: str) -> str:
     """
     Return LLDP collection command for device type.
@@ -195,6 +195,13 @@ def get_save_config_command(device_type: str) -> str:
     if cmd:
         return cmd
     raise ValueError(f"Unsupported device_type for save-config command: {device_type}")
+
+
+def get_save_config_success_marker(device_type: str) -> str | None:
+    """
+    Return save-config success marker for device type when strict output validation is needed.
+    """
+    return SAVE_CONFIG_SUCCESS_MARKER_MAP.get(device_type)
 
 
 def connect_to_host(
@@ -722,14 +729,44 @@ def save_config_on_host(
     hostname = host["hostname"]
     device_type = host["device_type"]
     save_cmd = get_save_config_command(device_type)
+    success_marker = get_save_config_success_marker(device_type)
     conn = connect_to_host(host, username, password, enable_secret, logger)
     try:
         logger.info("SAVE CONFIG %s: %s", hostname, save_cmd)
-        save_out = conn.send_command_timing(save_cmd, read_timeout=120)
+        prompt = conn.find_prompt()
+        save_out = conn.send_command(
+            save_cmd,
+            expect_string=re.escape(prompt),
+            read_timeout=180,
+            auto_find_prompt=False,
+            strip_prompt=False,
+            strip_command=False,
+            cmd_verify=False,
+        )
         logger.debug("SAVE RESULT %s:\n%s", hostname, save_out.rstrip())
+        if success_marker and success_marker not in save_out:
+            raise RuntimeError(
+                f"save command did not return success marker {success_marker!r}: {save_out.strip()!r}"
+            )
     finally:
         conn.disconnect()
         logger.info("DISCONNECT %s", hostname)
+
+
+def print_operation_result_summary(label: str, attempted_count: int, failed_hosts: List[str]) -> None:
+    """
+    Print a concise operation summary with failed hosts when present.
+    """
+    print(f"\n=== {label} RESULT ===")
+    if attempted_count == 0:
+        print("No hosts were processed.")
+    elif not failed_hosts:
+        print("All hosts succeeded.")
+    else:
+        print(f"Failed hosts ({len(failed_hosts)}):")
+        for hostname in sorted(failed_hosts):
+            print(f"- {hostname}")
+    print("====================")
 
 
 def load_show_commands(path: str | None) -> List[str]:
@@ -2992,6 +3029,7 @@ def cmd_push_config(args: argparse.Namespace) -> None:
                 failed += 1
 
     saved = save_failed = 0
+    failed_save_hosts: List[str] = []
     if args.write_memory and pushed_hosts:
         logger.info("START SAVE PHASE hosts=%d", len(pushed_hosts))
         with ThreadPoolExecutor(max_workers=max(1, args.workers)) as executor:
@@ -3010,12 +3048,21 @@ def cmd_push_config(args: argparse.Namespace) -> None:
                     future.result()
                     saved += 1
                 except Exception as exc:
-                    logger.exception("FAILED SAVE %s: %s", host["hostname"], exc)
+                    logger.error("FAILED SAVE %s: %s", host["hostname"], exc)
                     save_failed += 1
+                    failed_save_hosts.append(str(host["hostname"]))
     elif not args.write_memory:
         logger.info("SKIP SAVE PHASE: --write-memory not set")
 
     logger.info("SUMMARY pushed=%d skipped=%d failed=%d saved=%d save_failed=%d", pushed, skipped, failed, saved, save_failed)
+    if args.write_memory:
+        if not pushed_hosts:
+            logger.info("SAVE RESULT no hosts were processed")
+        elif failed_save_hosts:
+            logger.warning("SAVE RESULT failed_hosts=%s", ",".join(sorted(failed_save_hosts)))
+        else:
+            logger.info("SAVE RESULT all hosts succeeded")
+        print_operation_result_summary("SAVE", len(pushed_hosts), failed_save_hosts)
 
 
 def cmd_push_config_dir(args: argparse.Namespace) -> None:
@@ -3144,6 +3191,7 @@ def cmd_push_config_dir(args: argparse.Namespace) -> None:
                 failed += 1
 
     saved = save_failed = 0
+    failed_save_hosts: List[str] = []
     if args.write_memory and pushed_hosts:
         logger.info("START SAVE PHASE hosts=%d", len(pushed_hosts))
         with ThreadPoolExecutor(max_workers=max(1, args.workers)) as executor:
@@ -3162,8 +3210,9 @@ def cmd_push_config_dir(args: argparse.Namespace) -> None:
                     future.result()
                     saved += 1
                 except Exception as exc:
-                    logger.exception("FAILED SAVE %s: %s", host["hostname"], exc)
+                    logger.error("FAILED SAVE %s: %s", host["hostname"], exc)
                     save_failed += 1
+                    failed_save_hosts.append(str(host["hostname"]))
     elif not args.write_memory:
         logger.info("SKIP SAVE PHASE: --write-memory not set")
 
@@ -3176,6 +3225,14 @@ def cmd_push_config_dir(args: argparse.Namespace) -> None:
         saved,
         save_failed,
     )
+    if args.write_memory:
+        if not pushed_hosts:
+            logger.info("SAVE RESULT no hosts were processed")
+        elif failed_save_hosts:
+            logger.warning("SAVE RESULT failed_hosts=%s", ",".join(sorted(failed_save_hosts)))
+        else:
+            logger.info("SAVE RESULT all hosts succeeded")
+        print_operation_result_summary("SAVE", len(pushed_hosts), failed_save_hosts)
 
 
 def cmd_write_memory(args: argparse.Namespace) -> None:
@@ -3213,6 +3270,7 @@ def cmd_write_memory(args: argparse.Namespace) -> None:
         return
 
     saved = failed = 0
+    failed_hosts: List[str] = []
     with ThreadPoolExecutor(max_workers=max(1, args.workers)) as executor:
         future_to_host = {
             executor.submit(
@@ -3229,10 +3287,16 @@ def cmd_write_memory(args: argparse.Namespace) -> None:
                 future.result()
                 saved += 1
             except Exception as exc:
-                logger.exception("FAILED SAVE %s: %s", host["hostname"], exc)
+                logger.error("FAILED SAVE %s: %s", host["hostname"], exc)
                 failed += 1
+                failed_hosts.append(str(host["hostname"]))
 
     logger.info("SUMMARY saved=%d skipped=%d failed=%d", saved, skipped, failed)
+    if failed_hosts:
+        logger.warning("WRITE MEMORY RESULT failed_hosts=%s", ",".join(sorted(failed_hosts)))
+    else:
+        logger.info("WRITE MEMORY RESULT all hosts succeeded")
+    print_operation_result_summary("WRITE MEMORY", len(targets), failed_hosts)
 
 
 def cmd_normalize_links(args: argparse.Namespace) -> None:

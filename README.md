@@ -657,6 +657,14 @@ alred write-memory \
 - `push-config` や `push-config-dir` の後に、保存だけを別で実行したいとき
 - すでに機器上で変更済みの running-config を明示的に保存したいとき
 
+補足:
+
+- NX-OS の保存成功は、機器の `copy running-config startup-config` 実行結果に `Copy complete.` が含まれるかどうかで判定します
+- `write-memory` 実行後は、全対象が成功したかどうかを最後に表示します
+- 失敗がある場合は、失敗したホスト一覧をまとめて表示します
+
+`push-config` / `push-config-dir` で `--write-memory` を付けた場合も、保存フェーズでは同じ機種別成功判定と結果表示を行います
+
 ## 関連ドキュメント
 
 - 利用手順と主要コマンド: この README

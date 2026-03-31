@@ -129,3 +129,6 @@ description_rules.yaml
 
 # codex
 .codex
+
+# DRAFT
+*DRAFT*.md

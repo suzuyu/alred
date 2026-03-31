@@ -185,6 +185,10 @@ SAVE_CONFIG_COMMAND_MAP = {
     "asav": "write memory",
 }
 
+SAVE_CONFIG_SUCCESS_MARKER_MAP = {
+    "nxos": "Copy complete.",
+}
+
 PUSH_CONFIG_EXCLUDE_LINE_PREFIXES_MAP = {
     "nxos": ["!", "version", "copp"],
 }
