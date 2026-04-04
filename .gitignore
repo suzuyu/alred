@@ -126,6 +126,8 @@ hosts.txt
 /clab_linux_server.md
 /clab_merge.yaml
 description_rules.yaml
+exclude-logging-string.txt
+logging-error-string.txt
 
 # codex
 .codex

@@ -503,6 +503,44 @@ alred collect-run-diff-cmd --hosts hosts.yaml --output raw
 `collect` は汎用ベースコマンドですが、通常の運用では上記の用途別サブコマンドを使う想定です。  
 追加 show コマンド、差分取得、show-only の詳細は [CONFIG.md](./CONFIG.md) と `alred --help` を参照してください。
 
+### `check-logging`
+
+NX-OS の `show logging` を確認し、指定期間内のログから severity や文字列条件に一致するレコードを抽出します。
+
+```sh
+alred check-logging --hosts hosts.yaml --output raw --last 1 days --severity 4
+```
+
+例:
+
+```sh
+alred check-logging \
+  --hosts hosts.yaml \
+  --output raw \
+  --last 1 days \
+  --severity 4 \
+  --check-string logging-error-string.txt \
+  --uncheck-string exclude-logging-string.txt
+```
+
+主な用途:
+
+- 指定期間内の `show logging` から異常ログ候補を確認したいとき
+- 既に収集済みの `show_lists/<hostname>/<hostname>_shows.log` を再チェックしたいとき
+- 特定の文字列を追加検出したいとき、または既知の不要ログを除外したいとき
+
+主なポイント:
+
+- 初期実装の正式対応機種は `nxos` のみです
+- NX-OS の live 実行時は `show logging` を `ssh` で取得します
+- `--transport nxapi` は `check-logging` では利用できません
+- `--last` は `check-logging` 実行開始時刻を基準に `days` / `hours` / `minutes` で指定します
+- `--severity` は `0=emergency` から `7=debug` の syslog severity を指定し、その値以下を対象にします
+- `--check-string` と `--uncheck-string` は大文字小文字を区別しない部分一致です
+- `--no-collect-raw-check` 指定時は `<output>/show_lists/<hostname>/<hostname>_shows.log` の最後の `### COMMAND: show logging` セクションを解析します
+- ターミナルには `### HOST LOGGING CHECK SUMMARY` のみ出力します
+- 結果ファイルは `<output>/check-logging/check-logging.txt` に保存され、履歴は `<output>/check-logging/old/<YYYYMMDDHHMMSS>/check-logging.txt` にローテーション保存されます
+
 ### `normalize-links`
 
 収集済みデータから接続リストを正規化して生成します。

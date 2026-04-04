@@ -155,6 +155,14 @@ LLDP_COMMAND_MAP = {
     "linux": "lldpcli show neighbors",
 }
 
+SHOW_LOGGING_COMMAND_MAP = {
+    "nxos": "show logging",
+}
+
+DEFAULT_LOGGING_THRESHOLD_MAP = {
+    "nxos": 4,
+}
+
 RUNNING_CONFIG_COMMAND_MAP = {
     "nxos": "show running-config",
     "ios": "show running-config",
@@ -189,6 +197,18 @@ SAVE_CONFIG_SUCCESS_MARKER_MAP = {
     "nxos": "Copy complete.",
 }
 
+CONNECT_CHECK_COMMAND_MAP = {
+    "nxos": "show clock",
+    "ios": "show clock",
+    "iosxe": "show clock",
+    "iosxr": "show clock",
+    "eos": "show clock",
+    "junos": "show system uptime",
+    "asa": "show clock",
+    "asav": "show clock",
+    "linux": "date",
+}
+
 PUSH_CONFIG_EXCLUDE_LINE_PREFIXES_MAP = {
     "nxos": ["!", "version", "copp"],
 }
@@ -206,6 +226,7 @@ DEFAULT_TOPOLOGY_MERMAID_FILENAME = "topology-graph.md"
 DEFAULT_TOPOLOGY_NO_CANDIDATE_MERMAID_FILENAME = "topology_no_candidates.md"
 DEFAULT_VNI_MAP_CSV_FILENAME = "vni_gateway_map.csv"
 DEFAULT_VNI_MAP_MD_FILENAME = "vni_gateway_map.md"
+DEFAULT_CONNECT_CHECK_TIMEOUT = 3.0
 DEFAULT_CLAB_TOPOLOGY_NAME = "network01"
 DEFAULT_CLAB_SET_GENERATE_CLAB_AUTO_FILES = {
     "linux_csv": "clab_linux_server.csv",

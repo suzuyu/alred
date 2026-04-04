@@ -13,6 +13,7 @@ import difflib
 import json
 import os
 import tarfile
+import time
 from logging import Logger
 from pathlib import Path
 import re
@@ -36,6 +37,7 @@ from .constants import (
     DEFAULT_CLAB_SET_GENERATE_CLAB_AUTO_FILES,
     DEFAULT_CISCO_N9KV_STARTUP_CONFIG_TEMPLATE,
     DEFAULT_CLAB_SET_CMDS,
+    DEFAULT_CONNECT_CHECK_TIMEOUT,
     DEFAULT_CLAB_TOPOLOGY_NAME,
     DEFAULT_DESCRIPTION_RULES_PATH,
     DEFAULT_KIND_CLUSTER_CONFIG_BASE_DIR,
@@ -56,6 +58,7 @@ from .constants import (
     DEFAULT_HOSTS_PATH,
     DEFAULT_LINKS_CANDIDATES_FILENAME,
     DEFAULT_LINKS_CONFIRMED_FILENAME,
+    DEFAULT_LOGGING_THRESHOLD_MAP,
     DEFAULT_ROLES_PATH,
     DEFAULT_SAMPLES_DIR,
     DEFAULT_SHOW_COMMANDS_PATH,
@@ -70,9 +73,16 @@ from .constants import (
     RUNNING_CONFIG_DIFF_EXCLUDE_PREFIXES_MAP,
     SAVE_CONFIG_COMMAND_MAP,
     SAVE_CONFIG_SUCCESS_MARKER_MAP,
+    SHOW_LOGGING_COMMAND_MAP,
     PUSH_CONFIG_EXCLUDE_LINE_PREFIXES_MAP,
 )
-from .collect import TransportType, build_collector, is_nxos_host
+from .collect import (
+    ConnectCheckResult,
+    TransportType,
+    build_collector,
+    is_nxos_host,
+    probe_transport_connectivity,
+)
 from . import __version__
 from .inventory import (
     build_inventory,
@@ -80,6 +90,15 @@ from .inventory import (
     load_inventory_data,
     load_inventory_map_from_list,
     parse_hosts_txt,
+)
+from .logging_check import (
+    HostLoggingCheckResult,
+    LoggingWarning,
+    check_host_logging,
+    extract_latest_show_logging_block,
+    load_check_patterns,
+    parse_last_window,
+    render_check_logging_report,
 )
 from .parsing import (
     build_description_records,
@@ -185,6 +204,16 @@ def get_running_config_diff_command(device_type: str) -> str:
     if cmd:
         return cmd
     raise ValueError(f"Unsupported device_type for running-config diff command: {device_type}")
+
+
+def get_show_logging_command(device_type: str) -> str:
+    """
+    Return show logging command for device type.
+    """
+    cmd = SHOW_LOGGING_COMMAND_MAP.get(device_type)
+    if cmd:
+        return cmd
+    raise ValueError(f"Unsupported device_type for show logging command: {device_type}")
 
 
 def get_save_config_command(device_type: str) -> str:
@@ -767,6 +796,163 @@ def print_operation_result_summary(label: str, attempted_count: int, failed_host
         for hostname in sorted(failed_hosts):
             print(f"- {hostname}")
     print("====================")
+
+
+def _build_connect_check_cache_key(host: Dict[str, Any], transport: TransportType, username: str) -> tuple[str, str, str, str]:
+    """
+    Build a stable cache key for pre-flight connectivity checks.
+    """
+    return (
+        str(host.get("hostname", "")),
+        str(host.get("ip", "")),
+        transport,
+        username,
+    )
+
+
+def filter_hosts_by_connect_check(
+    hosts: List[Dict[str, Any]],
+    args: argparse.Namespace,
+    logger: Logger,
+) -> tuple[List[Dict[str, Any]], List[ConnectCheckResult]]:
+    """
+    Run pre-flight connectivity/authentication checks and keep only reachable hosts.
+    """
+    if getattr(args, "skip_connect_check", False):
+        logger.info("CONNECT CHECK skipped by --skip-connect-check")
+        return hosts, []
+
+    if not hosts:
+        return hosts, []
+
+    workers = max(1, getattr(args, "workers", 1))
+    timeout = float(getattr(args, "connect_check_timeout", 3))
+    cache = getattr(args, "_connect_check_cache", None)
+    if cache is None:
+        cache = {}
+        setattr(args, "_connect_check_cache", cache)
+
+    logger.info(
+        "CONNECT CHECK START targets=%d transport=%s workers=%d timeout=%.1fs",
+        len(hosts),
+        getattr(args, "transport", "ssh"),
+        workers,
+        timeout,
+    )
+    started_at = time.perf_counter()
+
+    reachable_hosts: List[Dict[str, Any]] = []
+    failures: List[ConnectCheckResult] = []
+    future_to_host: Dict[Any, Dict[str, Any]] = {}
+    cached_results: Dict[str, ConnectCheckResult] = {}
+
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        for host in hosts:
+            username, password, enable_secret = get_credentials_for_device(args, str(host.get("device_type", "")))
+            transport = getattr(args, "transport", "ssh")
+            cache_key = _build_connect_check_cache_key(host, transport, username)
+            cached = cache.get(cache_key)
+            if cached is not None:
+                cached_results[str(host.get("hostname", ""))] = cached
+                continue
+            future = executor.submit(
+                probe_transport_connectivity,
+                host,
+                username,
+                password,
+                enable_secret,
+                logger,
+                transport,
+                timeout,
+            )
+            future_to_host[future] = host
+
+        for future in as_completed(future_to_host):
+            host = future_to_host[future]
+            result = future.result()
+            username, _password, _enable_secret = get_credentials_for_device(args, str(host.get("device_type", "")))
+            transport = getattr(args, "transport", "ssh")
+            cache[_build_connect_check_cache_key(host, transport, username)] = result
+            cached_results[str(host.get("hostname", ""))] = result
+
+    for host in hosts:
+        result = cached_results[str(host.get("hostname", ""))]
+        if result.ok:
+            reachable_hosts.append(host)
+            fallback = f" fallback_from={result.fallback_from}" if result.fallback_from else ""
+            logger.info(
+                "CONNECT CHECK OK %s ip=%s requested=%s resolved=%s stage=%s elapsed=%.3fs%s",
+                result.hostname,
+                result.ip,
+                result.requested_transport,
+                result.resolved_transport or "unknown",
+                result.stage,
+                result.elapsed_seconds,
+                fallback,
+            )
+        else:
+            failures.append(result)
+            logger.warning(
+                "CONNECT CHECK FAIL %s ip=%s requested=%s stage=%s elapsed=%.3fs error=%s",
+                result.hostname,
+                result.ip,
+                result.requested_transport,
+                result.stage,
+                result.elapsed_seconds,
+                result.error or "unknown error",
+            )
+
+    total_elapsed = time.perf_counter() - started_at
+    logger.info(
+        "CONNECT CHECK SUMMARY reachable=%d unreachable=%d elapsed=%.3fs",
+        len(reachable_hosts),
+        len(failures),
+        total_elapsed,
+    )
+    if getattr(args, "verbose", False):
+        slowest = sorted(
+            [*reachable_hosts],
+            key=lambda _host: cached_results[str(_host.get("hostname", ""))].elapsed_seconds,
+            reverse=True,
+        )
+        for host in slowest:
+            result = cached_results[str(host.get("hostname", ""))]
+            logger.debug(
+                "CONNECT CHECK DETAIL %s elapsed=%.3fs requested=%s resolved=%s stage=%s ok=%s",
+                result.hostname,
+                result.elapsed_seconds,
+                result.requested_transport,
+                result.resolved_transport or "unknown",
+                result.stage,
+                result.ok,
+            )
+        for result in sorted(failures, key=lambda x: x.elapsed_seconds, reverse=True):
+            logger.debug(
+                "CONNECT CHECK DETAIL %s elapsed=%.3fs requested=%s resolved=%s stage=%s ok=%s error=%s",
+                result.hostname,
+                result.elapsed_seconds,
+                result.requested_transport,
+                result.resolved_transport or "unknown",
+                result.stage,
+                result.ok,
+                result.error or "unknown error",
+            )
+    return reachable_hosts, failures
+
+
+def print_connect_check_failures(label: str, failures: List[ConnectCheckResult]) -> None:
+    """
+    Print failed pre-flight connectivity/authentication checks.
+    """
+    if not failures:
+        return
+    print(f"\n=== {label} CONNECT CHECK FAILURES ===")
+    for result in sorted(failures, key=lambda x: x.hostname):
+        print(
+            f"- {result.hostname} ({result.ip}) requested={result.requested_transport} "
+            f"stage={result.stage}: {result.error or 'unknown error'}"
+        )
+    print("======================================")
 
 
 def load_show_commands(path: str | None) -> List[str]:
@@ -2781,6 +2967,18 @@ def run_collect(args: argparse.Namespace, logger: Logger, old_generation_id: str
 
     workers = max(1, args.workers)
     logger.info("Collect targets=%d workers=%d", len(targets), workers)
+    targets, connect_failures = filter_hosts_by_connect_check(targets, args, logger)
+    print_connect_check_failures("COLLECT", connect_failures)
+    if not targets:
+        logger.warning("No reachable/authenticated collect targets after connect check")
+        logger.info(
+            "SUMMARY collected=%d skipped=%d failed=%d output_dir=%s",
+            collected,
+            skipped + len(connect_failures),
+            failed,
+            args.output,
+        )
+        return
 
     with ThreadPoolExecutor(max_workers=workers) as executor:
         future_to_host = {
@@ -2899,12 +3097,283 @@ def cmd_collect(args: argparse.Namespace) -> None:
     run_collect(args, logger)
 
 
+def run_check_logging_for_host(
+    host: Dict[str, Any],
+    args: argparse.Namespace,
+    logger: Logger,
+    started_at: datetime,
+    last_window,
+    check_patterns: List[str],
+    exclude_patterns: List[str],
+) -> HostLoggingCheckResult:
+    """
+    Run check-logging for one host using either raw or live collection.
+    """
+
+    hostname = str(host.get("hostname", ""))
+    device_type = str(host.get("device_type", "unknown"))
+    raw_root = str(args.output)
+    default_raw_source = str(Path(raw_root) / "show_lists" / hostname / f"{hostname}_shows.log")
+
+    if device_type != "nxos":
+        result = HostLoggingCheckResult(
+            hostname=hostname,
+            device_type=device_type,
+            raw_source=default_raw_source,
+            skipped=True,
+        )
+        result.warnings.append(
+            LoggingWarning(
+                hostname=hostname,
+                warning_type="unsupported",
+                message=f"unsupported device_type for check-logging: {device_type}",
+                raw_source=default_raw_source,
+            )
+        )
+        return result
+
+    severity = args.severity
+    if severity is None:
+        severity = DEFAULT_LOGGING_THRESHOLD_MAP.get(device_type)
+    if severity is None:
+        raise ValueError(f"default logging severity is not defined for device_type={device_type}")
+
+    if args.no_collect_raw_check:
+        raw_path = Path(default_raw_source)
+        if not raw_path.exists():
+            result = HostLoggingCheckResult(
+                hostname=hostname,
+                device_type=device_type,
+                raw_source=str(raw_path),
+                skipped=True,
+            )
+            result.warnings.append(
+                LoggingWarning(
+                    hostname=hostname,
+                    warning_type="section",
+                    message="raw show log file not found",
+                    raw_source=str(raw_path),
+                )
+            )
+            return result
+
+        show_text = raw_path.read_text(encoding="utf-8", errors="ignore")
+        body_text, warnings = extract_latest_show_logging_block(hostname, show_text, str(raw_path))
+        result = check_host_logging(
+            hostname=hostname,
+            device_type=device_type,
+            raw_source=str(raw_path),
+            text=body_text,
+            started_at=started_at,
+            last_window=last_window,
+            severity=severity,
+            check_patterns=check_patterns,
+            exclude_patterns=exclude_patterns,
+        )
+        result.warnings.extend(warnings)
+        if body_text is None:
+            result.skipped = True
+        return result
+
+    if args.transport == "nxapi":
+        raise ValueError("check-logging does not support --transport nxapi for NX-OS")
+
+    command = get_show_logging_command(device_type)
+    collector = build_collector(
+        host,
+        *get_credentials_for_device(args, device_type),
+        logger,
+        "ssh",
+    )
+    try:
+        command_result = collector.run_command(command, read_timeout=120)
+    finally:
+        collector.close()
+
+    raw_source = f"{hostname} live:{command}"
+    if not command_result.ok:
+        result = HostLoggingCheckResult(
+            hostname=hostname,
+            device_type=device_type,
+            raw_source=raw_source,
+            skipped=True,
+        )
+        result.warnings.append(
+            LoggingWarning(
+                hostname=hostname,
+                warning_type="collect",
+                message=command_result.error or "show logging collection failed",
+                raw_source=raw_source,
+            )
+        )
+        return result
+
+    return check_host_logging(
+        hostname=hostname,
+        device_type=device_type,
+        raw_source=raw_source,
+        text=command_result.output,
+        started_at=started_at,
+        last_window=last_window,
+        severity=severity,
+        check_patterns=check_patterns,
+        exclude_patterns=exclude_patterns,
+    )
+
+
+def cmd_check_logging(args: argparse.Namespace) -> None:
+    """
+    Check device show logging output for recent error logs.
+    """
+
+    logger = setup_logging(args.log_file, args.verbose)
+    if args.severity is not None and not 0 <= args.severity <= 7:
+        raise ValueError("--severity must be between 0 and 7")
+
+    started_at = datetime.now().astimezone()
+    last_window = parse_last_window(int(args.last[0]), str(args.last[1])) if args.last else None
+    last_label = f"{args.last[0]} {args.last[1]}" if args.last else "all"
+    check_patterns = load_check_patterns(args.check_string)
+    exclude_patterns = load_check_patterns(args.uncheck_string)
+
+    hosts_path = resolve_hosts_path(args.hosts, required=True)
+    inventory_data = load_yaml(hosts_path)
+    hosts = load_inventory_data(inventory_data)
+    policy = load_policy_file(args.policy)
+    target_hosts = parse_host_filter(args.target_hosts)
+    targets, skipped = select_target_hosts(hosts, policy, logger, target_hosts=target_hosts)
+
+    logger.info("Loaded %d hosts from %s", len(hosts), hosts_path)
+    logger.info("check-logging targets=%d skipped_by_policy=%d workers=%d", len(targets), skipped, max(1, args.workers))
+    logger.info("check-logging mode=%s raw_dir=%s", "raw" if args.no_collect_raw_check else "live", args.output)
+    logger.info("check-logging last=%s", last_label)
+    logger.info("check-logging patterns=%d", len(check_patterns))
+    logger.info("check-logging exclude_patterns=%d", len(exclude_patterns))
+
+    results: List[HostLoggingCheckResult] = []
+
+    supported_targets = [host for host in targets if str(host.get("device_type", "unknown")) == "nxos"]
+    unsupported_targets = [host for host in targets if str(host.get("device_type", "unknown")) != "nxos"]
+
+    for host in unsupported_targets:
+        results.append(
+            HostLoggingCheckResult(
+                hostname=str(host.get("hostname", "")),
+                device_type=str(host.get("device_type", "unknown")),
+                raw_source=str(Path(args.output) / "show_lists" / str(host.get("hostname", "")) / f"{host.get('hostname', '')}_shows.log"),
+                skipped=True,
+                warnings=[
+                    LoggingWarning(
+                        hostname=str(host.get("hostname", "")),
+                        warning_type="unsupported",
+                        message=f"unsupported device_type for check-logging: {host.get('device_type', 'unknown')}",
+                        raw_source=str(Path(args.output) / "show_lists" / str(host.get("hostname", "")) / f"{host.get('hostname', '')}_shows.log"),
+                    )
+                ],
+            )
+        )
+
+    if not args.no_collect_raw_check and supported_targets:
+        connect_args = argparse.Namespace(**vars(args))
+        connect_args.transport = "ssh"
+        supported_targets, connect_failures = filter_hosts_by_connect_check(supported_targets, connect_args, logger)
+        print_connect_check_failures("CHECK-LOGGING", connect_failures)
+        for failure in connect_failures:
+            results.append(
+                HostLoggingCheckResult(
+                    hostname=failure.hostname,
+                    device_type="nxos",
+                    raw_source=f"{failure.hostname} live:show logging",
+                    skipped=True,
+                    warnings=[
+                        LoggingWarning(
+                            hostname=failure.hostname,
+                            warning_type="collect",
+                            message=f"connect check failed: {failure.error or 'unknown error'}",
+                            raw_source=f"{failure.hostname} live:show logging",
+                        )
+                    ],
+                )
+            )
+
+    with ThreadPoolExecutor(max_workers=max(1, args.workers)) as executor:
+        future_to_host = {
+            executor.submit(
+                run_check_logging_for_host,
+                host,
+                args,
+                logger,
+                started_at,
+                last_window,
+                check_patterns,
+                exclude_patterns,
+            ): host
+            for host in supported_targets
+        }
+        for future in as_completed(future_to_host):
+            host = future_to_host[future]
+            try:
+                results.append(future.result())
+            except Exception as exc:
+                hostname = str(host.get("hostname", ""))
+                logger.exception("CHECK-LOGGING FAILED %s: %s", hostname, exc)
+                results.append(
+                    HostLoggingCheckResult(
+                        hostname=hostname,
+                        device_type=str(host.get("device_type", "unknown")),
+                        raw_source=str(Path(args.output) / "show_lists" / hostname / f"{hostname}_shows.log"),
+                        skipped=True,
+                        warnings=[
+                            LoggingWarning(
+                                hostname=hostname,
+                                warning_type="collect",
+                                message=str(exc),
+                                raw_source=str(Path(args.output) / "show_lists" / hostname / f"{hostname}_shows.log"),
+                            )
+                        ],
+                    )
+                )
+
+    output_dir = Path(args.output) / "check-logging"
+    generation_id = started_at.strftime("%Y%m%d%H%M%S")
+    output_name = "check-logging.txt"
+    report_lines = render_check_logging_report(
+        started_at=started_at,
+        mode="raw" if args.no_collect_raw_check else "live",
+        output_root=args.output,
+        last_label=last_label,
+        results=results,
+        last_window=last_window,
+    )
+    old_path, current_path = save_current_and_old_snapshot(
+        output_dir=output_dir,
+        filename=output_name,
+        content="\n".join(report_lines).rstrip() + "\n",
+        generation=generation_id,
+        keep_generations=get_log_rotation_limit(),
+        logger=logger,
+        log_label="CHECK LOGGING",
+    )
+    logger.info("WROTE CHECK LOGGING REPORT current=%s old=%s", current_path, old_path)
+
+    try:
+        host_check_start = report_lines.index("### HOST LOGGING CHECK SUMMARY")
+    except ValueError:
+        host_check_start = 0
+    try:
+        host_check_end = report_lines.index("### HOST RESULT SUMMARY")
+    except ValueError:
+        host_check_end = len(report_lines)
+    print("\n".join(report_lines[host_check_start:host_check_end]).rstrip())
+
+
 def cmd_collect_all(args: argparse.Namespace) -> None:
     """
     Run all collect-family flows and package current outputs.
     """
     logger = setup_logging(args.log_file, args.verbose)
     generation_id = datetime.now().astimezone().strftime("%Y%m%d%H%M%S")
+    setattr(args, "_connect_check_cache", {})
     logger.info("START COLLECT-ALL generation=%s", generation_id)
 
     step_definitions = [
@@ -2991,6 +3460,9 @@ def cmd_push_config(args: argparse.Namespace) -> None:
     logger.info("Push targets=%d skipped=%d workers=%d", len(targets), skipped, max(1, args.workers))
     logger.info("Config file=%s lines=%d", args.config_file, len(config_lines))
     logger.info("write-memory=%s", args.write_memory)
+    targets, connect_failures = filter_hosts_by_connect_check(targets, args, logger)
+    skipped += len(connect_failures)
+    print_connect_check_failures("PUSH", connect_failures)
 
     if not targets:
         logger.info("No targets to push")
@@ -3000,7 +3472,7 @@ def cmd_push_config(args: argparse.Namespace) -> None:
     for host in sorted(targets, key=lambda x: str(x.get("hostname", ""))):
         print(f"- {host['hostname']} ({host['ip']}, {host['device_type']})")
     print("====================")
-    answer = input(f"Proceed with push to {len(targets)} hosts? [yes/no]: ").strip().lower()
+    answer = input(f"Proceed with push to {len(targets)} reachable hosts? [yes/no]: ").strip().lower()
     if answer != "yes":
         logger.info("Aborted by user input: %s", answer)
         return
@@ -3147,6 +3619,9 @@ def cmd_push_config_dir(args: argparse.Namespace) -> None:
         missing,
         max(1, args.workers),
     )
+    targets, connect_failures = filter_hosts_by_connect_check(targets, args, logger)
+    skipped += len(connect_failures)
+    print_connect_check_failures("PUSH", connect_failures)
 
     if not targets:
         logger.info("No targets to push")
@@ -3156,7 +3631,7 @@ def cmd_push_config_dir(args: argparse.Namespace) -> None:
     for host in sorted(targets, key=lambda x: str(x.get("hostname", ""))):
         print(f"- {host['hostname']} ({host['ip']}, {host['device_type']}): {host['config_path']}")
     print("====================")
-    answer = input(f"Proceed with push to {len(targets)} hosts? [yes/no]: ").strip().lower()
+    answer = input(f"Proceed with push to {len(targets)} reachable hosts? [yes/no]: ").strip().lower()
     if answer != "yes":
         logger.info("Aborted by user input: %s", answer)
         return
@@ -3255,6 +3730,9 @@ def cmd_write_memory(args: argparse.Namespace) -> None:
 
     logger.info("Loaded %d hosts from %s", len(hosts), hosts_path)
     logger.info("Write-memory targets=%d skipped=%d workers=%d", len(targets), skipped, max(1, args.workers))
+    targets, connect_failures = filter_hosts_by_connect_check(targets, args, logger)
+    skipped += len(connect_failures)
+    print_connect_check_failures("WRITE MEMORY", connect_failures)
 
     if not targets:
         logger.info("No targets to save")
@@ -3264,7 +3742,7 @@ def cmd_write_memory(args: argparse.Namespace) -> None:
     for host in sorted(targets, key=lambda x: str(x.get("hostname", ""))):
         print(f"- {host['hostname']} ({host['ip']}, {host['device_type']})")
     print("============================")
-    answer = input(f"Proceed with save-config on {len(targets)} hosts? [yes/no]: ").strip().lower()
+    answer = input(f"Proceed with save-config on {len(targets)} reachable hosts? [yes/no]: ").strip().lower()
     if answer != "yes":
         logger.info("Aborted by user input: %s", answer)
         return
@@ -4872,6 +5350,17 @@ def build_parser() -> argparse.ArgumentParser:
             default=120,
             help="Read timeout in seconds for extra commands",
         )
+        p.add_argument(
+            "--skip-connect-check",
+            action="store_true",
+            help="Skip default pre-flight connectivity/authentication checks before device operations",
+        )
+        p.add_argument(
+            "--connect-check-timeout",
+            type=float,
+            default=DEFAULT_CONNECT_CHECK_TIMEOUT,
+            help="Timeout in seconds for pre-flight TCP/authentication checks",
+        )
         p.add_argument("--log-file", default=f"{default_log_dir}/collect.log", help="Log file path")
         p.add_argument("--verbose", action="store_true", help="Verbose logging")
 
@@ -4976,6 +5465,77 @@ def build_parser() -> argparse.ArgumentParser:
         run_config_only=False,
     )
 
+    p_check_logging = subparsers.add_parser(
+        "check-logging",
+        help="Check show logging output for recent logs that match severity or custom strings",
+    )
+    p_check_logging.add_argument("--hosts", help=f"Input hosts.yaml (default: ./{DEFAULT_HOSTS_PATH})")
+    p_check_logging.add_argument("--policy", help="Policy YAML path")
+    p_check_logging.add_argument("--username", help="SSH username")
+    p_check_logging.add_argument("--password", help="SSH password")
+    p_check_logging.add_argument("--enable-secret", help="Enable password for devices that require privileged exec")
+    p_check_logging.add_argument(
+        "--transport",
+        choices=["auto", "nxapi", "ssh"],
+        default="auto",
+        help="Command transport. check-logging uses SSH for NX-OS show logging; nxapi is not supported",
+    )
+    p_check_logging.add_argument(
+        "--target-hosts",
+        help="Comma-separated target hostnames for check-logging target selection",
+    )
+    p_check_logging.add_argument(
+        "--output",
+        default=default_raw_dir,
+        help="Raw root directory for raw input lookup and report output",
+    )
+    p_check_logging.add_argument("--workers", type=int, default=5, help="Number of parallel device checks")
+    p_check_logging.add_argument(
+        "--no-collect-raw-check",
+        action="store_true",
+        help="Read show logging from <output>/show_lists/<hostname>/<hostname>_shows.log instead of collecting live",
+    )
+    p_check_logging.add_argument(
+        "--last",
+        nargs=2,
+        metavar=("VALUE", "UNIT"),
+        help="Time range relative to command start, for example: --last 1 days",
+    )
+    p_check_logging.add_argument(
+        "--severity",
+        type=int,
+        help=(
+            "Syslog severity (0-7). Check logs with severity less than or equal to this value.\n"
+            "0=emergency, 1=alert, 2=critical, 3=error, 4=warning, 5=notice, 6=informational, 7=debug"
+        ),
+    )
+    p_check_logging.add_argument(
+        "--check-string",
+        help="File containing case-insensitive substring patterns to match against normalized log records",
+    )
+    p_check_logging.add_argument(
+        "--uncheck-string",
+        help="File containing case-insensitive substring patterns used to exclude normalized log records",
+    )
+    p_check_logging.add_argument(
+        "--skip-connect-check",
+        action="store_true",
+        help="Skip default pre-flight connectivity/authentication checks before live device operations",
+    )
+    p_check_logging.add_argument(
+        "--connect-check-timeout",
+        type=float,
+        default=DEFAULT_CONNECT_CHECK_TIMEOUT,
+        help="Timeout in seconds for pre-flight TCP/authentication checks",
+    )
+    p_check_logging.add_argument(
+        "--log-file",
+        default=f"{default_log_dir}/check-logging.log",
+        help="Log file path",
+    )
+    p_check_logging.add_argument("--verbose", action="store_true", help="Verbose logging")
+    p_check_logging.set_defaults(func=cmd_check_logging)
+
     p_clab_set = subparsers.add_parser(
         "clab-set-cmds",
         help="Run the predefined collect/normalize/containerlab/Mermaid/VNI pipeline",
@@ -5043,6 +5603,17 @@ def build_parser() -> argparse.ArgumentParser:
             help="Comma-separated target hostnames (default: all hosts selected by policy)",
         )
         p.add_argument("--workers", type=int, default=5, help="Number of parallel device operations")
+        p.add_argument(
+            "--skip-connect-check",
+            action="store_true",
+            help="Skip default pre-flight connectivity/authentication checks before device operations",
+        )
+        p.add_argument(
+            "--connect-check-timeout",
+            type=float,
+            default=DEFAULT_CONNECT_CHECK_TIMEOUT,
+            help="Timeout in seconds for pre-flight TCP/authentication checks",
+        )
 
     p_push = subparsers.add_parser("push-config", help="Push config lines to devices")
     add_push_target_arguments(p_push)

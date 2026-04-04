@@ -3,7 +3,9 @@ from __future__ import annotations
 import base64
 import json
 import os
+import socket
 import ssl
+import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from logging import Logger
@@ -17,7 +19,7 @@ except ImportError as exc:  # pragma: no cover
     ConnectHandler = None
     NETMIKO_IMPORT_ERROR = exc
 
-from .constants import PRIVILEGED_EXEC_DEVICE_TYPES
+from .constants import CONNECT_CHECK_COMMAND_MAP, DEFAULT_CONNECT_CHECK_TIMEOUT, PRIVILEGED_EXEC_DEVICE_TYPES
 from .utils import get_netmiko_unavailable_message, get_ssh_options
 
 TransportType = Literal["auto", "nxapi", "ssh"]
@@ -36,6 +38,23 @@ class CommandResult:
     error: Optional[str] = None
     fallback_from: Optional[str] = None
     output_format: Optional[str] = None
+
+
+@dataclass
+class ConnectCheckResult:
+    """
+    Normalized pre-flight connectivity/authentication check result.
+    """
+
+    hostname: str
+    ip: str
+    requested_transport: str
+    resolved_transport: Optional[str]
+    ok: bool
+    stage: str
+    elapsed_seconds: float
+    error: Optional[str] = None
+    fallback_from: Optional[str] = None
 
 
 class BaseCollector(ABC):
@@ -445,3 +464,188 @@ def build_collector(
         return AutoCollector(host, username, password, enable_secret, logger)
 
     return SshCollector(host, username, password, enable_secret, logger)
+
+
+def _tcp_probe(ip: str, port: int, timeout: float) -> None:
+    """
+    Open and immediately close a TCP connection.
+    """
+    with socket.create_connection((ip, port), timeout=timeout):
+        return
+
+
+def _get_connect_check_command(device_type: str) -> str:
+    """
+    Return lightweight command used for authentication check.
+    """
+    cmd = CONNECT_CHECK_COMMAND_MAP.get(device_type)
+    if cmd:
+        return cmd
+    return "show clock"
+
+
+def probe_ssh_connectivity(
+    host: Dict[str, Any],
+    username: str,
+    password: str,
+    enable_secret: str,
+    logger: Logger,
+    timeout: float = DEFAULT_CONNECT_CHECK_TIMEOUT,
+) -> ConnectCheckResult:
+    """
+    Validate SSH reachability plus login/enable readiness.
+    """
+    hostname = str(host["hostname"])
+    ip = str(host["ip"])
+    ssh_port = int(get_ssh_options().get("port", 22))
+    started_at = time.perf_counter()
+    try:
+        _tcp_probe(ip, ssh_port, timeout)
+    except Exception as exc:
+        return ConnectCheckResult(
+            hostname=hostname,
+            ip=ip,
+            requested_transport="ssh",
+            resolved_transport=None,
+            ok=False,
+            stage="tcp",
+            elapsed_seconds=time.perf_counter() - started_at,
+            error=f"ssh tcp connect failed on port {ssh_port}: {exc}",
+        )
+
+    collector = SshCollector(host, username, password, enable_secret, logger)
+    try:
+        collector._connect()
+        stage = "enable" if collector.device_type in PRIVILEGED_EXEC_DEVICE_TYPES else "auth"
+        return ConnectCheckResult(
+            hostname=hostname,
+            ip=ip,
+            requested_transport="ssh",
+            resolved_transport="ssh",
+            ok=True,
+            stage=stage,
+            elapsed_seconds=time.perf_counter() - started_at,
+        )
+    except Exception as exc:
+        error_text = str(exc)
+        stage = "auth"
+        if collector.device_type in PRIVILEGED_EXEC_DEVICE_TYPES and (
+            "enable" in error_text.lower() or "secret" in error_text.lower()
+        ):
+            stage = "enable"
+        return ConnectCheckResult(
+            hostname=hostname,
+            ip=ip,
+            requested_transport="ssh",
+            resolved_transport=None,
+            ok=False,
+            stage=stage,
+            elapsed_seconds=time.perf_counter() - started_at,
+            error=error_text,
+        )
+    finally:
+        collector.close()
+
+
+def probe_nxapi_connectivity(
+    host: Dict[str, Any],
+    username: str,
+    password: str,
+    enable_secret: str,
+    logger: Logger,
+    timeout: float = DEFAULT_CONNECT_CHECK_TIMEOUT,
+) -> ConnectCheckResult:
+    """
+    Validate NX-API reachability plus authentication with a lightweight command.
+    """
+    hostname = str(host["hostname"])
+    ip = str(host["ip"])
+    device_type = str(host.get("device_type") or host.get("os_type") or "unknown").strip().lower()
+    started_at = time.perf_counter()
+    collector = NxapiCollector(host, username, password, enable_secret, logger)
+    tcp_errors: list[str] = []
+    for scheme in collector._schemes:
+        port = 443 if scheme == "https" else 80
+        configured_port = os.environ.get("ALRED_NXAPI_PORT", os.environ.get("NW_TOOL_NXAPI_PORT", "")).strip()
+        if configured_port:
+            port = int(configured_port)
+        try:
+            _tcp_probe(ip, port, timeout)
+            break
+        except Exception as exc:
+            tcp_errors.append(f"{scheme}:{port} {exc}")
+    else:
+        return ConnectCheckResult(
+            hostname=hostname,
+            ip=ip,
+            requested_transport="nxapi",
+            resolved_transport=None,
+            ok=False,
+            stage="tcp",
+            elapsed_seconds=time.perf_counter() - started_at,
+            error="nxapi tcp connect failed: " + "; ".join(tcp_errors),
+        )
+
+    result = collector.run_command(_get_connect_check_command(device_type), read_timeout=max(int(timeout), 1))
+    if result.ok:
+        return ConnectCheckResult(
+            hostname=hostname,
+            ip=ip,
+            requested_transport="nxapi",
+            resolved_transport="nxapi",
+            ok=True,
+            stage="auth",
+            elapsed_seconds=time.perf_counter() - started_at,
+        )
+    return ConnectCheckResult(
+        hostname=hostname,
+        ip=ip,
+        requested_transport="nxapi",
+        resolved_transport=None,
+        ok=False,
+        stage="auth",
+        elapsed_seconds=time.perf_counter() - started_at,
+        error=result.error or result.output or "unknown nxapi error",
+    )
+
+
+def probe_transport_connectivity(
+    host: Dict[str, Any],
+    username: str,
+    password: str,
+    enable_secret: str,
+    logger: Logger,
+    transport: TransportType,
+    timeout: float = DEFAULT_CONNECT_CHECK_TIMEOUT,
+) -> ConnectCheckResult:
+    """
+    Validate connectivity/authentication for the requested transport mode.
+    """
+    if transport == "ssh":
+        return probe_ssh_connectivity(host, username, password, enable_secret, logger, timeout=timeout)
+
+    if transport == "nxapi":
+        if is_nxos_host(host):
+            return probe_nxapi_connectivity(host, username, password, enable_secret, logger, timeout=timeout)
+        result = probe_ssh_connectivity(host, username, password, enable_secret, logger, timeout=timeout)
+        result.requested_transport = "nxapi"
+        return result
+
+    if is_nxos_host(host):
+        nxapi_result = probe_nxapi_connectivity(host, username, password, enable_secret, logger, timeout=timeout)
+        if nxapi_result.ok:
+            nxapi_result.requested_transport = "auto"
+            return nxapi_result
+        ssh_result = probe_ssh_connectivity(host, username, password, enable_secret, logger, timeout=timeout)
+        ssh_result.requested_transport = "auto"
+        if ssh_result.ok:
+            ssh_result.fallback_from = "nxapi"
+            return ssh_result
+        ssh_result.fallback_from = "nxapi"
+        if not ssh_result.error and nxapi_result.error:
+            ssh_result.error = nxapi_result.error
+        return ssh_result
+
+    result = probe_ssh_connectivity(host, username, password, enable_secret, logger, timeout=timeout)
+    result.requested_transport = "auto"
+    return result
