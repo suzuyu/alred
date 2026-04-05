@@ -8,9 +8,10 @@ import argparse
 import csv
 from copy import deepcopy
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime
+from datetime import datetime, timedelta
 import difflib
 import json
+import math
 import os
 import tarfile
 import time
@@ -1270,14 +1271,19 @@ def save_current_and_old_snapshot(
     return old_path, current_path
 
 
-def create_collect_archive(output_dir: str | Path, generation: str, logger: Logger) -> Path:
+def create_collect_archive(
+    output_dir: str | Path,
+    generation: str,
+    logger: Logger,
+    allowed_hosts: Set[str] | None = None,
+) -> Path:
     """
     Archive current collect outputs excluding any old/ directories.
-    Keep only the latest configured collect-all tar archives.
+    Keep only the latest configured collect-all tar.gz archives.
     """
     base = Path(output_dir)
     base.mkdir(parents=True, exist_ok=True)
-    archive_path = base / f"collect-all-{generation[:8]}-{generation[8:]}.tar"
+    archive_path = base / f"collect-all-{generation[:8]}-{generation[8:]}.tar.gz"
     archive_root = base.name
     keep_archives = get_log_rotation_limit()
     optional_root_files = [
@@ -1286,15 +1292,24 @@ def create_collect_archive(output_dir: str | Path, generation: str, logger: Logg
         "hosts.yaml",
     ]
 
-    with tarfile.open(archive_path, "w") as tar:
+    def is_archive_file(path: Path) -> bool:
+        return path.name.endswith(".tar") or path.name.endswith(".tar.gz")
+
+    with tarfile.open(archive_path, "w:gz") as tar:
         for path in sorted(base.rglob("*")):
             if not path.is_file():
                 continue
-            if path.name.startswith("collect-all-") and path.suffix == ".tar":
+            relative_path = path.relative_to(base)
+            if len(relative_path.parts) == 1 and is_archive_file(path):
                 continue
-            if "old" in path.relative_to(base).parts:
+            if relative_path.parts and relative_path.parts[0] == "labconfig":
                 continue
-            tar.add(path, arcname=str(Path(archive_root) / path.relative_to(base)))
+            if "old" in relative_path.parts:
+                continue
+            if not should_include_collect_archive_path(relative_path, allowed_hosts):
+                logger.info("SKIP COLLECT ARCHIVE PATH filtered-host %s", relative_path)
+                continue
+            tar.add(path, arcname=str(Path(archive_root) / relative_path))
 
         for filename in optional_root_files:
             candidate = Path(filename)
@@ -1304,7 +1319,10 @@ def create_collect_archive(output_dir: str | Path, generation: str, logger: Logg
             logger.info("ADDED COLLECT ARCHIVE EXTRA %s", candidate)
 
     if keep_archives > 0:
-        archives = sorted(base.glob("collect-all-*.tar"), key=lambda p: p.name)
+        archives = sorted(
+            [*base.glob("collect-all-*.tar"), *base.glob("collect-all-*.tar.gz")],
+            key=lambda p: p.name,
+        )
         excess = len(archives) - keep_archives
         if excess > 0:
             for stale in archives[:excess]:
@@ -1315,6 +1333,256 @@ def create_collect_archive(output_dir: str | Path, generation: str, logger: Logg
 
     logger.info("WROTE COLLECT ARCHIVE %s", archive_path)
     return archive_path
+
+
+def resolve_archive_filter_hostnames(args: argparse.Namespace, logger: Logger) -> Set[str]:
+    """
+    Resolve effective hostnames used to filter collect-all archive contents.
+    """
+    hosts_path = resolve_hosts_path(args.hosts, required=True)
+    inventory_data = load_yaml(hosts_path)
+    hosts = load_inventory_data(inventory_data)
+    policy = load_policy_file(args.policy)
+    target_hosts = parse_host_filter(args.target_hosts)
+    selected_hosts, _skipped = select_target_hosts(hosts, policy, logger, target_hosts=target_hosts)
+    return {str(host.get("hostname", "")) for host in selected_hosts if str(host.get("hostname", ""))}
+
+
+def extract_archive_hostname(relative_path: Path) -> str | None:
+    """
+    Return hostname for known host-scoped collect artifacts.
+    """
+    parts = relative_path.parts
+    if len(parts) < 2:
+        return None
+
+    root = parts[0]
+    leaf = parts[-1]
+
+    if root == "config":
+        marker = "_run."
+        if marker in leaf:
+            return leaf.split(marker, 1)[0]
+        if leaf.endswith("_run.txt"):
+            return leaf[:-8]
+        return None
+
+    if root == "lldp":
+        marker = "_lldp."
+        if marker in leaf:
+            return leaf.split(marker, 1)[0]
+        if leaf.endswith("_lldp.txt"):
+            return leaf[:-9]
+        return None
+
+    if root == "show_lists":
+        if len(parts) >= 3:
+            return parts[1]
+        if leaf.endswith("_shows.log"):
+            return leaf[:-10]
+        return None
+
+    return None
+
+
+def should_include_collect_archive_path(relative_path: Path, allowed_hosts: Set[str] | None) -> bool:
+    """
+    Decide whether one path should be included in collect-all archive.
+    """
+    if not allowed_hosts:
+        return True
+
+    hostname = extract_archive_hostname(relative_path)
+    if hostname is None:
+        return True
+    return hostname in allowed_hosts
+
+
+def resolve_work_log_archive_path(
+    output_dir: str | Path,
+    default_name: str,
+    output_tar: str | None,
+) -> Path:
+    """
+    Resolve archive output path. Bare filenames are placed under output_dir.
+    """
+    if not output_tar:
+        return Path(output_dir) / default_name
+
+    candidate = Path(output_tar)
+    if candidate.is_absolute() or candidate.parent != Path("."):
+        return candidate
+    return Path(output_dir) / candidate.name
+
+
+def create_named_archive(
+    output_dir: str | Path,
+    default_name: str,
+    source_paths: List[Path],
+    logger: Logger,
+    output_tar: str | None = None,
+) -> Path:
+    """
+    Create an archive from explicit files/directories and prune old same-prefix archives.
+    """
+    base = Path(output_dir)
+    base.mkdir(parents=True, exist_ok=True)
+    archive_path = resolve_work_log_archive_path(base, default_name, output_tar)
+    archive_path.parent.mkdir(parents=True, exist_ok=True)
+
+    with tarfile.open(archive_path, "w:gz") as tar:
+        for source_path in source_paths:
+            if not source_path.exists():
+                logger.warning("SKIP ARCHIVE SOURCE NOT FOUND %s", source_path)
+                continue
+            if source_path.is_file():
+                try:
+                    arcname = str(source_path.relative_to(base))
+                except ValueError:
+                    arcname = source_path.name
+                tar.add(source_path, arcname=arcname)
+                logger.info("ADDED ARCHIVE FILE %s", source_path)
+                continue
+            for path in sorted(source_path.rglob("*")):
+                if not path.is_file():
+                    continue
+                if "old" in path.relative_to(source_path).parts:
+                    continue
+                tar.add(path, arcname=str(Path(source_path.name) / path.relative_to(source_path)))
+                logger.info("ADDED ARCHIVE FILE %s", path)
+
+    archive_basename = archive_path.name.removesuffix(".tar.gz").removesuffix(".tar")
+    prefix = archive_basename.rsplit("-", 2)[0]
+    keep_archives = get_log_rotation_limit()
+    if keep_archives > 0:
+        archives = sorted(
+            [
+                *archive_path.parent.glob(f"{prefix}-*.tar"),
+                *archive_path.parent.glob(f"{prefix}-*.tar.gz"),
+            ],
+            key=lambda p: p.name,
+        )
+        excess = len(archives) - keep_archives
+        if excess > 0:
+            for stale in archives[:excess]:
+                if stale == archive_path:
+                    continue
+                stale.unlink(missing_ok=True)
+                logger.info("REMOVED OLD WORK LOG ARCHIVE %s", stale)
+
+    logger.info("WROTE WORK LOG ARCHIVE %s", archive_path)
+    return archive_path
+
+
+def extract_non_ok_logging_hosts(report_lines: List[str]) -> List[str]:
+    """
+    Return hosts whose HOST LOGGING CHECK SUMMARY is not OK.
+    """
+    try:
+        start_idx = report_lines.index("### HOST LOGGING CHECK SUMMARY") + 1
+    except ValueError:
+        return []
+
+    try:
+        end_idx = report_lines.index("### HOST RESULT SUMMARY")
+    except ValueError:
+        end_idx = len(report_lines)
+
+    hosts: List[str] = []
+    for line in report_lines[start_idx:end_idx]:
+        stripped = line.strip()
+        if not stripped or " : " not in stripped:
+            continue
+        hostname, status = stripped.split(" : ", 1)
+        if status.strip() != "OK":
+            hosts.append(hostname.strip())
+    return hosts
+
+
+def extract_run_diff_warning_hosts(diff_log_path: Path) -> List[str]:
+    """
+    Return hosts that have unsaved config diffs in running_config_diff_commands.log.
+    """
+    if not diff_log_path.exists():
+        return []
+
+    lines = diff_log_path.read_text(encoding="utf-8", errors="ignore").splitlines()
+    for line in lines:
+        if line.strip():
+            if line.strip() == "### NO_DIFF":
+                return []
+            break
+
+    hosts: List[str] = []
+    for line in lines:
+        if line.startswith("### HOST: "):
+            hosts.append(line.split(": ", 1)[1].strip())
+    return sorted(set(hosts))
+
+
+def format_elapsed_last_window(elapsed: timedelta) -> tuple[int, str]:
+    """
+    Convert elapsed time into the smallest whole-unit --last window that fully covers it.
+    """
+    total_seconds = max(0.0, elapsed.total_seconds())
+    if total_seconds < 3600:
+        amount = max(1, math.ceil(total_seconds / 60))
+        return amount, "minutes"
+    if total_seconds < 86400:
+        amount = math.ceil(total_seconds / 3600)
+        return amount, "hours"
+    amount = math.ceil(total_seconds / 86400)
+    return amount, "days"
+
+
+def parse_archive_timestamp_from_name(path: Path, prefix: str) -> datetime | None:
+    """
+    Parse <prefix>-YYYYMMDD-HHMMSS.tar(.gz) into local timezone datetime.
+    """
+    match = re.fullmatch(rf"{re.escape(prefix)}-(\d{{8}})-(\d{{6}})\.tar(?:\.gz)?", path.name)
+    if not match:
+        return None
+    try:
+        return datetime.strptime("".join(match.groups()), "%Y%m%d%H%M%S").astimezone()
+    except ValueError:
+        return None
+
+
+def find_latest_before_work_timestamp(output_dir: str | Path, logger: Logger) -> datetime | None:
+    """
+    Find the most recent collect-before-work completion timestamp from marker or archive names.
+    """
+    base = Path(output_dir)
+    marker_path = base / "work-log" / "collect-before-work-latest.txt"
+    if marker_path.exists():
+        try:
+            marker_text = marker_path.read_text(encoding="utf-8").strip()
+            if marker_text:
+                return datetime.fromisoformat(marker_text)
+        except ValueError:
+            logger.warning("FAILED TO PARSE BEFORE-WORK MARKER %s", marker_path)
+
+    candidates = sorted(
+        [*base.glob("before-log-*.tar"), *base.glob("before-log-*.tar.gz")],
+        key=lambda p: p.name,
+    )
+    for candidate in reversed(candidates):
+        parsed = parse_archive_timestamp_from_name(candidate, "before-log")
+        if parsed is not None:
+            return parsed
+    return None
+
+
+def save_latest_before_work_timestamp(output_dir: str | Path, completed_at: datetime, logger: Logger) -> Path:
+    """
+    Persist the latest collect-before-work completion timestamp for collect-after-work defaults.
+    """
+    marker_dir = Path(output_dir) / "work-log"
+    marker_dir.mkdir(parents=True, exist_ok=True)
+    marker_path = marker_dir / "collect-before-work-latest.txt"
+    marker_path.write_text(completed_at.isoformat(timespec="seconds"), encoding="utf-8")
+    logger.info("SAVED BEFORE-WORK MARKER %s", marker_path)
+    return marker_path
 
 
 def get_lldp_input_dir(raw_dir: str | Path) -> Path:
@@ -3416,12 +3684,10 @@ def run_check_logging_for_host(
     )
 
 
-def cmd_check_logging(args: argparse.Namespace) -> None:
+def run_check_logging(args: argparse.Namespace, logger: Logger) -> tuple[Path, List[str]]:
     """
-    Check device show logging output for recent error logs.
+    Execute check-logging and return current report path and rendered lines.
     """
-
-    logger = setup_logging(args.log_file, args.verbose)
     if args.severity is not None and not 0 <= args.severity <= 7:
         raise ValueError("--severity must be between 0 and 7")
 
@@ -3550,6 +3816,16 @@ def cmd_check_logging(args: argparse.Namespace) -> None:
         log_label="CHECK LOGGING",
     )
     logger.info("WROTE CHECK LOGGING REPORT current=%s old=%s", current_path, old_path)
+    return current_path, report_lines
+
+
+def cmd_check_logging(args: argparse.Namespace) -> None:
+    """
+    Check device show logging output for recent error logs.
+    """
+
+    logger = setup_logging(args.log_file, args.verbose)
+    _, report_lines = run_check_logging(args, logger)
 
     try:
         host_check_start = report_lines.index("### HOST LOGGING CHECK SUMMARY")
@@ -3562,11 +3838,10 @@ def cmd_check_logging(args: argparse.Namespace) -> None:
     print("\n".join(report_lines[host_check_start:host_check_end]).rstrip())
 
 
-def cmd_collect_all(args: argparse.Namespace) -> None:
+def run_collect_all_flow(args: argparse.Namespace, logger: Logger) -> Path:
     """
     Run all collect-family flows and package current outputs.
     """
-    logger = setup_logging(args.log_file, args.verbose)
     generation_id = datetime.now().astimezone().strftime("%Y%m%d%H%M%S")
     setattr(args, "_connect_check_cache", {})
     logger.info("START COLLECT-ALL generation=%s", generation_id)
@@ -3627,7 +3902,125 @@ def cmd_collect_all(args: argparse.Namespace) -> None:
         logger.info("COLLECT-ALL STEP %s", step_name)
         run_collect(step_args, logger, old_generation_id=generation_id)
 
-    create_collect_archive(args.output, generation_id, logger)
+    archive_filter_hosts: Set[str] | None = None
+    if getattr(args, "filter_archive_hosts", False):
+        archive_filter_hosts = resolve_archive_filter_hostnames(args, logger)
+        logger.info(
+            "COLLECT-ALL ARCHIVE HOST FILTER enabled hosts=%d",
+            len(archive_filter_hosts),
+        )
+
+    return create_collect_archive(args.output, generation_id, logger, allowed_hosts=archive_filter_hosts)
+
+
+def cmd_collect_all(args: argparse.Namespace) -> None:
+    """
+    Run all collect-family flows and package current outputs.
+    """
+    logger = setup_logging(args.log_file, args.verbose)
+    run_collect_all_flow(args, logger)
+
+
+def run_collect_workflow_and_summarize(
+    args: argparse.Namespace,
+    logger: Logger,
+    mode: str,
+) -> None:
+    """
+    Run collect-all + check-logging(raw) + collect-run-diff-cmd and print a final summary.
+    """
+    started_at = datetime.now().astimezone()
+    timestamp_label = started_at.strftime("%Y%m%d-%H%M%S")
+    is_before = mode == "before"
+    phase_label = "事前" if is_before else "事後"
+
+    logger.info("START COLLECT-%s-WORK timestamp=%s", mode.upper(), timestamp_label)
+
+    collect_archive_path = run_collect_all_flow(args, logger)
+
+    check_args = argparse.Namespace(**vars(args))
+    check_args.command = "check-logging"
+    check_args.transport = "ssh"
+    check_args.no_collect_raw_check = True
+    if is_before:
+        check_args.last = args.last or [7, "days"]
+    else:
+        check_args.last = args.last
+        if not check_args.last:
+            last_before = find_latest_before_work_timestamp(args.output, logger)
+            if last_before is None:
+                raise ValueError(
+                    "collect-after-work requires previous collect-before-work history. "
+                    "Run collect-before-work first or specify --last VALUE UNIT."
+                )
+            elapsed = started_at - last_before
+            amount, unit = format_elapsed_last_window(elapsed)
+            check_args.last = [amount, unit]
+            logger.info(
+                "COLLECT-AFTER-WORK AUTO LAST from before-work=%s elapsed=%s resolved=%s %s",
+                last_before.isoformat(timespec="seconds"),
+                elapsed,
+                amount,
+                unit,
+            )
+    report_path, report_lines = run_check_logging(check_args, logger)
+
+    diff_args = argparse.Namespace(**vars(args))
+    diff_args.command = "collect-run-diff-cmd"
+    diff_args.show_run_diff = False
+    diff_args.show_run_diff_comands = True
+    diff_args.show_only = True
+    diff_args.run_config_only = False
+    diff_args.show_commands_file = None
+    diff_args.before_show_run_dir = None
+    run_collect(diff_args, logger)
+    diff_log_path = Path(args.output) / "show_run_diff_commands" / "running_config_diff_commands.log"
+
+    archive_name = f"{'before' if is_before else 'after'}-log-{timestamp_label}.tar.gz"
+    bundle_archive_path = create_named_archive(
+        args.output,
+        archive_name,
+        [collect_archive_path, report_path, diff_log_path],
+        logger,
+        output_tar=args.output_tar,
+    )
+
+    if is_before:
+        save_latest_before_work_timestamp(args.output, datetime.now().astimezone(), logger)
+
+    logging_warning_hosts = extract_non_ok_logging_hosts(report_lines)
+    diff_warning_hosts = extract_run_diff_warning_hosts(diff_log_path)
+
+    print(f"{phase_label}ログ tar: {bundle_archive_path}")
+    print(f"collect-all tar: {collect_archive_path}")
+    print(f"check-logging: {report_path}")
+    print(f"collect-run-diff-cmd: {diff_log_path}")
+    if not logging_warning_hosts and not diff_warning_hosts:
+        print(f"{phase_label}チェック(check: logging severity, check: show run diff) OK")
+        return
+
+    if logging_warning_hosts:
+        print("!!!HOST LOGGING 要チェック !!!")
+        print("\n".join(logging_warning_hosts))
+    if diff_warning_hosts:
+        print("!!!保存されていない Config があります!!!")
+        print("\n".join(diff_warning_hosts))
+
+
+def cmd_collect_before_work(args: argparse.Namespace) -> None:
+    """
+    Run pre-work collection, logging check, diff check, and bundle outputs.
+    """
+    logger = setup_logging(args.log_file, args.verbose)
+    run_collect_workflow_and_summarize(args, logger, mode="before")
+
+
+def cmd_collect_after_work(args: argparse.Namespace) -> None:
+    """
+    Run post-work collection, logging check, diff check, and bundle outputs.
+    """
+    logger = setup_logging(args.log_file, args.verbose)
+    run_collect_workflow_and_summarize(args, logger, mode="after")
 
 
 def cmd_push_config(args: argparse.Namespace) -> None:
@@ -5660,17 +6053,94 @@ def build_parser() -> argparse.ArgumentParser:
         run_config_only=False,
     )
 
+    def add_filter_archive_hosts_argument(p: argparse.ArgumentParser) -> None:
+        p.add_argument(
+            "--filter-archive-hosts",
+            action="store_true",
+            help="When creating archive files, include only host-scoped artifacts for the effective target hosts from --hosts/--policy/--target-hosts",
+        )
+
     p_collect_all = subparsers.add_parser(
         "collect-all",
         help="Run collect-clab, collect-list, collect-run-diff, and collect-run-diff-cmd in one flow",
     )
     add_collect_common_arguments(p_collect_all, require_show_commands_file=False)
+    add_filter_archive_hosts_argument(p_collect_all)
     p_collect_all.set_defaults(
         func=cmd_collect_all,
         show_run_diff=False,
         show_run_diff_comands=False,
         show_only=False,
         run_config_only=False,
+        filter_archive_hosts=False,
+    )
+
+    def add_collect_work_arguments(
+        p: argparse.ArgumentParser,
+        default_log_file: str,
+    ) -> None:
+        add_collect_common_arguments(p, require_show_commands_file=False)
+        add_filter_archive_hosts_argument(p)
+        p.add_argument(
+            "--last",
+            nargs=2,
+            metavar=("VALUE", "UNIT"),
+            help="Time range for check-logging. collect-before-work defaults to 7 days; collect-after-work auto-calculates from the latest collect-before-work.",
+        )
+        p.add_argument(
+            "--severity",
+            type=int,
+            help=(
+                "Syslog severity (0-7). Check logs with severity less than or equal to this value.\n"
+                "0=emergency, 1=alert, 2=critical, 3=error, 4=warning, 5=notice, 6=informational, 7=debug"
+            ),
+        )
+        p.add_argument(
+            "--check-string",
+            help="File containing case-insensitive substring patterns to match against normalized log records",
+        )
+        p.add_argument(
+            "--uncheck-string",
+            help="File containing case-insensitive substring patterns used to exclude normalized log records",
+        )
+        p.add_argument(
+            "--output-tar",
+            help="Output tar filename or path for the bundled before/after work logs",
+        )
+        p.set_defaults(log_file=default_log_file)
+
+    p_collect_before_work = subparsers.add_parser(
+        "collect-before-work",
+        help="Run collect-all, check-logging(raw), collect-run-diff-cmd, then bundle pre-work outputs",
+    )
+    add_collect_work_arguments(
+        p_collect_before_work,
+        default_log_file=f"{default_log_dir}/collect-before-work.log",
+    )
+    p_collect_before_work.set_defaults(
+        func=cmd_collect_before_work,
+        show_run_diff=False,
+        show_run_diff_comands=False,
+        show_only=False,
+        run_config_only=False,
+        filter_archive_hosts=True,
+    )
+
+    p_collect_after_work = subparsers.add_parser(
+        "collect-after-work",
+        help="Run collect-all, check-logging(raw), collect-run-diff-cmd, then bundle post-work outputs",
+    )
+    add_collect_work_arguments(
+        p_collect_after_work,
+        default_log_file=f"{default_log_dir}/collect-after-work.log",
+    )
+    p_collect_after_work.set_defaults(
+        func=cmd_collect_after_work,
+        show_run_diff=False,
+        show_run_diff_comands=False,
+        show_only=False,
+        run_config_only=False,
+        filter_archive_hosts=True,
     )
 
     p_check_logging = subparsers.add_parser(

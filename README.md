@@ -441,7 +441,7 @@ alred collect-clab --hosts hosts.yaml --output raw --workers 10
 ### `collect-all`
 
 `collect-clab`、`collect-list`、`collect-run-diff`、`collect-run-diff-cmd` をまとめて順番に実行します。  
-最後に `old/` を除く最新成果物を `collect-all-<YYYYMMDD-HHMMSS>.tar` として `<output>/` 配下へ出力します。tar を展開すると先頭に `<output>/` ディレクトリが復元され、`show_commands.txt`、`roles.yaml`、`hosts.yaml` が存在する場合はあわせて同梱されます。`collect-all-*.tar` も `ALRED_LOG_ROTATION` に従って古いものから自動削除されます。
+最後に `old/` を除く最新成果物を `collect-all-<YYYYMMDD-HHMMSS>.tar.gz` として `<output>/` 配下へ出力します。tar を展開すると先頭に `<output>/` ディレクトリが復元され、`show_commands.txt`、`roles.yaml`、`hosts.yaml` が存在する場合はあわせて同梱されます。`collect-all-*.tar.gz` も `ALRED_LOG_ROTATION` に従って古いものから自動削除されます。
 
 ```sh
 alred collect-all --hosts hosts.yaml --show-commands-file show_commands.txt --output raw
@@ -451,6 +451,43 @@ alred collect-all --hosts hosts.yaml --show-commands-file show_commands.txt --ou
 
 - ベース収集、追加 show、差分確認を一度にまとめて取りたいとき
 - 収集直後の最新成果物だけを tar で受け渡したいとき
+- `--filter-archive-hosts` を付けると、archive には `--hosts` / `--policy` / `--target-hosts` で決まる実効対象ホストの host 単位成果物だけを含めます
+
+### `collect-before-work`
+
+作業前の事前ログ取得をまとめて実行します。  
+内部では `collect-all`、`check-logging`、`collect-run-diff-cmd` を順に実行し、最後に結果を 1 つの tar にまとめます。
+
+```sh
+alred collect-before-work --hosts hosts.yaml --show-commands-file show_commands.txt --output raw
+```
+
+主なポイント:
+
+- `check-logging` は `collect-all` で取得済みの `show logging` を参照するため、内部的に `--no-collect-raw-check` で実行します
+- `--last` 未指定時の `check-logging` は `7 days` が既定です
+- まとめ tar の既定名は `<output>/before-log-<YYYYMMDD-HHMMSS>.tar.gz` です
+- `--output-tar` で tar 名または出力パスを指定できます
+- 内部で実行する `collect-all` は既定で `--filter-archive-hosts` 有効です
+- 終了時に logging と `show running-config diff` の要チェックホスト一覧を表示します
+
+### `collect-after-work`
+
+作業後の事後ログ取得をまとめて実行します。  
+内部では `collect-all`、`check-logging`、`collect-run-diff-cmd` を順に実行し、最後に結果を 1 つの tar にまとめます。
+
+```sh
+alred collect-after-work --hosts hosts.yaml --show-commands-file show_commands.txt --output raw
+```
+
+主なポイント:
+
+- `check-logging` は `collect-all` で取得済みの `show logging` を参照するため、内部的に `--no-collect-raw-check` で実行します
+- `--last` 未指定時は、直近の `collect-before-work` 実施時刻からの経過時間をもとに `minutes` / `hours` / `days` の最小単位へ自動換算します
+- 直近の `collect-before-work` 履歴が見つからない場合は、先に `collect-before-work` を実行するか `--last VALUE UNIT` を指定してください
+- まとめ tar の既定名は `<output>/after-log-<YYYYMMDD-HHMMSS>.tar.gz` です
+- `--output-tar` で tar 名または出力パスを指定できます
+- 内部で実行する `collect-all` は既定で `--filter-archive-hosts` 有効です
 
 ### `collect-list`
 
