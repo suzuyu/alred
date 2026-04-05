@@ -55,7 +55,7 @@ ALRED_LOG_ROTATION=20
 - `ALRED_TIMEOUT`: SSH タイムアウト秒 (default: `60`)
 - `ALRED_RAW_DIR`: `collect` の既定出力先 (default: `raw`)
 - `ALRED_LINKS_DIR`: `normalize-links` の既定出力先 (default: `output`)
-- `ALRED_TOPOLOGY_DIR`: `generate-clab` / `generate-mermaid` / `generate-doc` の既定出力先 (default: `output`)
+- `ALRED_TOPOLOGY_DIR`: `generate-clab` / `generate-mermaid` / `generate-graphviz` / `generate-drawio` / `generate-doc` の既定出力先 (default: `output`)
 - `ALRED_LOG_DIR`: 各コマンドの既定ログディレクトリ (default: `logs`)
 - `ALRED_LOG_ROTATION`: `old/` 配下の保持世代数
 - `ALRED_OUTPUT_DIR`: 旧互換変数 (`ALRED_RAW_DIR` が未設定時のみ参照)

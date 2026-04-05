@@ -223,9 +223,74 @@ DEFAULT_LINKS_CONFIRMED_FILENAME = "links_confirmed.csv"
 DEFAULT_LINKS_CANDIDATES_FILENAME = "links_candidates.csv"
 DEFAULT_TOPOLOGY_CLAB_FILENAME = "topology.clab.yaml"
 DEFAULT_TOPOLOGY_MERMAID_FILENAME = "topology-graph.md"
+DEFAULT_TOPOLOGY_GRAPHVIZ_FILENAME = "topology-graph.dot"
+DEFAULT_TOPOLOGY_DRAWIO_FILENAME = "topology-graph.drawio"
+DEFAULT_TOPOLOGY_DRAWIO_ALL_FILENAME = "topology-graph-all.drawio"
 DEFAULT_TOPOLOGY_NO_CANDIDATE_MERMAID_FILENAME = "topology_no_candidates.md"
 DEFAULT_VNI_MAP_CSV_FILENAME = "vni_gateway_map.csv"
 DEFAULT_VNI_MAP_MD_FILENAME = "vni_gateway_map.md"
+DRAWIO_HOST = "app.diagrams.net"
+DRAWIO_VERSION = "24.7.17"
+DRAWIO_MODEL_ATTRIBUTES = {
+    "dx": "1600",
+    "dy": "1200",
+    "grid": "1",
+    "gridSize": "10",
+    "guides": "1",
+    "tooltips": "1",
+    "connect": "1",
+    "arrows": "1",
+    "fold": "1",
+    "page": "1",
+    "pageScale": "1",
+    "pageWidth": "1920",
+    "pageHeight": "1080",
+    "math": "0",
+    "shadow": "0",
+}
+DRAWIO_LAYOUT = {
+    "origin_x": 40,
+    "origin_y": 80,
+    "node_width": 220,
+    "node_height": 72,
+    "node_gap_x": 60,
+    "node_gap_y": 40,
+    "container_padding": 20,
+    "container_header": 36,
+    "container_gap": 80,
+    "nic_top_gap": 12,
+    "nic_box_width": 140,
+    "nic_box_height": 22,
+    "nic_box_gap": 8,
+}
+DRAWIO_STYLE_NODE = (
+    "rounded=1;whiteSpace=wrap;html=1;"
+    "strokeColor=#1f2937;fillColor=#f9fafb;fontColor=#111827;"
+)
+DRAWIO_STYLE_DEVICE_CONTAINER = (
+    "rounded=1;whiteSpace=wrap;html=1;"
+    "strokeColor=#1f2937;fillColor=#f9fafb;fontColor=#111827;"
+)
+DRAWIO_STYLE_DEVICE_LABEL = (
+    "rounded=0;whiteSpace=wrap;html=1;"
+    "strokeColor=none;fillColor=none;fontColor=#111827;"
+    "align=center;verticalAlign=middle;"
+)
+DRAWIO_STYLE_CONTAINER = (
+    "swimlane;rounded=1;whiteSpace=wrap;html=1;"
+    "strokeColor=#94a3b8;fillColor=#eef2ff;fontColor=#0f172a;"
+)
+DRAWIO_STYLE_LEAF_CONTAINER = (
+    "swimlane;rounded=1;whiteSpace=wrap;html=1;"
+    "strokeColor=#64748b;fillColor=#dbeafe;fontColor=#0f172a;"
+)
+DRAWIO_STYLE_NIC = (
+    "rounded=1;whiteSpace=wrap;html=1;"
+    "strokeColor=#94a3b8;fillColor=#ffffff;fontColor=#334155;"
+    "fontSize=10;"
+)
+DRAWIO_STYLE_EDGE = "endArrow=none;html=1;rounded=0;strokeColor=#475569;jumpStyle=arc;jumpSize=6;"
+DRAWIO_STYLE_EDGE_DASHED_SUFFIX = "dashed=1;strokeColor=#94a3b8;"
 DEFAULT_CONNECT_CHECK_TIMEOUT = 3.0
 DEFAULT_CLAB_TOPOLOGY_NAME = "network01"
 DEFAULT_CLAB_SET_GENERATE_CLAB_AUTO_FILES = {
@@ -372,6 +437,29 @@ DEFAULT_CLAB_SET_CMDS = [
             "title": "Network Topology",
             "output": f"output/{DEFAULT_TOPOLOGY_MERMAID_FILENAME}",
             "log_file": "logs/generate-mermaid-underlay.log",
+        },
+    },
+    {
+        "name": "generate-drawio-all-graph",
+        "command": "generate-drawio",
+        "args": {
+            "command": "generate-drawio",
+            "input": f"output/{DEFAULT_LINKS_CONFIRMED_FILENAME}",
+            "input_candidates": f"output/{DEFAULT_LINKS_CANDIDATES_FILENAME}",
+            "hosts": None,
+            "mappings": None,
+            "roles": "roles.yaml",
+            "min_confidence": "low",
+            "direction": "TD",
+            "group_by_role": True,
+            "add_comments": False,
+            "all_graph": True,
+            "underlay": False,
+            "underlay_config": "underlay_render.yaml",
+            "underlay_raw": "raw",
+            "title": "Network Topology",
+            "output": f"output/{DEFAULT_TOPOLOGY_DRAWIO_ALL_FILENAME}",
+            "log_file": "logs/generate-drawio-all-graph.log",
         },
     },
     {

@@ -9,7 +9,7 @@
 
 - ネットワーク機器から LLDP と `running-config` を収集する
 - 収集データから接続情報を正規化し、リンク一覧を作成する
-- containerlab 用の topology YAML と Mermaid 図を生成する
+- containerlab 用の topology YAML と Mermaid / Graphviz / draw.io 図を生成する
 - 実機 config を containerlab / NX-OS 9000v 向けに変換する
 - NX-OS の設定から VNI / VRF / Gateway の対応表を生成する
 - VNI 差分から追加・削除・rollback 用の config を生成する
@@ -169,11 +169,12 @@ uv run python alred.py --help
 
 - `collect-clab`
 - `clab-transform-config`
-- `collect-all`
 - `normalize-links`
 - `generate-clab`
 - `generate-mermaid`
+- `generate-mermaid` (`No Candidate`)
 - `generate-mermaid --underlay`
+- `generate-drawio --all-graph`
 - `generate-vni-map`
 
 基本的な流れは次の通りです。
@@ -300,18 +301,35 @@ cp -p samples/clab_merge.example.yaml clab_merge.yaml
 - `output/links_confirmed.csv`: LLDP や description から確定できた接続情報の一覧
 - `output/links_candidates.csv`: 確定しきれなかった接続候補の一覧
 - `output/topology.clab.yaml`: containerlab 用の topology YAML
-- `output/topology-diagram.md`: Mermaid 形式の構成図
-- `output/topology-diagram_underlay.md`: underlay 表示付きの Mermaid 構成図
+- `output/topology-graph.md`: Mermaid 形式の構成図
+- `output/topology-graph_underlay.md`: underlay 表示付きの Mermaid 構成図
 - `output/vni_gateway_map.csv`: VNI / VRF / Gateway の対応表を CSV で出力したもの
 - `output/vni_gateway_map.md`: VNI / VRF / Gateway の対応表を Markdown で出力したもの
+- `output/topology-graph-all.drawio` : Drawio 形式の構成図。物理結線と Underlay 表示での構成図をページで分けて出力したもの
 
-`topology-diagram.md` の Mermaid での描画例は下記の通りです。
+`topology-graph.md` の Mermaid での描画例は下記の通りです。
 
 ![mermaid-lr](./images/mermaid-lr-001.png)
 
-`topology-diagram_underlay.md` の Mermaid での描画例は下記の通りです。
+`topology-graph_underlay.md` の Mermaid での描画例は下記の通りです。
 
 ![mermaid-lr](./images/mermaid-underlay-lr-001.png)
+
+`output/topology-graph-all.drawio` の Drawio での TD での物理結線描画例は下記の通りです。(export で png にしたもの。対向機器情報がなく Description のみの場合は破線で表現してます)
+
+![drawio-td](./images/drawio-td-001.png)
+
+`output/topology-graph-all.drawio` の Drawio での LR での物理結線描画例は下記の通りです。(export で png にしたもの。対向機器情報がなく Description のみの場合は破線で表現してます)
+
+![drawio-lr](./images/drawio-lr-001.png)
+
+`output/topology-graph-all.drawio` の Drawio での TD での Underlay 結線描画例は下記の通りです。(export で png にしたもの。対向機器情報がなく Description のみの場合は破線で表現してます)
+
+![drawio-underly-td](./images/drawio-underlay-td-001.png)
+
+`output/topology-graph-all.drawio` の Drawio での LR での Underlay 結線描画例は下記の通りです。(export で png にしたもの。対向機器情報がなく Description のみの場合は破線で表現してます)
+
+![drawio-underly-lr](./images/drawio-underlay-lr-001.png)
 
 
 ### 手動で実行する場合
@@ -385,6 +403,8 @@ alred clab-set-cmds --hosts hosts.yaml --without-collect
 - `--transport auto` が既定です
 - `--mappings`、`--roles`、`--description-rules` などの上書き指定ができます
 - `clab` 用の補助ファイルは、存在すれば自動で取り込みます
+- 既定では `generate-drawio --all-graph` も実行し、`output/topology-graph-all.drawio` に複数ページの構成図を出力します
+- underlay の draw.io / Mermaid で `lo1` など複数 loopback を出したい場合は `underlay_render.yaml` を用意します
 
 ### `generate-sample-config`
 
@@ -644,6 +664,78 @@ alred generate-mermaid \
 - `one-way-description` などの候補リンクを Mermaid に出したくない場合は `--input-candidates` を指定しないでください
 
 underlay 表示設定の詳細は [CONFIG.md](./CONFIG.md) を参照してください。
+
+### `generate-graphviz`
+
+正規化済みリンク CSV から Graphviz DOT 形式の構成図を生成します。
+
+```sh
+alred generate-graphviz --hosts hosts.yaml
+```
+
+例:
+
+```sh
+alred generate-graphviz \
+  --input output/links_confirmed.csv \
+  --input-candidates output/links_candidates.csv \
+  --hosts hosts.yaml \
+  --mappings mappings.yaml \
+  --roles roles.yaml \
+  --direction LR \
+  --group-by-role \
+  --add-comments \
+  --output output/topology-graph.dot
+```
+
+補足:
+
+- 入力解釈と `--min-confidence` / `--underlay` の挙動は `generate-mermaid` と同じです
+- 出力は DOT 形式なので、`dot -Tpng output/topology-graph.dot -o output/topology-graph.png` のように画像化できます
+
+### `generate-drawio`
+
+正規化済みリンク CSV から draw.io 形式の構成図を生成します。
+
+```sh
+alred generate-drawio --hosts hosts.yaml
+```
+
+例:
+
+```sh
+alred generate-drawio \
+  --input output/links_confirmed.csv \
+  --input-candidates output/links_candidates.csv \
+  --hosts hosts.yaml \
+  --mappings mappings.yaml \
+  --roles roles.yaml \
+  --direction LR \
+  --group-by-role \
+  --output output/topology-graph.drawio
+```
+
+全ページ一括出力:
+
+```sh
+alred generate-drawio \
+  --input output/links_confirmed.csv \
+  --input-candidates output/links_candidates.csv \
+  --hosts hosts.yaml \
+  --mappings mappings.yaml \
+  --roles roles.yaml \
+  --group-by-role \
+  --underlay-config underlay_render.yaml \
+  --all-graph
+```
+
+補足:
+
+- 入力解釈と `--min-confidence` / `--underlay` の挙動は `generate-mermaid` と同じです
+- 出力した `.drawio` は draw.io / diagrams.net でそのまま開けます
+- `--all-graph` を付けると `TD/LR/BT/RL` と underlay 各ページを 1 つの `.drawio` にまとめます
+- `--all-graph` の既定出力先は `output/topology-graph-all.drawio` です
+- underlay ページで `lo1` なども出したい場合は `--underlay-config underlay_render.yaml` を指定します
 
 ### `generate-tf`
 

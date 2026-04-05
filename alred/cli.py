@@ -19,6 +19,7 @@ from pathlib import Path
 import re
 import shutil
 from typing import Any, Dict, List, Optional, Set
+import xml.etree.ElementTree as ET
 
 from dotenv import load_dotenv
 import yaml
@@ -63,6 +64,9 @@ from .constants import (
     DEFAULT_SAMPLES_DIR,
     DEFAULT_SHOW_COMMANDS_PATH,
     DEFAULT_TOPOLOGY_CLAB_FILENAME,
+    DEFAULT_TOPOLOGY_DRAWIO_ALL_FILENAME,
+    DEFAULT_TOPOLOGY_DRAWIO_FILENAME,
+    DEFAULT_TOPOLOGY_GRAPHVIZ_FILENAME,
     DEFAULT_TOPOLOGY_MERMAID_FILENAME,
     DEFAULT_VNI_MAP_CSV_FILENAME,
     DEFAULT_VNI_MAP_MD_FILENAME,
@@ -119,6 +123,8 @@ from .parsing import (
     write_links_csv,
 )
 from .render import (
+    render_drawio_xml_lines,
+    render_graphviz_dot_lines,
     render_mermaid_markdown_lines,
 )
 from .resources import (
@@ -2737,6 +2743,195 @@ def build_mermaid_address_maps(
     return address_map, label_map, lines_map
 
 
+def prepare_topology_diagram_context(args: argparse.Namespace, logger: Logger) -> Dict[str, Any]:
+    """
+    Build shared topology diagram rendering inputs for Mermaid/Graphviz/draw.io.
+    """
+    records = read_links_csv(args.input)
+    mappings = load_mappings(args.mappings)
+    roles = load_roles(args.roles)
+
+    inventory_map: Dict[str, Dict[str, Any]] = {}
+    hosts_path = resolve_hosts_path(args.hosts, required=False)
+    if hosts_path:
+        inventory_data = load_yaml(hosts_path)
+        inventory_map = load_inventory_map_from_list(load_inventory_data(inventory_data))
+
+    candidate_records: List[Dict[str, str]] = []
+    if getattr(args, "input_candidates", None):
+        candidate_records = read_links_csv(args.input_candidates)
+
+    mgmt_ip_map = build_node_mgmt_ip_map(
+        inventory_map=inventory_map,
+        mappings=mappings,
+        logger=logger,
+    )
+
+    rendered_links, skipped_by_confidence = prepare_rendered_links(
+        records=records,
+        mappings=mappings,
+        roles=roles,
+        min_confidence=args.min_confidence,
+        logger=logger,
+        log_skips=False,
+        inventory_map=inventory_map,
+        clab_mode=False,
+    )
+
+    rendered_candidate_links: List[Dict[str, Any]] = []
+    if candidate_records:
+        rendered_candidate_links = prepare_rendered_candidate_links(
+            records=candidate_records,
+            mappings=mappings,
+            roles=roles,
+            logger=logger,
+        )
+
+    normalized_inventory_map, normalized_mgmt_ip_map = build_normalized_inventory_and_mgmt_maps(
+        inventory_map=inventory_map,
+        mgmt_ip_map=mgmt_ip_map,
+        mappings=mappings,
+    )
+
+    node_address_map: Optional[Dict[str, str]] = None
+    node_address_label_map: Optional[Dict[str, str]] = None
+    node_address_lines_map: Optional[Dict[str, List[str]]] = None
+    link_label_map: Optional[Dict[str, str]] = None
+    node_interface_label_map: Optional[Dict[str, str]] = None
+    output_path = args.output
+    title = args.title
+    if getattr(args, "underlay", False):
+        underlay_cfg = load_underlay_render_config(args.underlay_config)
+        target_roles = set(underlay_cfg.get("target_roles", []))
+        rendered_links = filter_links_by_target_roles(rendered_links, roles, target_roles)
+        if rendered_candidate_links:
+            rendered_candidate_links = filter_links_by_target_roles(rendered_candidate_links, roles, target_roles)
+        underlay_ip_maps: Dict[str, Dict[str, str]] = {}
+        underlay_secondary_ip_maps: Dict[str, Dict[str, List[str]]] = {}
+        for spec in underlay_cfg.get("interfaces", []):
+            if not isinstance(spec, dict):
+                continue
+            iface = str(spec.get("name", "loopback0"))
+            vrf = str(spec.get("vrf", underlay_cfg.get("vrf", "default")))
+            primary_map, secondary_map = build_underlay_loopback_maps(
+                raw_dir=args.underlay_raw,
+                mappings=mappings,
+                interface_name=iface,
+                vrf=vrf,
+            )
+            underlay_ip_maps[iface.lower()] = primary_map
+            underlay_secondary_ip_maps[iface.lower()] = secondary_map
+        node_address_map, node_address_label_map, node_address_lines_map = build_mermaid_address_maps(
+            normalized_inventory_map=normalized_inventory_map,
+            normalized_mgmt_ip_map=normalized_mgmt_ip_map,
+            roles=roles,
+            underlay_config=underlay_cfg,
+            underlay_ip_maps=underlay_ip_maps,
+            underlay_secondary_ip_maps=underlay_secondary_ip_maps,
+        )
+        underlay_if_ip_map = build_underlay_interface_ip_maps(
+            raw_dir=args.underlay_raw,
+            mappings=mappings,
+            vrf=str(underlay_cfg.get("vrf", "default")),
+        )
+        node_interface_label_map = {}
+        for node_name, iface_ip_map in underlay_if_ip_map.items():
+            for iface_name, ip_value in iface_ip_map.items():
+                node_interface_label_map[f"{node_name}|{iface_name}"] = ip_value
+        link_label_map = build_underlay_link_label_map(
+            rendered_links=rendered_links,
+            node_if_ip_map=underlay_if_ip_map,
+        )
+        output_path = add_underlay_suffix_to_path(output_path)
+        title = f"{title} (UNDERLAY)"
+        logger.info(
+            "Underlay render enabled: roles=%s vrf=%s interface=%s label=%s raw=%s",
+            ",".join(underlay_cfg.get("target_roles", [])),
+            underlay_cfg.get("vrf", "default"),
+            ",".join([str(x.get("name", "")) for x in underlay_cfg.get("interfaces", []) if isinstance(x, dict)]),
+            ",".join([str(x.get("label", "")) for x in underlay_cfg.get("interfaces", []) if isinstance(x, dict)]),
+            args.underlay_raw,
+        )
+
+    return {
+        "roles": roles,
+        "normalized_inventory_map": normalized_inventory_map,
+        "normalized_mgmt_ip_map": normalized_mgmt_ip_map,
+        "rendered_links": rendered_links,
+        "rendered_candidate_links": rendered_candidate_links,
+        "node_address_map": node_address_map,
+        "node_address_label_map": node_address_label_map,
+        "node_address_lines_map": node_address_lines_map,
+        "link_label_map": link_label_map,
+        "node_interface_label_map": node_interface_label_map,
+        "output_path": output_path,
+        "title": title,
+        "skipped_by_confidence": skipped_by_confidence,
+    }
+
+
+def build_drawio_page_diagram(
+    args: argparse.Namespace,
+    logger: Logger,
+    direction: str,
+    underlay: bool,
+    page_name: str,
+) -> tuple[ET.Element, Dict[str, str]]:
+    """
+    Build one draw.io <diagram> element for the requested variant.
+    """
+    page_args = argparse.Namespace(**vars(args))
+    page_args.direction = direction
+    page_args.underlay = underlay
+    context = prepare_topology_diagram_context(page_args, logger)
+
+    drawio_lines = render_drawio_xml_lines(
+        rendered_links=context["rendered_links"],
+        roles=context["roles"],
+        normalized_inventory_map=context["normalized_inventory_map"],
+        normalized_mgmt_ip_map=context["normalized_mgmt_ip_map"],
+        detect_node_role_func=detect_node_role,
+        get_role_priority_func=get_role_priority,
+        is_network_device_type_func=is_network_device_type,
+        direction=direction,
+        group_by_role=args.group_by_role,
+        add_comments=args.add_comments,
+        title=context["title"],
+        candidate_links=context["rendered_candidate_links"],
+        node_address_map=context["node_address_map"],
+        node_address_label_map=context["node_address_label_map"],
+        node_address_lines_map=context["node_address_lines_map"],
+        link_label_map=context["link_label_map"],
+        node_interface_label_map=context["node_interface_label_map"],
+    )
+    root = ET.fromstring("\n".join(drawio_lines))
+    diagram = root.find("diagram")
+    if diagram is None:
+        raise ValueError("draw.io output did not contain a <diagram> element")
+    diagram.attrib["name"] = page_name
+    diagram.attrib["id"] = re.sub(r"[^a-z0-9]+", "-", page_name.lower()).strip("-") or "topology"
+    return diagram, dict(root.attrib)
+
+
+def build_drawio_multipage_lines(diagrams: List[ET.Element], mxfile_attrs: Dict[str, str]) -> List[str]:
+    """
+    Build one draw.io mxfile from multiple <diagram> elements.
+    """
+    if not diagrams:
+        raise ValueError("draw.io multi-page export requires at least one diagram")
+
+    mxfile = ET.Element(
+        "mxfile",
+        mxfile_attrs,
+    )
+
+    for diagram in diagrams:
+        mxfile.append(diagram)
+
+    xml_text = ET.tostring(mxfile, encoding="unicode")
+    return xml_text.splitlines()
+
+
 def cmd_prepare_hosts(args: argparse.Namespace) -> None:
     """
     Convert hosts.txt into hosts.yaml.
@@ -4757,132 +4952,144 @@ def cmd_generate_mermaid(args: argparse.Namespace) -> None:
         args: Parsed CLI args.
     """
     logger = setup_logging(args.log_file, args.verbose)
-
-    records = read_links_csv(args.input)
-    mappings = load_mappings(args.mappings)
-    roles = load_roles(args.roles)
-
-    inventory_map: Dict[str, Dict[str, Any]] = {}
-    hosts_path = resolve_hosts_path(args.hosts, required=False)
-    if hosts_path:
-        inventory_data = load_yaml(hosts_path)
-        inventory_map = load_inventory_map_from_list(load_inventory_data(inventory_data))
-
-    candidate_records: List[Dict[str, str]] = []
-    if args.input_candidates:
-        candidate_records = read_links_csv(args.input_candidates)
-
-    mgmt_ip_map = build_node_mgmt_ip_map(
-        inventory_map=inventory_map,
-        mappings=mappings,
-        logger=logger,
-    )
-
-    rendered_links, skipped_by_confidence = prepare_rendered_links(
-        records=records,
-        mappings=mappings,
-        roles=roles,
-        min_confidence=args.min_confidence,
-        logger=logger,
-        log_skips=False,
-        inventory_map=inventory_map,
-        clab_mode=False,
-    )
-
-    rendered_candidate_links: List[Dict[str, Any]] = []
-    if candidate_records:
-        rendered_candidate_links = prepare_rendered_candidate_links(
-            records=candidate_records,
-            mappings=mappings,
-            roles=roles,
-            logger=logger,
-        )
-
-    normalized_inventory_map, normalized_mgmt_ip_map = build_normalized_inventory_and_mgmt_maps(
-        inventory_map=inventory_map,
-        mgmt_ip_map=mgmt_ip_map,
-        mappings=mappings,
-    )
-
-    node_address_map: Optional[Dict[str, str]] = None
-    node_address_label_map: Optional[Dict[str, str]] = None
-    node_address_lines_map: Optional[Dict[str, List[str]]] = None
-    link_label_map: Optional[Dict[str, str]] = None
-    output_path = args.output
-    title = args.title
-    if args.underlay:
-        underlay_cfg = load_underlay_render_config(args.underlay_config)
-        target_roles = set(underlay_cfg.get("target_roles", []))
-        rendered_links = filter_links_by_target_roles(rendered_links, roles, target_roles)
-        if rendered_candidate_links:
-            rendered_candidate_links = filter_links_by_target_roles(rendered_candidate_links, roles, target_roles)
-        underlay_ip_maps: Dict[str, Dict[str, str]] = {}
-        underlay_secondary_ip_maps: Dict[str, Dict[str, List[str]]] = {}
-        for spec in underlay_cfg.get("interfaces", []):
-            if not isinstance(spec, dict):
-                continue
-            iface = str(spec.get("name", "loopback0"))
-            vrf = str(spec.get("vrf", underlay_cfg.get("vrf", "default")))
-            primary_map, secondary_map = build_underlay_loopback_maps(
-                raw_dir=args.underlay_raw,
-                mappings=mappings,
-                interface_name=iface,
-                vrf=vrf,
-            )
-            underlay_ip_maps[iface.lower()] = primary_map
-            underlay_secondary_ip_maps[iface.lower()] = secondary_map
-        node_address_map, node_address_label_map, node_address_lines_map = build_mermaid_address_maps(
-            normalized_inventory_map=normalized_inventory_map,
-            normalized_mgmt_ip_map=normalized_mgmt_ip_map,
-            roles=roles,
-            underlay_config=underlay_cfg,
-            underlay_ip_maps=underlay_ip_maps,
-            underlay_secondary_ip_maps=underlay_secondary_ip_maps,
-        )
-        underlay_if_ip_map = build_underlay_interface_ip_maps(
-            raw_dir=args.underlay_raw,
-            mappings=mappings,
-            vrf=str(underlay_cfg.get("vrf", "default")),
-        )
-        link_label_map = build_underlay_link_label_map(
-            rendered_links=rendered_links,
-            node_if_ip_map=underlay_if_ip_map,
-        )
-        output_path = add_underlay_suffix_to_path(output_path)
-        title = f"{title} (UNDERLAY)"
-        logger.info(
-            "Underlay render enabled: roles=%s vrf=%s interface=%s label=%s raw=%s",
-            ",".join(underlay_cfg.get("target_roles", [])),
-            underlay_cfg.get("vrf", "default"),
-            ",".join([str(x.get("name", "")) for x in underlay_cfg.get("interfaces", []) if isinstance(x, dict)]),
-            ",".join([str(x.get("label", "")) for x in underlay_cfg.get("interfaces", []) if isinstance(x, dict)]),
-            args.underlay_raw,
-        )
+    context = prepare_topology_diagram_context(args, logger)
 
     md_lines = render_mermaid_markdown_lines(
-        rendered_links=rendered_links,
-        roles=roles,
-        normalized_inventory_map=normalized_inventory_map,
-        normalized_mgmt_ip_map=normalized_mgmt_ip_map,
+        rendered_links=context["rendered_links"],
+        roles=context["roles"],
+        normalized_inventory_map=context["normalized_inventory_map"],
+        normalized_mgmt_ip_map=context["normalized_mgmt_ip_map"],
         detect_node_role_func=detect_node_role,
         get_role_priority_func=get_role_priority,
         is_network_device_type_func=is_network_device_type,
         direction=args.direction,
         group_by_role=args.group_by_role,
         add_comments=args.add_comments,
-        title=title,
-        candidate_links=rendered_candidate_links,
-        node_address_map=node_address_map,
-        node_address_label_map=node_address_label_map,
-        node_address_lines_map=node_address_lines_map,
-        link_label_map=link_label_map,
+        title=context["title"],
+        candidate_links=context["rendered_candidate_links"],
+        node_address_map=context["node_address_map"],
+        node_address_label_map=context["node_address_label_map"],
+        node_address_lines_map=context["node_address_lines_map"],
+        link_label_map=context["link_label_map"],
     )
-    write_text(output_path, md_lines)
+    write_text(context["output_path"], md_lines)
 
-    logger.info("Skipped %d confirmed links by min-confidence=%s", skipped_by_confidence, args.min_confidence)
-    logger.info("Rendered %d confirmed links", len(rendered_links))
-    logger.info("Rendered %d candidate links", len(rendered_candidate_links))
-    logger.info("Wrote Mermaid markdown to %s", output_path)
+    logger.info("Skipped %d confirmed links by min-confidence=%s", context["skipped_by_confidence"], args.min_confidence)
+    logger.info("Rendered %d confirmed links", len(context["rendered_links"]))
+    logger.info("Rendered %d candidate links", len(context["rendered_candidate_links"]))
+    logger.info("Wrote Mermaid markdown to %s", context["output_path"])
+
+
+def cmd_generate_graphviz(args: argparse.Namespace) -> None:
+    """
+    Generate Graphviz DOT.
+
+    Args:
+        args: Parsed CLI args.
+    """
+    logger = setup_logging(args.log_file, args.verbose)
+    context = prepare_topology_diagram_context(args, logger)
+
+    dot_lines = render_graphviz_dot_lines(
+        rendered_links=context["rendered_links"],
+        roles=context["roles"],
+        normalized_inventory_map=context["normalized_inventory_map"],
+        normalized_mgmt_ip_map=context["normalized_mgmt_ip_map"],
+        detect_node_role_func=detect_node_role,
+        get_role_priority_func=get_role_priority,
+        is_network_device_type_func=is_network_device_type,
+        direction=args.direction,
+        group_by_role=args.group_by_role,
+        add_comments=args.add_comments,
+        title=context["title"],
+        candidate_links=context["rendered_candidate_links"],
+        node_address_map=context["node_address_map"],
+        node_address_label_map=context["node_address_label_map"],
+        node_address_lines_map=context["node_address_lines_map"],
+        link_label_map=context["link_label_map"],
+    )
+    write_text(context["output_path"], dot_lines)
+
+    logger.info("Skipped %d confirmed links by min-confidence=%s", context["skipped_by_confidence"], args.min_confidence)
+    logger.info("Rendered %d confirmed links", len(context["rendered_links"]))
+    logger.info("Rendered %d candidate links", len(context["rendered_candidate_links"]))
+    logger.info("Wrote Graphviz DOT to %s", context["output_path"])
+
+
+def cmd_generate_drawio(args: argparse.Namespace) -> None:
+    """
+    Generate draw.io XML.
+
+    Args:
+        args: Parsed CLI args.
+    """
+    logger = setup_logging(args.log_file, args.verbose)
+
+    default_topology_dir = get_topology_dir("output")
+    default_output_path = f"{default_topology_dir}/{DEFAULT_TOPOLOGY_DRAWIO_FILENAME}"
+    default_all_output_path = f"{default_topology_dir}/{DEFAULT_TOPOLOGY_DRAWIO_ALL_FILENAME}"
+
+    if getattr(args, "all_graph", False):
+        output_path = args.output
+        if output_path == default_output_path:
+            output_path = default_all_output_path
+
+        page_variants = [
+            ("Topology TD", "TD", False),
+            ("Topology LR", "LR", False),
+            ("Topology BT", "BT", False),
+            ("Topology RL", "RL", False),
+            ("Underlay TD", "TD", True),
+            ("Underlay LR", "LR", True),
+            ("Underlay BT", "BT", True),
+            ("Underlay RL", "RL", True),
+        ]
+        diagrams: List[ET.Element] = []
+        mxfile_attrs: Dict[str, str] | None = None
+        for page_name, direction, underlay in page_variants:
+            diagram, page_mxfile_attrs = build_drawio_page_diagram(
+                args=args,
+                logger=logger,
+                direction=direction,
+                underlay=underlay,
+                page_name=page_name,
+            )
+            diagrams.append(diagram)
+            if mxfile_attrs is None:
+                mxfile_attrs = page_mxfile_attrs
+
+        write_text(output_path, build_drawio_multipage_lines(diagrams, mxfile_attrs or {}))
+        logger.info("Wrote draw.io multi-page XML to %s", output_path)
+        logger.info("Rendered %d draw.io pages", len(diagrams))
+        return
+
+    context = prepare_topology_diagram_context(args, logger)
+
+    drawio_lines = render_drawio_xml_lines(
+        rendered_links=context["rendered_links"],
+        roles=context["roles"],
+        normalized_inventory_map=context["normalized_inventory_map"],
+        normalized_mgmt_ip_map=context["normalized_mgmt_ip_map"],
+        detect_node_role_func=detect_node_role,
+        get_role_priority_func=get_role_priority,
+        is_network_device_type_func=is_network_device_type,
+        direction=args.direction,
+        group_by_role=args.group_by_role,
+        add_comments=args.add_comments,
+        title=context["title"],
+        candidate_links=context["rendered_candidate_links"],
+        node_address_map=context["node_address_map"],
+        node_address_label_map=context["node_address_label_map"],
+        node_address_lines_map=context["node_address_lines_map"],
+        link_label_map=context["link_label_map"],
+        node_interface_label_map=context["node_interface_label_map"],
+    )
+    write_text(context["output_path"], drawio_lines)
+
+    logger.info("Skipped %d confirmed links by min-confidence=%s", context["skipped_by_confidence"], args.min_confidence)
+    logger.info("Rendered %d confirmed links", len(context["rendered_links"]))
+    logger.info("Rendered %d candidate links", len(context["rendered_candidate_links"]))
+    logger.info("Wrote draw.io XML to %s", context["output_path"])
 
 
 def cmd_generate_doc(args: argparse.Namespace) -> None:
@@ -5197,6 +5404,7 @@ def cmd_clab_set_cmds(args: argparse.Namespace) -> None:
         "normalize-links": cmd_normalize_links,
         "generate-clab": cmd_generate_clab,
         "generate-mermaid": cmd_generate_mermaid,
+        "generate-drawio": cmd_generate_drawio,
         "generate-vni-map": cmd_generate_vni_map,
     }
 
@@ -5789,6 +5997,69 @@ def build_parser() -> argparse.ArgumentParser:
     p_mermaid.add_argument("--log-file", default=f"{default_log_dir}/generate-mermaid.log", help="Log file path")
     p_mermaid.add_argument("--verbose", action="store_true", help="Verbose logging")
     p_mermaid.set_defaults(func=cmd_generate_mermaid)
+
+    p_graphviz = subparsers.add_parser("generate-graphviz", help="Generate Graphviz DOT from links CSV")
+    p_graphviz.add_argument(
+        "--input",
+        default=f"{default_links_dir}/{DEFAULT_LINKS_CONFIRMED_FILENAME}",
+        help="Input confirmed links CSV",
+    )
+    p_graphviz.add_argument("--input-candidates", help="Optional input candidate links CSV")
+    p_graphviz.add_argument("--hosts", help=f"Input hosts.yaml (default: ./{DEFAULT_HOSTS_PATH} if exists)")
+    p_graphviz.add_argument("--mappings", help="Mappings YAML path")
+    p_graphviz.add_argument("--roles", help=f"Role detection YAML path (default: ./{DEFAULT_ROLES_PATH} if exists)")
+    p_graphviz.add_argument("--min-confidence", choices=["low", "medium", "high"], default="low")
+    p_graphviz.add_argument("--direction", choices=["TD", "LR", "BT", "RL"], default="TD")
+    p_graphviz.add_argument("--group-by-role", action="store_true")
+    p_graphviz.add_argument("--add-comments", action="store_true")
+    p_graphviz.add_argument("--underlay", action="store_true", help="Show underlay loopback instead of mgmt for target roles")
+    p_graphviz.add_argument("--underlay-config", help="YAML config for underlay display (roles/vrf/interface/label)")
+    p_graphviz.add_argument(
+        "--underlay-raw",
+        default=default_raw_dir,
+        help="Raw root directory for underlay lookup (uses <dir>/config when present)",
+    )
+    p_graphviz.add_argument("--title", default="Network Topology")
+    p_graphviz.add_argument(
+        "--output",
+        default=f"{default_topology_dir}/{DEFAULT_TOPOLOGY_GRAPHVIZ_FILENAME}",
+        help="Output Graphviz DOT file (.dot)",
+    )
+    p_graphviz.add_argument("--log-file", default=f"{default_log_dir}/generate-graphviz.log", help="Log file path")
+    p_graphviz.add_argument("--verbose", action="store_true", help="Verbose logging")
+    p_graphviz.set_defaults(func=cmd_generate_graphviz)
+
+    p_drawio = subparsers.add_parser("generate-drawio", help="Generate draw.io XML from links CSV")
+    p_drawio.add_argument(
+        "--input",
+        default=f"{default_links_dir}/{DEFAULT_LINKS_CONFIRMED_FILENAME}",
+        help="Input confirmed links CSV",
+    )
+    p_drawio.add_argument("--input-candidates", help="Optional input candidate links CSV")
+    p_drawio.add_argument("--hosts", help=f"Input hosts.yaml (default: ./{DEFAULT_HOSTS_PATH} if exists)")
+    p_drawio.add_argument("--mappings", help="Mappings YAML path")
+    p_drawio.add_argument("--roles", help=f"Role detection YAML path (default: ./{DEFAULT_ROLES_PATH} if exists)")
+    p_drawio.add_argument("--min-confidence", choices=["low", "medium", "high"], default="low")
+    p_drawio.add_argument("--direction", choices=["TD", "LR", "BT", "RL"], default="TD")
+    p_drawio.add_argument("--group-by-role", action="store_true")
+    p_drawio.add_argument("--add-comments", action="store_true")
+    p_drawio.add_argument("--all-graph", action="store_true", help="Write all draw.io graph variants as separate pages")
+    p_drawio.add_argument("--underlay", action="store_true", help="Show underlay loopback instead of mgmt for target roles")
+    p_drawio.add_argument("--underlay-config", help="YAML config for underlay display (roles/vrf/interface/label)")
+    p_drawio.add_argument(
+        "--underlay-raw",
+        default=default_raw_dir,
+        help="Raw root directory for underlay lookup (uses <dir>/config when present)",
+    )
+    p_drawio.add_argument("--title", default="Network Topology")
+    p_drawio.add_argument(
+        "--output",
+        default=f"{default_topology_dir}/{DEFAULT_TOPOLOGY_DRAWIO_FILENAME}",
+        help="Output draw.io file (.drawio)",
+    )
+    p_drawio.add_argument("--log-file", default=f"{default_log_dir}/generate-drawio.log", help="Log file path")
+    p_drawio.add_argument("--verbose", action="store_true", help="Verbose logging")
+    p_drawio.set_defaults(func=cmd_generate_drawio)
 
     p_doc = subparsers.add_parser("generate-doc", help="Generate both containerlab YAML and Mermaid markdown")
     p_doc.add_argument("--input", required=True, help="Input confirmed links CSV")
