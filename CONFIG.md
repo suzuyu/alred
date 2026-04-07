@@ -13,7 +13,10 @@
 
 例:
 
-- `collect --username` / `--password` > `ALRED_USERNAME` / `ALRED_PASSWORD`
+- `collect -u` / `--user` / `--username` と `--password` > `ALRED_USERNAME` / `ALRED_PASSWORD`
+- `collect --ask-pass` (`-k`) で入力した SSH パスワード > `ALRED_PASSWORD`
+- `collect --ask-become-pass` (`-K`) で入力した enable パスワード > `ALRED_ENABLE_SECRET`
+- `collect -i` / `--inventory` / `--hosts` > `./hosts.yaml`
 - `collect --output` > `ALRED_RAW_DIR` > `ALRED_OUTPUT_DIR` (legacy)
 - `--log-file` > `ALRED_LOG_DIR`
 
@@ -62,6 +65,8 @@ ALRED_LOG_ROTATION=20
 
 補足:
 
+- `.env` や shell history にパスワードを残したくない場合は、`-k` / `--ask-pass` で SSH パスワードを実行時入力できます
+- enable secret が必要な機器では、`-K` / `--ask-become-pass` で enable パスワードを実行時入力できます
 - `asa` / `asav` は CLI 引数未指定時に `ALRED_FW_USERNAME` / `ALRED_FW_PASSWORD` / `ALRED_FW_ENABLE_SECRET` を優先して使用します
 - これらが未設定の場合は、通常の `ALRED_USERNAME` / `ALRED_PASSWORD` / `ALRED_ENABLE_SECRET` を使用します
 - 移行期間向けに、旧 `NW_TOOL_*` 環境変数も fallback として引き続き参照します

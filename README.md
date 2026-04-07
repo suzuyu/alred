@@ -348,7 +348,8 @@ cp -p samples/clab_merge.example.yaml clab_merge.yaml
 
 よく使う既定動作:
 
-- `--hosts` はローカルの `./hosts.yaml` があれば自動で利用します
+- inventory は `-i` / `--inventory` / `--hosts` で指定できます。
+- `--hosts` / `--inventory` 未指定時はローカルの `./hosts.yaml` があれば自動で利用します
 - `--show-commands-file` はローカルの `./show_commands.txt` があれば自動で利用します
 
 入力ファイルの書式や環境変数の詳細は [CONFIG.md](./CONFIG.md) を参照してください。
@@ -437,6 +438,8 @@ alred collect-clab --hosts hosts.yaml --output raw --workers 10
 - 収集結果は取得時に `old/<YYYYMMDDHHMMSS>/` へ保存し、トップレベルの固定名ファイルは最新ミラーとして更新します
 - `collect-run-diff` は `<output>/show_run_diff/`、`collect-run-diff-cmd` は `<output>/show_run_diff_commands/` に保存します
 - `--transport auto` / `nxapi` / `ssh` を切り替えられます
+- ユーザー名は `-u` / `--user` / `--username` で指定できます
+- `.env` や shell history にパスワードを残したくない場合は、`-k` / `--ask-pass` で SSH パスワード、`-K` / `--ask-become-pass` で enable secret を実行時入力できます
 
 ### `collect-all`
 
@@ -451,7 +454,7 @@ alred collect-all --hosts hosts.yaml --show-commands-file show_commands.txt --ou
 
 - ベース収集、追加 show、差分確認を一度にまとめて取りたいとき
 - 収集直後の最新成果物だけを tar で受け渡したいとき
-- `--filter-archive-hosts` を付けると、archive には `--hosts` / `--policy` / `--target-hosts` で決まる実効対象ホストの host 単位成果物だけを含めます
+- `--filter-archive-hosts` を付けると、archive には `-i` / `--inventory` / `--hosts`、`--policy`、`--target-hosts` で決まる実効対象ホストの host 単位成果物だけを含めます
 
 ### `collect-before-work`
 
@@ -622,6 +625,7 @@ uv run python alred.py normalize-links \
 - SVI 由来の description もリンク候補に含めたい場合は `--include-svi` を指定してください
 - `roles.yaml` が実行ディレクトリにあれば、role を使うコマンドは `--roles` 未指定でも既定でそれを利用します
 - `description_rules.yaml` が実行ディレクトリにあれば、`normalize-links` は `--description-rules` 未指定でも既定でそれを利用します
+- 同じ local interface で LLDP と description の対向先が異なる場合、実行結果サマリと出力 CSV の `warning` 列に `lldp-description-mismatch` を出力します
 
 ### `generate-vni-map`
 
@@ -645,7 +649,7 @@ alred generate-vni-config \
 
 正規化済みリンク CSV から containerlab 用 topology YAML を生成します。
 
-`--hosts` 未指定時は `./hosts.lab.yaml` を優先し、なければ `./hosts.yaml` を使います。
+`-i` / `--inventory` / `--hosts` 未指定時は `./hosts.lab.yaml` を優先し、なければ `./hosts.yaml` を使います。
 
 ```sh
 alred generate-clab --hosts hosts.yaml

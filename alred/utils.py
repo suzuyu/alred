@@ -238,6 +238,7 @@ def get_credentials_for_device(args: argparse.Namespace, device_type: str) -> Tu
         raise ValueError(
             "Username/password not provided. Use --username/--password or define "
             "ALRED_USERNAME / ALRED_PASSWORD in .env. "
+            "Use -k/--ask-pass to enter the SSH password at runtime. "
             "For asa/asav you can also use ALRED_FW_USERNAME / ALRED_FW_PASSWORD. "
             "Legacy NW_TOOL_* variables are still supported."
         )

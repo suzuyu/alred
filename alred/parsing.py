@@ -602,6 +602,95 @@ def record_key(r: Dict[str, str]) -> Tuple[str, str, str, str]:
     return (r["src_node"], r["src_if"], r["dst_node"], r["dst_if"])
 
 
+def _format_endpoint(record: Dict[str, str]) -> str:
+    """
+    Format the remote endpoint of a link record.
+
+    Args:
+        record: Link record.
+
+    Returns:
+        node:interface string.
+    """
+    dst_if = record.get("dst_if", "")
+    return f"{record.get('dst_node', '')}:{dst_if}" if dst_if else record.get("dst_node", "")
+
+
+def _description_matches_lldp(lldp_record: Dict[str, str], desc_record: Dict[str, str]) -> bool:
+    """
+    Check whether a description-derived endpoint matches an LLDP endpoint.
+
+    Args:
+        lldp_record: LLDP link record.
+        desc_record: Description-derived link record.
+
+    Returns:
+        True when description remote endpoint matches LLDP.
+    """
+    if lldp_record.get("dst_node", "") != desc_record.get("dst_node", ""):
+        return False
+    desc_dst_if = desc_record.get("dst_if", "")
+    if desc_dst_if and lldp_record.get("dst_if", "") != desc_dst_if:
+        return False
+    return True
+
+
+def _append_link_warning(record: Dict[str, str], warning: str) -> None:
+    """
+    Append a warning string to a link record.
+
+    Args:
+        record: Link record.
+        warning: Warning text.
+    """
+    if not warning:
+        return
+    current = record.get("warning", "")
+    warnings = [item for item in current.split("; ") if item] if current else []
+    if warning not in warnings:
+        warnings.append(warning)
+    record["warning"] = "; ".join(warnings)
+
+
+def _lldp_description_mismatch_warning(
+    lldp_record: Dict[str, str],
+    desc_record: Dict[str, str],
+) -> str:
+    """
+    Build a warning when LLDP and description disagree.
+
+    Args:
+        lldp_record: LLDP link record.
+        desc_record: Description-derived link record.
+
+    Returns:
+        Warning text, or empty string when endpoints match.
+    """
+    if _description_matches_lldp(lldp_record, desc_record):
+        return ""
+    return (
+        "lldp-description-mismatch: "
+        f"lldp={_format_endpoint(lldp_record)} "
+        f"description={_format_endpoint(desc_record)}"
+    )
+
+
+def _local_endpoint_index(records: Iterable[Dict[str, str]]) -> Dict[Tuple[str, str], List[Dict[str, str]]]:
+    """
+    Index link records by local endpoint.
+
+    Args:
+        records: Link records.
+
+    Returns:
+        Mapping of (src_node, src_if) to records.
+    """
+    index: Dict[Tuple[str, str], List[Dict[str, str]]] = {}
+    for record in records:
+        index.setdefault((record.get("src_node", ""), record.get("src_if", "")), []).append(record)
+    return index
+
+
 def merge_lldp_and_description_links(
     lldp_records: Iterable[Dict[str, str]],
     description_records: Iterable[Dict[str, str]],
@@ -627,8 +716,12 @@ def merge_lldp_and_description_links(
     Returns:
         (confirmed, candidates)
     """
+    lldp_records = list(lldp_records)
+    description_records = list(description_records)
     lldp_map: Dict[Tuple[str, str, str, str], Dict[str, str]] = {record_key(r): r for r in lldp_records}
     desc_map: Dict[Tuple[str, str, str, str], Dict[str, str]] = {record_key(r): r for r in description_records}
+    desc_by_local = _local_endpoint_index(description_records)
+    lldp_by_local = _local_endpoint_index(lldp_records)
 
     confirmed: List[Dict[str, str]] = []
     candidates: List[Dict[str, str]] = []
@@ -639,6 +732,7 @@ def merge_lldp_and_description_links(
     desc_bidirectional = 0
     candidate_oneway_desc = 0
     candidate_oneway_lldp = 0
+    lldp_description_mismatches = 0
 
     all_keys = set(lldp_map.keys()) | set(desc_map.keys())
 
@@ -700,9 +794,29 @@ def merge_lldp_and_description_links(
                     candidate_oneway_lldp += 1
 
         if selected:
+            for desc_record in desc_by_local.get((selected.get("src_node", ""), selected.get("src_if", "")), []):
+                if selected.get("protocol", "").startswith("lldp"):
+                    warning = _lldp_description_mismatch_warning(selected, desc_record)
+                    if warning:
+                        _append_link_warning(selected, warning)
+            if selected.get("warning"):
+                lldp_description_mismatches += 1
             confirmed.append(selected)
             emitted.add(canon_key)
         elif candidate:
+            candidate_local = (candidate.get("src_node", ""), candidate.get("src_if", ""))
+            if candidate.get("protocol") == "description":
+                for lldp_record in lldp_by_local.get(candidate_local, []):
+                    warning = _lldp_description_mismatch_warning(lldp_record, candidate)
+                    if warning:
+                        _append_link_warning(candidate, warning)
+            elif candidate.get("protocol") == "lldp":
+                for desc_record in desc_by_local.get(candidate_local, []):
+                    warning = _lldp_description_mismatch_warning(candidate, desc_record)
+                    if warning:
+                        _append_link_warning(candidate, warning)
+            if candidate.get("warning"):
+                lldp_description_mismatches += 1
             candidates.append(candidate)
             emitted.add(canon_key)
 
@@ -712,6 +826,8 @@ def merge_lldp_and_description_links(
         logger.info("Confirmed bidirectional description links: %d", desc_bidirectional)
         logger.info("Candidate one-way description links: %d", candidate_oneway_desc)
         logger.info("Candidate one-way LLDP links: %d", candidate_oneway_lldp)
+        if lldp_description_mismatches:
+            logger.warning("LLDP/description mismatch links: %d", lldp_description_mismatches)
 
     return confirmed, candidates
 
@@ -735,6 +851,7 @@ def write_links_csv(records: List[Dict[str, str]], path: str) -> None:
         "evidence",
         "remote_mgmt_ip",
         "rule_name",
+        "warning",
     ]
     with open(path, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=fields)

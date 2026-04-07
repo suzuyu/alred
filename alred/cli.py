@@ -10,6 +10,7 @@ from copy import deepcopy
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 import difflib
+from getpass import getpass
 import json
 import math
 import os
@@ -19,7 +20,7 @@ from logging import Logger
 from pathlib import Path
 import re
 import shutil
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set, Tuple
 import xml.etree.ElementTree as ET
 
 from dotenv import load_dotenv
@@ -240,6 +241,19 @@ def get_save_config_success_marker(device_type: str) -> str | None:
     return SAVE_CONFIG_SUCCESS_MARKER_MAP.get(device_type)
 
 
+def apply_password_prompt_options(args: argparse.Namespace) -> None:
+    """
+    Apply Ansible-style runtime password prompts to parsed args.
+
+    Args:
+        args: Parsed CLI args.
+    """
+    if getattr(args, "ask_pass", False) and not getattr(args, "password", None):
+        args.password = getpass("SSH password: ")
+    if getattr(args, "ask_become_pass", False) and not getattr(args, "enable_secret", None):
+        args.enable_secret = getpass("Enable secret / become password: ")
+
+
 def connect_to_host(
     host: Dict[str, Any],
     username: str,
@@ -279,7 +293,7 @@ def connect_to_host(
             conn.disconnect()
             raise ValueError(
                 f"{hostname}: device_type={device_type} requires enable secret. "
-                "Use --enable-secret or define ALRED_ENABLE_SECRET."
+                "Use --enable-secret, -K/--ask-become-pass, or define ALRED_ENABLE_SECRET."
             )
         logger.info("ENABLE %s", hostname)
         conn.enable()
@@ -1119,7 +1133,7 @@ def resolve_hosts_path(raw: str | None, required: bool = False) -> str | None:
     Resolve hosts file path.
 
     Priority:
-    1. --hosts value
+    1. -i/--inventory/--hosts value
     2. DEFAULT_HOSTS_PATH if exists
     """
     if raw:
@@ -1129,7 +1143,7 @@ def resolve_hosts_path(raw: str | None, required: bool = False) -> str | None:
         return str(default_path)
     if required:
         raise FileNotFoundError(
-            f"hosts file not found. Specify --hosts or place ./{DEFAULT_HOSTS_PATH}"
+            f"hosts file not found. Specify -i/--inventory/--hosts or place ./{DEFAULT_HOSTS_PATH}"
         )
     return None
 
@@ -1139,7 +1153,7 @@ def resolve_generate_clab_hosts_path(raw: str | None) -> str | None:
     Resolve hosts file path for generate-clab.
 
     Priority:
-    1. --hosts value
+    1. -i/--inventory/--hosts value
     2. ./hosts.lab.yaml if exists
     3. ./hosts.yaml if exists
     """
@@ -4430,6 +4444,87 @@ def cmd_normalize_links(args: argparse.Namespace) -> None:
         write_links_csv(candidates, args.output_candidates)
         logger.info("Wrote %d candidate links to %s", len(candidates), args.output_candidates)
 
+    print_normalize_links_result_summary(confirmed, candidates, args.output_confirmed, args.output_candidates)
+
+
+def collect_lldp_description_mismatch_summary(
+    confirmed: List[Dict[str, str]],
+    candidates: List[Dict[str, str]],
+) -> Tuple[List[str], List[str]]:
+    """
+    Collect human-readable LLDP/description mismatch summary rows.
+
+    Args:
+        confirmed: Confirmed link records.
+        candidates: Candidate link records.
+
+    Returns:
+        (mismatch_hosts, mismatch_details)
+    """
+    hosts = set()
+    details = set()
+
+    for record in confirmed + candidates:
+        warning_text = record.get("warning", "")
+        for warning in [item.strip() for item in warning_text.split(";") if item.strip()]:
+            if not warning.startswith("lldp-description-mismatch"):
+                continue
+            src_node = record.get("src_node", "")
+            src_if = record.get("src_if", "")
+            if src_node:
+                hosts.add(src_node)
+            mismatch = warning.partition(":")[2].strip()
+            for item in mismatch.split():
+                if item.startswith(("lldp=", "description=")):
+                    endpoint = item.partition("=")[2]
+                    hostname = endpoint.partition(":")[0]
+                    if hostname:
+                        hosts.add(hostname)
+            local_endpoint = f"{src_node}:{src_if}" if src_if else src_node
+            details.add(f"{local_endpoint} -> {mismatch}" if mismatch else local_endpoint)
+
+    return sorted(hosts), sorted(details)
+
+
+def print_normalize_links_result_summary(
+    confirmed: List[Dict[str, str]],
+    candidates: List[Dict[str, str]],
+    confirmed_output: str,
+    candidates_output: str | None,
+) -> None:
+    """
+    Print a concise normalize-links result summary.
+
+    Args:
+        confirmed: Confirmed link records.
+        candidates: Candidate link records.
+        confirmed_output: Confirmed CSV path.
+        candidates_output: Candidate CSV path.
+    """
+    mismatch_hosts, mismatch_details = collect_lldp_description_mismatch_summary(confirmed, candidates)
+
+    print("\n### NORMALIZE LINKS RESULT ###")
+    if mismatch_hosts:
+        print("LLDP / Description : MISMATCH")
+        print("")
+        print("Mismatch hosts:")
+        for hostname in mismatch_hosts:
+            print(f"- {hostname}")
+        print("")
+        print("Mismatch links:")
+        for detail in mismatch_details:
+            print(f"- {detail}")
+    else:
+        print("LLDP / Description : OK")
+
+    print("")
+    print(f"Confirmed links output : {confirmed_output}")
+    if candidates_output:
+        print(f"Candidate links output : {candidates_output}")
+    else:
+        print("Candidate links output : disabled")
+    print("##############################")
+
 
 def parse_vni_gateway_state_from_run(text: str, device: str) -> Dict[str, Any]:
     """
@@ -5852,7 +5947,7 @@ def build_parser() -> argparse.ArgumentParser:
         "clab-transform-config",
         help="Transform hosts.yaml and NX-OS running-config files for containerlab / NX-OS 9000v lab use",
     )
-    p_transform.add_argument("--hosts", help=f"Input hosts.yaml (default: ./{DEFAULT_HOSTS_PATH})")
+    p_transform.add_argument("-i", "--inventory", "--hosts", dest="hosts", help=f"Input hosts.yaml (default: ./{DEFAULT_HOSTS_PATH})")
     p_transform.add_argument(
         "--clab-env",
         help="containerlab env YAML used to read mgmt.ipv4-subnet (default: ./clab_merge.yaml if exists)",
@@ -5907,15 +6002,22 @@ def build_parser() -> argparse.ArgumentParser:
         require_show_commands_file: bool = False,
         default_transport: str = "auto",
     ) -> None:
-        p.add_argument("--hosts", help=f"Input hosts.yaml (default: ./{DEFAULT_HOSTS_PATH})")
+        p.add_argument("-i", "--inventory", "--hosts", dest="hosts", help=f"Input hosts.yaml (default: ./{DEFAULT_HOSTS_PATH})")
         p.add_argument("--policy", help="Policy YAML path")
         p.add_argument(
             "--roles",
             help=f"Role detection YAML path for grouped show commands (default: ./{DEFAULT_ROLES_PATH} if exists)",
         )
-        p.add_argument("--username", help="SSH username")
+        p.add_argument("-u", "--user", "--username", dest="username", help="SSH username")
         p.add_argument("--password", help="SSH password")
+        p.add_argument("-k", "--ask-pass", action="store_true", help="Prompt for SSH password at runtime")
         p.add_argument("--enable-secret", help="Enable password for devices that require privileged exec")
+        p.add_argument(
+            "-K",
+            "--ask-become-pass",
+            action="store_true",
+            help="Prompt for enable secret / become password at runtime",
+        )
         p.add_argument(
             "--transport",
             choices=["auto", "nxapi", "ssh"],
@@ -6147,11 +6249,18 @@ def build_parser() -> argparse.ArgumentParser:
         "check-logging",
         help="Check show logging output for recent logs that match severity or custom strings",
     )
-    p_check_logging.add_argument("--hosts", help=f"Input hosts.yaml (default: ./{DEFAULT_HOSTS_PATH})")
+    p_check_logging.add_argument("-i", "--inventory", "--hosts", dest="hosts", help=f"Input hosts.yaml (default: ./{DEFAULT_HOSTS_PATH})")
     p_check_logging.add_argument("--policy", help="Policy YAML path")
-    p_check_logging.add_argument("--username", help="SSH username")
+    p_check_logging.add_argument("-u", "--user", "--username", dest="username", help="SSH username")
     p_check_logging.add_argument("--password", help="SSH password")
+    p_check_logging.add_argument("-k", "--ask-pass", action="store_true", help="Prompt for SSH password at runtime")
     p_check_logging.add_argument("--enable-secret", help="Enable password for devices that require privileged exec")
+    p_check_logging.add_argument(
+        "-K",
+        "--ask-become-pass",
+        action="store_true",
+        help="Prompt for enable secret / become password at runtime",
+    )
     p_check_logging.add_argument(
         "--transport",
         choices=["auto", "nxapi", "ssh"],
@@ -6218,11 +6327,18 @@ def build_parser() -> argparse.ArgumentParser:
         "clab-set-cmds",
         help="Run the predefined collect/normalize/containerlab/Mermaid/VNI pipeline",
     )
-    p_clab_set.add_argument("--hosts", help=f"Input hosts.yaml (default: ./{DEFAULT_HOSTS_PATH})")
+    p_clab_set.add_argument("-i", "--inventory", "--hosts", dest="hosts", help=f"Input hosts.yaml (default: ./{DEFAULT_HOSTS_PATH})")
     p_clab_set.add_argument("--policy", help="Policy YAML path")
-    p_clab_set.add_argument("--username", help="SSH username")
+    p_clab_set.add_argument("-u", "--user", "--username", dest="username", help="SSH username")
     p_clab_set.add_argument("--password", help="SSH password")
+    p_clab_set.add_argument("-k", "--ask-pass", action="store_true", help="Prompt for SSH password at runtime")
     p_clab_set.add_argument("--enable-secret", help="Enable password for devices that require privileged exec")
+    p_clab_set.add_argument(
+        "-K",
+        "--ask-become-pass",
+        action="store_true",
+        help="Prompt for enable secret / become password at runtime",
+    )
     p_clab_set.add_argument(
         "--transport",
         choices=["auto", "nxapi", "ssh"],
@@ -6267,15 +6383,22 @@ def build_parser() -> argparse.ArgumentParser:
     p_clab_set.set_defaults(func=cmd_clab_set_cmds)
 
     def add_push_target_arguments(p: argparse.ArgumentParser) -> None:
-        p.add_argument("--hosts", help=f"Input hosts.yaml (default: ./{DEFAULT_HOSTS_PATH})")
+        p.add_argument("-i", "--inventory", "--hosts", dest="hosts", help=f"Input hosts.yaml (default: ./{DEFAULT_HOSTS_PATH})")
         p.add_argument("--policy", help="Policy YAML path")
         p.add_argument(
             "--roles",
             help=f"Role detection YAML path (default: ./{DEFAULT_ROLES_PATH} if exists)",
         )
-        p.add_argument("--username", help="SSH username")
+        p.add_argument("-u", "--user", "--username", dest="username", help="SSH username")
         p.add_argument("--password", help="SSH password")
+        p.add_argument("-k", "--ask-pass", action="store_true", help="Prompt for SSH password at runtime")
         p.add_argument("--enable-secret", help="Enable password for devices that require privileged exec")
+        p.add_argument(
+            "-K",
+            "--ask-become-pass",
+            action="store_true",
+            help="Prompt for enable secret / become password at runtime",
+        )
         p.add_argument(
             "--target-hosts",
             help="Comma-separated target hostnames (default: all hosts selected by policy)",
@@ -6353,7 +6476,7 @@ def build_parser() -> argparse.ArgumentParser:
         "normalize-links",
         help="Parse raw LLDP/running-config output and generate confirmed/candidate CSV",
     )
-    p_norm.add_argument("--hosts", help=f"Input hosts.yaml (default: ./{DEFAULT_HOSTS_PATH})")
+    p_norm.add_argument("-i", "--inventory", "--hosts", dest="hosts", help=f"Input hosts.yaml (default: ./{DEFAULT_HOSTS_PATH})")
     p_norm.add_argument(
         "--input",
         default=default_raw_dir,
@@ -6389,7 +6512,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=f"{default_links_dir}/{DEFAULT_LINKS_CONFIRMED_FILENAME}",
         help="Input confirmed links CSV",
     )
-    p_gen.add_argument("--hosts", help="Input hosts YAML (default: ./hosts.lab.yaml, then ./hosts.yaml)")
+    p_gen.add_argument("-i", "--inventory", "--hosts", dest="hosts", help="Input hosts YAML (default: ./hosts.lab.yaml, then ./hosts.yaml)")
     p_gen.add_argument("--mappings", help="Mappings YAML path")
     p_gen.add_argument("--roles", help=f"Role detection YAML path (default: ./{DEFAULT_ROLES_PATH} if exists)")
     p_gen.add_argument("--min-confidence", choices=["low", "medium", "high"], default="low")
@@ -6444,7 +6567,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Input confirmed links CSV",
     )
     p_mermaid.add_argument("--input-candidates", help="Optional input candidate links CSV")
-    p_mermaid.add_argument("--hosts", help=f"Input hosts.yaml (default: ./{DEFAULT_HOSTS_PATH} if exists)")
+    p_mermaid.add_argument("-i", "--inventory", "--hosts", dest="hosts", help=f"Input hosts.yaml (default: ./{DEFAULT_HOSTS_PATH} if exists)")
     p_mermaid.add_argument("--mappings", help="Mappings YAML path")
     p_mermaid.add_argument("--roles", help=f"Role detection YAML path (default: ./{DEFAULT_ROLES_PATH} if exists)")
     p_mermaid.add_argument("--min-confidence", choices=["low", "medium", "high"], default="low")
@@ -6475,7 +6598,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Input confirmed links CSV",
     )
     p_graphviz.add_argument("--input-candidates", help="Optional input candidate links CSV")
-    p_graphviz.add_argument("--hosts", help=f"Input hosts.yaml (default: ./{DEFAULT_HOSTS_PATH} if exists)")
+    p_graphviz.add_argument("-i", "--inventory", "--hosts", dest="hosts", help=f"Input hosts.yaml (default: ./{DEFAULT_HOSTS_PATH} if exists)")
     p_graphviz.add_argument("--mappings", help="Mappings YAML path")
     p_graphviz.add_argument("--roles", help=f"Role detection YAML path (default: ./{DEFAULT_ROLES_PATH} if exists)")
     p_graphviz.add_argument("--min-confidence", choices=["low", "medium", "high"], default="low")
@@ -6506,7 +6629,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Input confirmed links CSV",
     )
     p_drawio.add_argument("--input-candidates", help="Optional input candidate links CSV")
-    p_drawio.add_argument("--hosts", help=f"Input hosts.yaml (default: ./{DEFAULT_HOSTS_PATH} if exists)")
+    p_drawio.add_argument("-i", "--inventory", "--hosts", dest="hosts", help=f"Input hosts.yaml (default: ./{DEFAULT_HOSTS_PATH} if exists)")
     p_drawio.add_argument("--mappings", help="Mappings YAML path")
     p_drawio.add_argument("--roles", help=f"Role detection YAML path (default: ./{DEFAULT_ROLES_PATH} if exists)")
     p_drawio.add_argument("--min-confidence", choices=["low", "medium", "high"], default="low")
@@ -6534,7 +6657,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_doc = subparsers.add_parser("generate-doc", help="Generate both containerlab YAML and Mermaid markdown")
     p_doc.add_argument("--input", required=True, help="Input confirmed links CSV")
     p_doc.add_argument("--input-candidates", help="Optional input candidate links CSV")
-    p_doc.add_argument("--hosts", help=f"Input hosts.yaml (default: ./{DEFAULT_HOSTS_PATH} if exists)")
+    p_doc.add_argument("-i", "--inventory", "--hosts", dest="hosts", help=f"Input hosts.yaml (default: ./{DEFAULT_HOSTS_PATH} if exists)")
     p_doc.add_argument("--mappings", help="Mappings YAML path")
     p_doc.add_argument("--roles", help=f"Role detection YAML path (default: ./{DEFAULT_ROLES_PATH} if exists)")
     p_doc.add_argument("--min-confidence", choices=["low", "medium", "high"], default="low")
@@ -6622,11 +6745,18 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Do not run collect-run-config when --before-vni-csv is not provided; generate add-only config",
     )
-    p_vni_cfg.add_argument("--hosts", help=f"Input hosts.yaml (default: ./{DEFAULT_HOSTS_PATH})")
+    p_vni_cfg.add_argument("-i", "--inventory", "--hosts", dest="hosts", help=f"Input hosts.yaml (default: ./{DEFAULT_HOSTS_PATH})")
     p_vni_cfg.add_argument("--policy", help="Policy YAML path")
-    p_vni_cfg.add_argument("--username", help="SSH username")
+    p_vni_cfg.add_argument("-u", "--user", "--username", dest="username", help="SSH username")
     p_vni_cfg.add_argument("--password", help="SSH password")
+    p_vni_cfg.add_argument("-k", "--ask-pass", action="store_true", help="Prompt for SSH password at runtime")
     p_vni_cfg.add_argument("--enable-secret", help="Enable password for devices that require privileged exec")
+    p_vni_cfg.add_argument(
+        "-K",
+        "--ask-become-pass",
+        action="store_true",
+        help="Prompt for enable secret / become password at runtime",
+    )
     p_vni_cfg.add_argument(
         "--transport",
         choices=["auto", "nxapi", "ssh"],
@@ -6687,7 +6817,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_vni_cfg.set_defaults(func=cmd_generate_vni_config)
 
     p_tf = subparsers.add_parser("generate-tf", help="Generate Terraform main.tf from hosts.yaml")
-    p_tf.add_argument("--hosts", help=f"Input hosts.yaml (default: ./{DEFAULT_HOSTS_PATH})")
+    p_tf.add_argument("-i", "--inventory", "--hosts", dest="hosts", help=f"Input hosts.yaml (default: ./{DEFAULT_HOSTS_PATH})")
     p_tf.add_argument("--roles", help=f"Role detection YAML path (default: ./{DEFAULT_ROLES_PATH} if exists)")
     p_tf.add_argument("--provider-version", help='Terraform provider version constraint, e.g. ">= 0.5.0"')
     p_tf.add_argument("--output", required=True, help="Output main.tf")
@@ -6712,4 +6842,5 @@ def main() -> None:
     load_dotenv()
     parser = build_parser()
     args = parser.parse_args()
+    apply_password_prompt_options(args)
     args.func(args)

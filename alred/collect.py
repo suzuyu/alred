@@ -161,7 +161,7 @@ class SshCollector(BaseCollector):
                 self._conn = None
                 raise ValueError(
                     f"{self.hostname}: device_type={self.device_type} requires enable secret. "
-                    "Use --enable-secret or define ALRED_ENABLE_SECRET."
+                    "Use --enable-secret, -K/--ask-become-pass, or define ALRED_ENABLE_SECRET."
                 )
             self.logger.info("ENABLE %s transport=ssh", self.hostname)
             self._conn.enable()
