@@ -24,6 +24,12 @@ _VRF_MGMT_HEADER_RE = re.compile(r"^vrf context management\s*$", re.IGNORECASE)
 _MGMT0_HEADER_RE = re.compile(r"^interface\s+mgmt0\s*$", re.IGNORECASE)
 _ENCAP_DOT1Q_RE = re.compile(r"^\s*encapsulation\s+dot1q\s+(\d+)\s*$", re.IGNORECASE)
 _IP_TOKEN_RE = re.compile(r"(?<![\d.])((?:\d{1,3}\.){3}\d{1,3})(/\d{1,2})?(?![\d.])")
+_IP_ADDRESS_LINE_RE = re.compile(r"^\s*ip address\s+\S+", re.IGNORECASE)
+_NO_SWITCHPORT_LINE_RE = re.compile(r"^\s*no switchport\s*$", re.IGNORECASE)
+_L3_SWITCHPORT_COMPATIBLE_INTERFACE_RE = re.compile(
+    r"^interface\s+(?:Ethernet|port-channel)\S*\s*$",
+    re.IGNORECASE,
+)
 
 
 @dataclass
@@ -252,6 +258,42 @@ def rewrite_management_sections(section: List[str], target_subnet: Optional[ipad
     return list(section)
 
 
+def ensure_no_switchport_for_l3_interface(section: List[str]) -> List[str]:
+    """
+    Insert ``no switchport`` into routed-capable interface sections that have an IP address.
+    """
+    if not section:
+        return list(section)
+
+    header = section[0].strip()
+    if not _L3_SWITCHPORT_COMPATIBLE_INTERFACE_RE.match(header):
+        return list(section)
+
+    has_ip_address = any(_IP_ADDRESS_LINE_RE.match(line) for line in section[1:])
+    has_no_switchport = any(_NO_SWITCHPORT_LINE_RE.match(line) for line in section[1:])
+    if not has_ip_address or has_no_switchport:
+        return list(section)
+
+    updated = [section[0]]
+    insert_at = 1
+    while insert_at < len(section) and re.match(r"^\s*description\b", section[insert_at], re.IGNORECASE):
+        updated.append(section[insert_at])
+        insert_at += 1
+
+    updated.append("  no switchport")
+    updated.extend(section[insert_at:])
+    return updated
+
+
+def count_inserted_no_switchport(original: List[str], updated: List[str]) -> int:
+    """
+    Return 1 when ``no switchport`` was added by transformation, otherwise 0.
+    """
+    if any(_NO_SWITCHPORT_LINE_RE.match(line) for line in original[1:]):
+        return 0
+    return int(any(_NO_SWITCHPORT_LINE_RE.match(line) for line in updated[1:]))
+
+
 def analyze_subinterface_conversions(sections: List[List[str]]) -> Tuple[List[SubinterfaceConversion], set[int], set[int], set[str]]:
     """
     Scan sections and collect sub-interface conversion candidates plus existing targets.
@@ -347,6 +389,7 @@ def transform_run_config_text(text: str, target_subnet: Optional[ipaddress.IPv4N
     inserted_vlan_ids: set[int] = set()
     processed_existing_svis: set[int] = set()
     processed_existing_parents: set[str] = set()
+    inserted_no_switchport = 0
 
     for section in sections:
         if not section:
@@ -411,6 +454,9 @@ def transform_run_config_text(text: str, target_subnet: Optional[ipaddress.IPv4N
                     ),
                 )
                 processed_existing_parents.add(interface_name)
+            original_section = list(rewritten_section)
+            rewritten_section = ensure_no_switchport_for_l3_interface(rewritten_section)
+            inserted_no_switchport += count_inserted_no_switchport(original_section, rewritten_section)
             new_sections.append(rewritten_section)
             continue
 
@@ -440,4 +486,5 @@ def transform_run_config_text(text: str, target_subnet: Optional[ipaddress.IPv4N
         "generated_parent_interfaces": len(missing_parents),
         "merged_existing_parent_interfaces": len(processed_existing_parents & existing_parents),
         "merged_existing_svis": len(processed_existing_svis & existing_svis),
+        "inserted_no_switchport": inserted_no_switchport,
     }

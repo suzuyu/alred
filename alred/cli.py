@@ -3277,13 +3277,14 @@ def cmd_transform_config(args: argparse.Namespace) -> None:
         output_path.write_text(transformed_text, encoding="utf-8")
         transformed_count += 1
         logger.info(
-            "WROTE LAB CONFIG %s subif_conversions=%d mgmt_sections=%d parent_added=%d parent_merged=%d svi_merged=%d",
+            "WROTE LAB CONFIG %s subif_conversions=%d mgmt_sections=%d parent_added=%d parent_merged=%d svi_merged=%d no_switchport_added=%d",
             output_path,
             stats["subinterface_conversions"],
             stats["management_section_updates"],
             stats["generated_parent_interfaces"],
             stats["merged_existing_parent_interfaces"],
             stats["merged_existing_svis"],
+            stats["inserted_no_switchport"],
         )
 
     logger.info(

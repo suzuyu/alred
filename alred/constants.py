@@ -124,11 +124,11 @@ DEFAULT_DESCRIPTION_RULES = {
     "description_rules": [
         {
             "name": "to_hostname_interface",
-            "regex": r"TO[_ -]?(?P<remote_host>[A-Za-z0-9._-]+)[_ -]+(?P<remote_if>(?:Eth|eth|Ethernet|Gi|gi|GigabitEthernet|Te|te|TenGigabitEthernet|Po|po|Port-channel|port-channel|ens|enp|eno|bond|br)\S*)",
+            "regex": r"TO[_ -]?(?P<remote_host>[A-Za-z0-9._-]+)[_ -]+(?P<remote_if>(?:Eth|eth|Ethernet|Fa|fa|FastEthernet|Gi|gi|GigabitEthernet|Te|te|TenGigabitEthernet|Po|po|Port-channel|ens|enp|eno|bond|br|IPMI|ipmi|BMC|bmc|IBMC|ibmc|LAN|lan)\S*)",
         },
         {
             "name": "hostname_interface_space",
-            "regex": r"(?P<remote_host>[A-Za-z0-9._-]+)[ _:-]+(?P<remote_if>(?:Eth|eth|Ethernet|Gi|gi|GigabitEthernet|Te|te|TenGigabitEthernet|Po|po|Port-channel|port-channel|ens|enp|eno|bond|br)\S*)",
+            "regex": r"(?P<remote_host>[A-Za-z0-9._-]+)[ _:-]+(?P<remote_if>(?:Eth|eth|Ethernet|Fa|fa|FastEthernet|Gi|gi|GigabitEthernet|Te|te|TenGigabitEthernet|Po|po|Port-channel|ens|enp|eno|bond|br|IPMI|ipmi|BMC|bmc|IBMC|ibmc|LAN|lan)\S*)",
         },
         {
             "name": "hostname_only",

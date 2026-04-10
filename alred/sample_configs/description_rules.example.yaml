@@ -28,7 +28,7 @@ description_rules:
     #   description to bgrt0101 Po10
     #   description to accesssw01 Gi1/0/1
     #   description tenant1-server01 ens2
-    regex: 'TO[_ -]?(?P<remote_host>[A-Za-z0-9._-]+)[_ -]+(?P<remote_if>(?:Eth|eth|Ethernet|Gi|gi|GigabitEthernet|Te|te|TenGigabitEthernet|Po|po|Port-channel|ens|enp|eno|bond|br)\S*)'
+    regex: 'TO[_ -]?(?P<remote_host>[A-Za-z0-9._-]+)[_ -]+(?P<remote_if>(?:Eth|eth|Ethernet|Fa|fa|FastEthernet|Gi|gi|GigabitEthernet|Te|te|TenGigabitEthernet|Po|po|Port-channel|ens|enp|eno|bond|br|IPMI|ipmi|BMC|bmc|IBMC|ibmc|LAN|lan)\S*)'
 
   - name: hostname_interface_space
     # 例:
@@ -38,7 +38,7 @@ description_rules:
     #   description accesssw01 Gi1/0/1
     #   description distsw01 Te1/1
     #   description tenant1-server01 ens2
-    regex: '(?P<remote_host>[A-Za-z0-9._-]+)[ _:-]+(?P<remote_if>(?:Eth|eth|Ethernet|Gi|gi|GigabitEthernet|Te|te|TenGigabitEthernet|Po|po|Port-channel|ens|enp|eno|bond|br)\S*)'
+    regex: '(?P<remote_host>[A-Za-z0-9._-]+)[ _:-]+(?P<remote_if>(?:Eth|eth|Ethernet|Fa|fa|FastEthernet|Gi|gi|GigabitEthernet|Te|te|TenGigabitEthernet|Po|po|Port-channel|ens|enp|eno|bond|br|IPMI|ipmi|BMC|bmc|IBMC|ibmc|LAN|lan)\S*)'
 
   - name: hostname_only
     # 例:
