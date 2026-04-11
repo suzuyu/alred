@@ -59,9 +59,9 @@ checksum ファイル名の例:
 
 ```sh
 curl -fL -o alred-linux-x86_64 \
-  https://github.com/suzuyu/alred/releases/latest/download/alred-linux-x86_64
+  https://github.com/suzuyu/alred/releases/latest/download/alred-linux-x86_64-glibc217
 curl -fL -o alred-linux-x86_64.sha256 \
-  https://github.com/suzuyu/alred/releases/latest/download/alred-linux-x86_64.sha256
+  https://github.com/suzuyu/alred/releases/latest/download/alred-linux-x86_64-glibc217.sha256
 ```
 
 特定 version を指定する場合の例:
@@ -77,7 +77,7 @@ curl -fL -o alred-linux-x86_64.sha256 \
 
 ```sh
 mkdir -p "$HOME/bin"
-cp ./alred-linux-x86_64 "$HOME/bin/alred"
+cp ./alred-linux-x86_64-glibc217 "$HOME/bin/alred"
 chmod +x "$HOME/bin/alred"
 echo 'export PATH=$HOME/bin:$PATH' >> ~/.bashrc
 source ~/.bashrc
@@ -88,7 +88,7 @@ alred --help
 checksum 確認例:
 
 ```sh
-sha256sum -c alred-linux-x86_64.sha256
+sha256sum -c alred-linux-x86_64-glibc217.sha256
 ```
 
 補足:
@@ -215,6 +215,8 @@ alred clab-set-cmds --hosts hosts.yaml
 `clab_merge.yaml`、`clab_lab_profile.yaml`、`clab_linux_server.csv`、`clab_kind_cluster.csv` がカレントディレクトリに存在する場合は、自動で取り込まれます。
 
 設定ファイルや入力形式の詳細は [CONFIG.md](./CONFIG.md) を参照してください。
+
+containerlab を起動したあとは、必要に応じて `check-clab-startup-config` で lab ノードの `running-config` と `raw/labconfig/` の投入元 config を比較できます。
 
 ## 設定準備
 
@@ -368,7 +370,7 @@ alred prepare-hosts --input hosts.txt --output hosts.yaml
 
 ### `clab-transform-config`
 
-`hosts.yaml` と `raw/config/<hostname>_run.txt` を元に、lab 用の管理 IP と NX-OS 9000v 非対応の L2 sub-interface を変換します。
+`hosts.yaml` と `raw/config/<hostname>_run.txt` を元に、lab 用の管理 IP と NX-OS 9000v 非対応の L2 sub-interface、L3 Interface へ`no switchport`を追加する変換をします。
 
 出力:
 
@@ -668,6 +670,34 @@ alred generate-clab \
 ```
 
 merge 用 YAML、Linux サーバ CSV、Kind クラスタ CSV の詳細は [CONFIG.md](./CONFIG.md) を参照してください。
+
+### `check-clab-startup-config`
+
+containerlab 起動後に、lab ノードへ接続して live の `show running-config` を取得し、`clab-transform-config` で生成した startup-config と比較します。
+
+`-i` / `--inventory` / `--hosts` 未指定時は `./hosts.lab.yaml` を優先し、なければ `./hosts.yaml` を使います。
+
+```sh
+alred check-clab-startup-config
+```
+
+例:
+
+```sh
+alred check-clab-startup-config \
+  --hosts hosts.lab.yaml \
+  --startup-dir raw/labconfig \
+  --target-hosts lfsw0101,lfsw0102
+```
+
+主なポイント:
+
+- `raw/labconfig/<hostname>_run.txt` を期待する startup-config、lab ノードの `show running-config` を実際の起動後 config として比較します
+- 改行だけの差分や、既存の running-config diff 除外ルールに含まれる行は比較時に無視します
+- live の running-config は `<output>/check-clab-startup-config/current/` に保存されます
+- レポートは `<output>/check-clab-startup-config/check-clab-startup-config.txt` に保存されます
+- `--target-hosts` で一部ノードだけ確認できます
+- 接続前の疎通確認を飛ばしたい場合は `--skip-connect-check` を指定できます
 
 ### `generate-mermaid`
 

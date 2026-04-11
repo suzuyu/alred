@@ -241,6 +241,21 @@ def get_save_config_success_marker(device_type: str) -> str | None:
     return SAVE_CONFIG_SUCCESS_MARKER_MAP.get(device_type)
 
 
+def normalize_run_lines_for_diff(text: str, device_type: str) -> List[str]:
+    """
+    Normalize running-config lines for diff comparison.
+    """
+    lines = [line.rstrip("\r") for line in text.splitlines()]
+    prefixes = RUNNING_CONFIG_DIFF_EXCLUDE_PREFIXES_MAP.get(device_type, [])
+    if prefixes:
+        lines = [line for line in lines if not any(line.lstrip().startswith(prefix) for prefix in prefixes)]
+
+    # Ignore newline-only differences at the end of config snapshots.
+    while lines and not lines[-1].strip():
+        lines.pop()
+    return lines
+
+
 def apply_password_prompt_options(args: argparse.Namespace) -> None:
     """
     Apply Ansible-style runtime password prompts to parsed args.
@@ -357,16 +372,6 @@ def collect_from_host(
     result: Dict[str, str] = {}
     rotation_limit = get_log_rotation_limit()
     rotated_output_keys: set[tuple[str, str]] = set()
-
-    def normalize_run_lines_for_diff(text: str, host_device_type: str) -> List[str]:
-        """
-        Normalize running-config lines for diff comparison.
-        """
-        lines = text.splitlines()
-        prefixes = RUNNING_CONFIG_DIFF_EXCLUDE_PREFIXES_MAP.get(host_device_type, [])
-        if not prefixes:
-            return lines
-        return [line for line in lines if not any(line.lstrip().startswith(p) for p in prefixes)]
 
     def prune_old_generations(old_dir: Path) -> None:
         """
@@ -3853,6 +3858,225 @@ def cmd_check_logging(args: argparse.Namespace) -> None:
     print("\n".join(report_lines[host_check_start:host_check_end]).rstrip())
 
 
+def check_clab_startup_config_for_host(
+    host: Dict[str, Any],
+    username: str,
+    password: str,
+    enable_secret: str,
+    startup_dir: Path,
+    current_dir: Path,
+    logger: Logger,
+) -> Dict[str, Any]:
+    """
+    Compare generated startup-config and live running-config for one lab host.
+    """
+    hostname = str(host.get("hostname", ""))
+    device_type = str(host.get("device_type", ""))
+    startup_path = startup_dir / f"{hostname}_run.txt"
+
+    result: Dict[str, Any] = {
+        "hostname": hostname,
+        "device_type": device_type,
+        "startup_path": str(startup_path),
+        "status": "unknown",
+    }
+
+    if not startup_path.exists():
+        result["status"] = "missing-startup"
+        result["message"] = f"startup-config not found: {startup_path}"
+        return result
+
+    try:
+        run_cmd = get_running_config_command(device_type)
+    except ValueError as exc:
+        result["status"] = "unsupported"
+        result["message"] = str(exc)
+        return result
+
+    expected_text = startup_path.read_text(encoding="utf-8", errors="ignore")
+    conn = connect_to_host(host, username, password, enable_secret, logger)
+    try:
+        logger.info("RUN %s: %s (for check-clab-startup-config)", hostname, run_cmd)
+        current_text = conn.send_command(run_cmd, read_timeout=300)
+    finally:
+        conn.disconnect()
+
+    current_path = current_dir / f"{hostname}_run.txt"
+    current_path.parent.mkdir(parents=True, exist_ok=True)
+    current_path.write_text(current_text.rstrip() + "\n", encoding="utf-8")
+    result["current_path"] = str(current_path)
+
+    expected_lines = normalize_run_lines_for_diff(expected_text, device_type)
+    current_lines = normalize_run_lines_for_diff(current_text, device_type)
+    if expected_lines == current_lines:
+        result["status"] = "matched"
+        return result
+
+    result["status"] = "diff"
+    result["diff_lines"] = list(
+        difflib.unified_diff(
+            expected_lines,
+            current_lines,
+            fromfile=f"{hostname}_startup-config",
+            tofile=f"{hostname}_running-config",
+            lineterm="",
+        )
+    )
+    return result
+
+
+def cmd_check_clab_startup_config(args: argparse.Namespace) -> None:
+    """
+    Verify that lab nodes booted with the expected startup-config.
+    """
+    logger = setup_logging(args.log_file, args.verbose)
+    hosts_path = resolve_generate_clab_hosts_path(args.hosts)
+    if not hosts_path:
+        raise FileNotFoundError(
+            "hosts file not found. Specify -i/--inventory/--hosts or place ./hosts.lab.yaml"
+        )
+
+    inventory_data = load_yaml(hosts_path)
+    hosts = load_inventory_data(inventory_data)
+    policy = load_policy_file(args.policy)
+    target_hosts = parse_host_filter(args.target_hosts)
+    targets, skipped = select_target_hosts(
+        hosts,
+        policy,
+        logger,
+        target_hosts=target_hosts,
+    )
+
+    startup_dir = Path(args.startup_dir)
+    output_dir = Path(args.output_dir)
+    current_dir = output_dir / "current"
+    report_path = output_dir / "check-clab-startup-config.txt"
+
+    logger.info("Loaded %d hosts from %s", len(hosts), hosts_path)
+    logger.info("Startup config dir=%s", startup_dir)
+    logger.info("Check targets=%d skipped=%d workers=%d", len(targets), skipped, max(1, args.workers))
+
+    targets, connect_failures = filter_hosts_by_connect_check(targets, args, logger)
+    skipped += len(connect_failures)
+    print_connect_check_failures("CHECK CLAB STARTUP", connect_failures)
+
+    results: List[Dict[str, Any]] = []
+    for failure in connect_failures:
+        results.append(
+            {
+                "hostname": failure.hostname,
+                "device_type": failure.device_type,
+                "status": "connect-failed",
+                "message": failure.error or "connect check failed",
+            }
+        )
+
+    if targets:
+        with ThreadPoolExecutor(max_workers=max(1, args.workers)) as executor:
+            future_to_host = {
+                executor.submit(
+                    check_clab_startup_config_for_host,
+                    host,
+                    *get_credentials_for_device(args, str(host.get("device_type", ""))),
+                    startup_dir,
+                    current_dir,
+                    logger,
+                ): host
+                for host in targets
+            }
+            for future in as_completed(future_to_host):
+                host = future_to_host[future]
+                try:
+                    results.append(future.result())
+                except Exception as exc:
+                    logger.exception("FAILED %s: %s", host["hostname"], exc)
+                    results.append(
+                        {
+                            "hostname": host["hostname"],
+                            "device_type": host.get("device_type", "unknown"),
+                            "status": "failed",
+                            "message": str(exc),
+                        }
+                    )
+
+    counts = {
+        "matched": 0,
+        "diff": 0,
+        "missing-startup": 0,
+        "unsupported": 0,
+        "connect-failed": 0,
+        "failed": 0,
+    }
+    for item in results:
+        status = str(item.get("status", "unknown"))
+        if status in counts:
+            counts[status] += 1
+
+    report_lines = [
+        "### CLAB STARTUP CONFIG CHECK SUMMARY",
+        f"hosts_file: {hosts_path}",
+        f"startup_dir: {startup_dir}",
+        f"current_dir: {current_dir}",
+        f"matched: {counts['matched']}",
+        f"diff: {counts['diff']}",
+        f"missing_startup: {counts['missing-startup']}",
+        f"unsupported: {counts['unsupported']}",
+        f"connect_failed: {counts['connect-failed']}",
+        f"failed: {counts['failed']}",
+        f"skipped: {skipped}",
+        "",
+        "### HOST RESULT SUMMARY",
+    ]
+    for item in sorted(results, key=lambda x: str(x.get("hostname", ""))):
+        hostname = str(item.get("hostname", ""))
+        status = str(item.get("status", "unknown"))
+        message = str(item.get("message", ""))
+        line = f"- {hostname}: {status}"
+        if message:
+            line += f" ({message})"
+        report_lines.append(line)
+
+    detail_items = [
+        item for item in sorted(results, key=lambda x: str(x.get("hostname", "")))
+        if str(item.get("status", "")) != "matched"
+    ]
+    if detail_items:
+        report_lines.extend(["", "### HOST DETAILS"])
+        for item in detail_items:
+            report_lines.extend(
+                [
+                    "",
+                    f"### HOST: {item.get('hostname', '')}",
+                    f"### STATUS: {item.get('status', '')}",
+                    f"### DEVICE_TYPE: {item.get('device_type', '')}",
+                ]
+            )
+            if item.get("startup_path"):
+                report_lines.append(f"### STARTUP_PATH: {item['startup_path']}")
+            if item.get("current_path"):
+                report_lines.append(f"### CURRENT_PATH: {item['current_path']}")
+            if item.get("message"):
+                report_lines.append(f"### MESSAGE: {item['message']}")
+            diff_lines = item.get("diff_lines", [])
+            if diff_lines:
+                report_lines.extend(["### DIFF", *diff_lines])
+
+    write_text(report_path, report_lines)
+    logger.info("Wrote startup-config verification report to %s", report_path)
+
+    summary_lines = [
+        "### CLAB STARTUP CONFIG CHECK SUMMARY",
+        f"matched: {counts['matched']}",
+        f"diff: {counts['diff']}",
+        f"missing_startup: {counts['missing-startup']}",
+        f"unsupported: {counts['unsupported']}",
+        f"connect_failed: {counts['connect-failed']}",
+        f"failed: {counts['failed']}",
+        f"report: {report_path}",
+    ]
+    print("\n".join(summary_lines))
+
+
 def run_collect_all_flow(args: argparse.Namespace, logger: Logger) -> Path:
     """
     Run all collect-family flows and package current outputs.
@@ -6323,6 +6547,62 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_check_logging.add_argument("--verbose", action="store_true", help="Verbose logging")
     p_check_logging.set_defaults(func=cmd_check_logging)
+
+    p_check_clab_startup = subparsers.add_parser(
+        "check-clab-startup-config",
+        help="Compare generated startup-config and live running-config on lab nodes",
+    )
+    p_check_clab_startup.add_argument(
+        "-i",
+        "--inventory",
+        "--hosts",
+        dest="hosts",
+        help="Input hosts YAML (default: ./hosts.lab.yaml, then ./hosts.yaml)",
+    )
+    p_check_clab_startup.add_argument("--policy", help="Policy YAML path")
+    p_check_clab_startup.add_argument("-u", "--user", "--username", dest="username", help="SSH username")
+    p_check_clab_startup.add_argument("--password", help="SSH password")
+    p_check_clab_startup.add_argument("-k", "--ask-pass", action="store_true", help="Prompt for SSH password at runtime")
+    p_check_clab_startup.add_argument("--enable-secret", help="Enable password for devices that require privileged exec")
+    p_check_clab_startup.add_argument(
+        "-K",
+        "--ask-become-pass",
+        action="store_true",
+        help="Prompt for enable secret / become password at runtime",
+    )
+    p_check_clab_startup.add_argument(
+        "--target-hosts",
+        help="Comma-separated target hostnames for startup-config verification",
+    )
+    p_check_clab_startup.add_argument(
+        "--startup-dir",
+        default=f"{default_raw_dir}/labconfig",
+        help="Directory containing generated startup-config files (<hostname>_run.txt)",
+    )
+    p_check_clab_startup.add_argument(
+        "--output-dir",
+        default=f"{default_output_dir}/check-clab-startup-config",
+        help="Output directory for current running-config snapshots and report",
+    )
+    p_check_clab_startup.add_argument("--workers", type=int, default=5, help="Number of parallel device checks")
+    p_check_clab_startup.add_argument(
+        "--skip-connect-check",
+        action="store_true",
+        help="Skip default pre-flight connectivity/authentication checks before device operations",
+    )
+    p_check_clab_startup.add_argument(
+        "--connect-check-timeout",
+        type=float,
+        default=DEFAULT_CONNECT_CHECK_TIMEOUT,
+        help="Timeout in seconds for pre-flight TCP/authentication checks",
+    )
+    p_check_clab_startup.add_argument(
+        "--log-file",
+        default=f"{default_log_dir}/check-clab-startup-config.log",
+        help="Log file path",
+    )
+    p_check_clab_startup.add_argument("--verbose", action="store_true", help="Verbose logging")
+    p_check_clab_startup.set_defaults(func=cmd_check_clab_startup_config)
 
     p_clab_set = subparsers.add_parser(
         "clab-set-cmds",
