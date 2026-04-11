@@ -135,6 +135,24 @@ alred --version
 alred --help
 ```
 
+Tab 補完を使いたい場合は、`alred` 自身が補完スクリプトを出力できます。`alred <TAB>` でサブコマンドやオプション、`--target-hosts` / `--show-hosts` では `hosts.yaml` / `hosts.lab.yaml` 由来のホスト名候補を補完できます。
+
+```sh
+source <(alred completion bash)
+```
+
+bash に永続化する場合は `~/.bashrc` に次を追加します。
+
+```sh
+source <(alred completion bash)
+```
+
+zsh に永続化する場合は `~/.zshrc` に次を追加します。
+
+```sh
+source <(alred completion zsh)
+```
+
 ### 3. 開発・検証用途: リポジトリをそのまま使う
 
 開発やローカル検証では、Python 3.11 以上と `uv` が必要です。

@@ -1187,6 +1187,270 @@ def resolve_show_commands_path(raw: str | None) -> str | None:
     return None
 
 
+def _inventory_completion_candidates(parsed_args: argparse.Namespace) -> List[str]:
+    """
+    Return hostname candidates from the best available inventory file.
+    """
+    inventory_candidates: List[str] = []
+    raw_hosts = getattr(parsed_args, "hosts", None)
+    if raw_hosts:
+        inventory_candidates.append(str(raw_hosts))
+    inventory_candidates.extend(["hosts.lab.yaml", DEFAULT_HOSTS_PATH])
+
+    for path_str in inventory_candidates:
+        path = Path(path_str)
+        if not path.exists() or not path.is_file():
+            continue
+        try:
+            inventory_data = load_yaml(str(path))
+            hosts = load_inventory_data(inventory_data)
+        except Exception:
+            continue
+        return sorted({str(host.get("hostname", "")).strip() for host in hosts if str(host.get("hostname", "")).strip()})
+
+    return []
+
+
+def _complete_comma_separated_hosts(prefix: str, parsed_args: argparse.Namespace) -> List[str]:
+    """
+    Complete comma-separated hostname lists from inventory.
+    """
+    prefix_text, partial = prefix.rsplit(",", 1) if "," in prefix else ("", prefix)
+    chosen = {part.strip() for part in prefix_text.split(",") if part.strip()}
+    base = f"{prefix_text}," if prefix_text else ""
+
+    candidates: List[str] = []
+    for hostname in _inventory_completion_candidates(parsed_args):
+        if hostname in chosen:
+            continue
+        if partial and not hostname.startswith(partial):
+            continue
+        candidates.append(f"{base}{hostname}")
+    return candidates
+
+
+def _list_path_candidates(prefix: str, extensions: Tuple[str, ...] | None = None) -> List[str]:
+    """
+    Complete filesystem paths from the current working directory.
+    """
+    expanded = Path(prefix).expanduser()
+    directory = expanded.parent if prefix and not prefix.endswith("/") else expanded
+    partial = expanded.name if prefix and not prefix.endswith("/") else ""
+
+    if prefix.startswith("~"):
+        root_display = "~" if str(expanded).startswith(str(Path.home())) else str(directory)
+    else:
+        root_display = "" if str(directory) == "." else str(directory)
+
+    try:
+        entries = sorted(directory.iterdir(), key=lambda path: path.name)
+    except OSError:
+        return []
+
+    matches: List[str] = []
+    for entry in entries:
+        if partial and not entry.name.startswith(partial):
+            continue
+        if entry.is_file() and extensions and entry.suffix.lower() not in extensions:
+            continue
+
+        if root_display in {"", "."}:
+            candidate = entry.name
+        else:
+            candidate = f"{root_display.rstrip('/')}/{entry.name}"
+        if entry.is_dir():
+            candidate += "/"
+        matches.append(candidate)
+    return matches
+
+
+def _build_completion_spec() -> Dict[str, str]:
+    """
+    Build completion kind mapping keyed by action dest.
+    """
+    return {
+        "hosts": "yaml_file",
+        "policy": "yaml_file",
+        "roles": "yaml_file",
+        "clab_env": "yaml_file",
+        "clab_merge": "yaml_file",
+        "clab_lab_profile": "yaml_file",
+        "mappings": "yaml_file",
+        "description_rules": "yaml_file",
+        "show_commands_file": "txt_file",
+        "config_file": "txt_file",
+        "input": "any_file",
+        "input_dir": "any_file",
+        "output": "any_file",
+        "output_dir": "any_file",
+        "output_hosts": "any_file",
+        "output_file": "any_file",
+        "output_csv": "any_file",
+        "output_md": "any_file",
+        "output_clab": "any_file",
+        "startup_dir": "any_file",
+        "before_show_run_dir": "any_file",
+        "csv_file": "csv_file",
+        "linux_csv": "csv_file",
+        "kind_cluster_csv": "csv_file",
+        "target_hosts": "host_list",
+        "show_hosts": "host_list",
+    }
+
+
+def _iter_subparser_action(parser: argparse.ArgumentParser) -> argparse._SubParsersAction | None:
+    """
+    Return the subparser action if present.
+    """
+    for action in parser._actions:
+        if isinstance(action, argparse._SubParsersAction):
+            return action
+    return None
+
+
+def _find_active_parser(parser: argparse.ArgumentParser, words: List[str]) -> argparse.ArgumentParser:
+    """
+    Resolve the active parser for already-entered tokens.
+    """
+    active = parser
+    for token in words[1:]:
+        if token.startswith("-"):
+            continue
+        subparsers = _iter_subparser_action(active)
+        if subparsers is None:
+            continue
+        next_parser = subparsers.choices.get(token)
+        if next_parser is not None:
+            active = next_parser
+    return active
+
+
+def _option_action_map(parser: argparse.ArgumentParser) -> Dict[str, argparse.Action]:
+    """
+    Return mapping from option string to argparse action.
+    """
+    option_map: Dict[str, argparse.Action] = {}
+    for action in parser._actions:
+        for option_string in action.option_strings:
+            option_map[option_string] = action
+    return option_map
+
+
+def _complete_for_action(prefix: str, action: argparse.Action, parsed_args: argparse.Namespace) -> List[str]:
+    """
+    Return completion candidates for a specific option action.
+    """
+    kind = _build_completion_spec().get(action.dest, "")
+    if kind == "yaml_file":
+        return _list_path_candidates(prefix, (".yaml", ".yml"))
+    if kind == "txt_file":
+        return _list_path_candidates(prefix, (".txt",))
+    if kind == "csv_file":
+        return _list_path_candidates(prefix, (".csv",))
+    if kind == "any_file":
+        return _list_path_candidates(prefix, None)
+    if kind == "host_list":
+        return _complete_comma_separated_hosts(prefix, parsed_args)
+    if action.choices:
+        return [str(choice) for choice in action.choices if str(choice).startswith(prefix)]
+    return []
+
+
+def _extract_completion_hosts_arg(words: List[str]) -> str | None:
+    """
+    Extract explicit inventory path from partial command words when present.
+    """
+    option_names = {"-i", "--inventory", "--hosts"}
+    for index, token in enumerate(words):
+        if token in option_names and index + 1 < len(words):
+            value = words[index + 1].strip()
+            if value and not value.startswith("-"):
+                return value
+    return None
+
+
+def _render_bash_completion_script() -> str:
+    """
+    Render bash completion script.
+    """
+    return """_alred_completion() {
+  local IFS=$'\\n'
+  COMPREPLY=($(\"${COMP_WORDS[0]}\" __complete bash \"$COMP_CWORD\" -- \"${COMP_WORDS[@]}\" 2>/dev/null))
+}
+complete -F _alred_completion alred
+"""
+
+
+def _render_zsh_completion_script() -> str:
+    """
+    Render zsh completion script using bash-style completion compatibility.
+    """
+    return """autoload -U bashcompinit
+bashcompinit
+_alred_completion() {
+  local -a replies
+  replies=(${(@f)$(\"$words[1]\" __complete zsh \"$((CURRENT-1))\" -- \"${words[@]}\" 2>/dev/null)})
+  compadd -- $replies
+}
+complete -F _alred_completion alred
+"""
+
+
+def cmd_completion(args: argparse.Namespace) -> None:
+    """
+    Print shell completion script.
+    """
+    if args.shell == "bash":
+        print(_render_bash_completion_script(), end="")
+        return
+    if args.shell == "zsh":
+        print(_render_zsh_completion_script(), end="")
+        return
+    raise ValueError(f"Unsupported shell: {args.shell}")
+
+
+def cmd_internal_complete(args: argparse.Namespace) -> None:
+    """
+    Return dynamic completion candidates for shell integration.
+    """
+    parser = build_parser()
+    words = list(args.words)
+    if not words:
+        return
+
+    cword = max(0, args.cword)
+    current = words[cword] if cword < len(words) else ""
+    prior_words = words[:cword]
+    active = _find_active_parser(parser, prior_words)
+    parsed_args = argparse.Namespace(hosts=_extract_completion_hosts_arg(prior_words))
+
+    option_map = _option_action_map(active)
+    prev_word = words[cword - 1] if cword > 0 else ""
+    prev_action = option_map.get(prev_word)
+
+    candidates: List[str] = []
+    if prev_action is not None and not current.startswith("-"):
+        candidates = _complete_for_action(current, prev_action, parsed_args)
+    elif current.startswith("-"):
+        for option in sorted(option_map.keys()):
+            if option.startswith(current):
+                candidates.append(option)
+    else:
+        subparsers = _iter_subparser_action(active)
+        if subparsers is not None:
+            for name in sorted(subparsers.choices.keys()):
+                if name == "__complete":
+                    continue
+                if name.startswith(current):
+                    candidates.append(name)
+        for option in sorted(option_map.keys()):
+            if option.startswith(current):
+                candidates.append(option)
+
+    for candidate in candidates:
+        print(candidate)
+
+
 def get_log_rotation_limit() -> int:
     """
     Resolve rotation generation/file count from environment.
@@ -7113,6 +7377,15 @@ def build_parser() -> argparse.ArgumentParser:
     p_csv_to_md.add_argument("--verbose", action="store_true", help="Verbose logging")
     p_csv_to_md.set_defaults(func=cmd_csv_to_md)
 
+    p_completion = subparsers.add_parser("completion", help="Print shell completion script")
+    p_completion.add_argument("shell", choices=["bash", "zsh"], help="Target shell")
+    p_completion.set_defaults(func=cmd_completion)
+
+    p_internal_complete = subparsers.add_parser("__complete", help=argparse.SUPPRESS)
+    p_internal_complete.add_argument("shell", choices=["bash", "zsh"], help=argparse.SUPPRESS)
+    p_internal_complete.add_argument("cword", type=int, help=argparse.SUPPRESS)
+    p_internal_complete.add_argument("words", nargs=argparse.REMAINDER, help=argparse.SUPPRESS)
+    p_internal_complete.set_defaults(func=cmd_internal_complete)
     return parser
 
 
