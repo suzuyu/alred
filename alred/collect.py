@@ -19,8 +19,15 @@ except ImportError as exc:  # pragma: no cover
     ConnectHandler = None
     NETMIKO_IMPORT_ERROR = exc
 
-from .constants import CONNECT_CHECK_COMMAND_MAP, DEFAULT_CONNECT_CHECK_TIMEOUT, PRIVILEGED_EXEC_DEVICE_TYPES
-from .utils import get_netmiko_unavailable_message, get_ssh_options
+from .constants import (
+    CONNECT_CHECK_COMMAND_MAP,
+    DEFAULT_CONNECT_CHECK_TIMEOUT,
+    PRIVILEGED_EXEC_DEVICE_TYPES,
+    REQUIRE_ENABLE_SECRET_DEVICE_TYPES,
+    SEND_COMMAND_OPTIONS_MAP,
+    SSH_SESSION_PREP_COMMANDS_MAP,
+)
+from .utils import get_netmiko_unavailable_message, get_ssh_options, resolve_netmiko_device_type
 
 TransportType = Literal["auto", "nxapi", "ssh"]
 
@@ -136,7 +143,7 @@ class SshCollector(BaseCollector):
         if ConnectHandler is None:
             raise RuntimeError(get_netmiko_unavailable_message(NETMIKO_IMPORT_ERROR))
 
-        netmiko_device_type = self.host.get("netmiko_device_type")
+        netmiko_device_type = resolve_netmiko_device_type(self.host)
         if not netmiko_device_type:
             raise ValueError(
                 f"{self.hostname}: netmiko_device_type is not defined for device_type={self.device_type}"
@@ -154,9 +161,26 @@ class SshCollector(BaseCollector):
 
         self.logger.info("CONNECT %s (%s %s) transport=ssh", self.hostname, self.device_type, self.ip)
         self._conn = ConnectHandler(**conn_params)
+        for prep_command in SSH_SESSION_PREP_COMMANDS_MAP.get(self.device_type, []):
+            try:
+                self.logger.info("SESSION PREP %s transport=ssh: %s", self.hostname, prep_command)
+                self._conn.send_command_timing(
+                    prep_command,
+                    read_timeout=20,
+                    strip_prompt=False,
+                    strip_command=False,
+                    cmd_verify=False,
+                )
+            except Exception as exc:
+                self.logger.warning(
+                    "SESSION PREP FAILED %s transport=ssh command=%s error=%s",
+                    self.hostname,
+                    prep_command,
+                    exc,
+                )
 
         if self.device_type in PRIVILEGED_EXEC_DEVICE_TYPES:
-            if not self.enable_secret:
+            if not self.enable_secret and self.device_type in REQUIRE_ENABLE_SECRET_DEVICE_TYPES:
                 self._conn.disconnect()
                 self._conn = None
                 raise ValueError(
@@ -164,14 +188,21 @@ class SshCollector(BaseCollector):
                     "Use --enable-secret, -K/--ask-become-pass, or define ALRED_ENABLE_SECRET."
                 )
             self.logger.info("ENABLE %s transport=ssh", self.hostname)
-            self._conn.enable()
+            try:
+                self._conn.enable()
+            except Exception as exc:
+                raise ValueError(
+                    f"{self.hostname}: failed to enter privileged exec for device_type={self.device_type}. "
+                    "Use --enable-secret, -K/--ask-become-pass, or define ALRED_ENABLE_SECRET if this device requires one."
+                ) from exc
 
         return self._conn
 
     def run_command(self, command: str, read_timeout: int) -> CommandResult:
         self.logger.info("RUN %s transport=ssh: %s", self.hostname, command)
         try:
-            output = self._connect().send_command(command, read_timeout=read_timeout)
+            send_options = dict(SEND_COMMAND_OPTIONS_MAP.get(self.device_type, {}))
+            output = self._connect().send_command(command, read_timeout=read_timeout, **send_options)
             return CommandResult(
                 command=command,
                 ok=True,

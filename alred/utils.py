@@ -13,6 +13,8 @@ from typing import Any, Dict, List, Tuple
 
 import yaml
 
+from .constants import NETMIKO_DEVICE_TYPE_OVERRIDE_MAP
+
 
 def setup_logging(log_file: str | None = None, verbose: bool = False) -> logging.Logger:
     """
@@ -195,19 +197,116 @@ def get_default_log_dir(default: str = "logs") -> str:
     return os.environ.get("ALRED_LOG_DIR", os.environ.get("NW_TOOL_LOG_DIR", default))
 
 
-def get_credentials_for_device(args: argparse.Namespace, device_type: str) -> Tuple[str, str, str]:
+def _load_credentials_data(args: argparse.Namespace) -> Dict[str, Any]:
     """
-    Resolve SSH credentials from CLI args or environment variables.
+    Load optional structured credentials from --credentials or ./clab_credentials.yaml.
+    """
+    explicit_path = getattr(args, "credentials", None)
+    credentials_path = explicit_path
+    if not credentials_path and hasattr(args, "credentials"):
+        default_path = Path("clab_credentials.yaml")
+        if default_path.exists():
+            credentials_path = str(default_path)
+
+    if not credentials_path:
+        return {}
+
+    cache_key = "_credentials_data"
+    cached = getattr(args, cache_key, None)
+    cached_path = getattr(args, "_credentials_path", None)
+    if cached is not None and cached_path == credentials_path:
+        return cached
+
+    data = load_yaml(credentials_path)
+    if not isinstance(data, dict):
+        raise ValueError(f"Invalid credentials YAML format: {credentials_path}")
+
+    credentials_data = data.get("credentials", data)
+    if credentials_data is None:
+        credentials_data = {}
+    if not isinstance(credentials_data, dict):
+        raise ValueError(f"Invalid credentials section in YAML: {credentials_path}")
+
+    setattr(args, cache_key, credentials_data)
+    setattr(args, "_credentials_path", credentials_path)
+    return credentials_data
+
+
+def _credential_field(entry: Dict[str, Any], key: str) -> str | None:
+    """
+    Resolve a credential field from a literal value or <key>_env reference.
+    """
+    value = entry.get(key)
+    if value is not None:
+        return str(value)
+
+    env_name = entry.get(f"{key}_env")
+    if env_name:
+        env_value = os.environ.get(str(env_name))
+        if env_value is not None:
+            return env_value
+    return None
+
+
+def _merge_credential_entry(resolved: Dict[str, str], entry: Any) -> None:
+    """
+    Merge username/password/enable_secret values from one credential entry.
+    """
+    if not isinstance(entry, dict):
+        return
+
+    for key in ("username", "password", "enable_secret"):
+        value = _credential_field(entry, key)
+        if value is not None:
+            resolved[key] = value
+
+
+def _get_structured_credentials(
+    args: argparse.Namespace,
+    device_type: str,
+    host: Dict[str, Any] | None = None,
+) -> Dict[str, str]:
+    """
+    Resolve credentials from defaults, device_type, and hosts sections.
+    """
+    credentials_data = _load_credentials_data(args)
+    if not credentials_data:
+        return {}
+
+    resolved: Dict[str, str] = {}
+    _merge_credential_entry(resolved, credentials_data.get("defaults"))
+
+    device_type_credentials = credentials_data.get("device_type", {})
+    if isinstance(device_type_credentials, dict):
+        _merge_credential_entry(resolved, device_type_credentials.get(device_type))
+
+    hostname = str((host or {}).get("hostname", ""))
+    hosts = credentials_data.get("hosts", {})
+    if hostname and isinstance(hosts, dict):
+        _merge_credential_entry(resolved, hosts.get(hostname))
+
+    return resolved
+
+
+def get_credentials_for_device(
+    args: argparse.Namespace,
+    device_type: str,
+    host: Dict[str, Any] | None = None,
+) -> Tuple[str, str, str]:
+    """
+    Resolve SSH credentials from CLI args, optional credentials YAML, or environment variables.
 
     Priority:
     1. CLI args
-    2. For asa/asav only: ALRED_FW_USERNAME / ALRED_FW_PASSWORD / ALRED_FW_ENABLE_SECRET
-    3. ALRED_USERNAME / ALRED_PASSWORD / ALRED_ENABLE_SECRET
-    4. NW_TOOL_* variables for legacy compatibility
+    2. Optional credentials YAML: hosts > device_type > defaults
+    3. For asa/asav only: ALRED_FW_USERNAME / ALRED_FW_PASSWORD / ALRED_FW_ENABLE_SECRET
+    4. ALRED_USERNAME / ALRED_PASSWORD / ALRED_ENABLE_SECRET
+    5. NW_TOOL_* variables for legacy compatibility
 
     Args:
         args: Parsed CLI args.
         device_type: Target device type.
+        host: Optional host inventory entry used for host-specific credentials.
 
     Returns:
         (username, password, enable_secret)
@@ -226,10 +325,25 @@ def get_credentials_for_device(args: argparse.Namespace, device_type: str) -> Tu
         os.environ.get("ALRED_FW_ENABLE_SECRET", os.environ.get("NW_TOOL_FW_ENABLE_SECRET", ""))
     ) if is_firewall else None
 
-    username = args.username or fw_username or os.environ.get("ALRED_USERNAME") or os.environ.get("NW_TOOL_USERNAME")
-    password = args.password or fw_password or os.environ.get("ALRED_PASSWORD") or os.environ.get("NW_TOOL_PASSWORD")
+    structured_credentials = _get_structured_credentials(args, device_type, host)
+
+    username = (
+        args.username
+        or structured_credentials.get("username")
+        or fw_username
+        or os.environ.get("ALRED_USERNAME")
+        or os.environ.get("NW_TOOL_USERNAME")
+    )
+    password = (
+        args.password
+        or structured_credentials.get("password")
+        or fw_password
+        or os.environ.get("ALRED_PASSWORD")
+        or os.environ.get("NW_TOOL_PASSWORD")
+    )
     enable_secret = (
         getattr(args, "enable_secret", None)
+        or structured_credentials.get("enable_secret")
         or fw_enable_secret
         or os.environ.get("ALRED_ENABLE_SECRET", "")
         or os.environ.get("NW_TOOL_ENABLE_SECRET", "")
@@ -237,12 +351,25 @@ def get_credentials_for_device(args: argparse.Namespace, device_type: str) -> Tu
     if not username or not password:
         raise ValueError(
             "Username/password not provided. Use --username/--password or define "
-            "ALRED_USERNAME / ALRED_PASSWORD in .env. "
+            "credentials YAML or ALRED_USERNAME / ALRED_PASSWORD in .env. "
             "Use -k/--ask-pass to enter the SSH password at runtime. "
             "For asa/asav you can also use ALRED_FW_USERNAME / ALRED_FW_PASSWORD. "
             "Legacy NW_TOOL_* variables are still supported."
         )
     return username, password, enable_secret
+
+
+def resolve_netmiko_device_type(host: Dict[str, Any]) -> str | None:
+    """
+    Return the Netmiko driver name to use for a host.
+    """
+    device_type = str(host.get("device_type") or "")
+    override = NETMIKO_DEVICE_TYPE_OVERRIDE_MAP.get(device_type)
+    if override:
+        return override
+
+    netmiko_device_type = host.get("netmiko_device_type")
+    return str(netmiko_device_type) if netmiko_device_type else None
 
 
 def get_ssh_options() -> Dict[str, Any]:

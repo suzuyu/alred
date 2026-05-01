@@ -28,6 +28,11 @@ DEVICE_MAP = {
         "ansible_connection": "network_cli",
         "netmiko_device_type": "arista_eos",
     },
+    "nokia_srlinux": {
+        "ansible_network_os": "nokia.srlinux.srlinux",
+        "ansible_connection": "network_cli",
+        "netmiko_device_type": "nokia_srl",
+    },
     "junos": {
         "ansible_network_os": "junipernetworks.junos.junos",
         "ansible_connection": "network_cli",
@@ -55,6 +60,7 @@ DEVICE_TYPE_TO_KIND = {
     "iosxe": "cisco_c8000v",
     "iosxr": "cisco_xrd",
     "eos": "ceos",
+    "nokia_srlinux": "nokia_srlinux",
     "junos": "juniper_vjunosrouter",
     "asa": "cisco_asav",
     "asav": "cisco_asav",
@@ -62,15 +68,32 @@ DEVICE_TYPE_TO_KIND = {
     "unknown": "linux",
 }
 
-NETWORK_DEVICE_TYPES = {"nxos", "ios", "iosxe", "iosxr", "eos", "junos", "asa", "asav"}
-PRIVILEGED_EXEC_DEVICE_TYPES = {"asa", "asav"}
+NETWORK_DEVICE_TYPES = {"nxos", "ios", "iosxe", "iosxr", "eos", "nokia_srlinux", "junos", "asa", "asav"}
+PRIVILEGED_EXEC_DEVICE_TYPES = {"asa", "asav", "eos"}
+REQUIRE_ENABLE_SECRET_DEVICE_TYPES = {"asa", "asav"}
+NETMIKO_DEVICE_TYPE_OVERRIDE_MAP = {
+    "nokia_srlinux": "terminal_server",
+}
+ANSI_TRAILING_PROMPT_PATTERN = r"[>#](?:\x1b\[[0-?]*[ -/]*[@-~]|\s)*$"
+SEND_COMMAND_OPTIONS_MAP = {
+    "nokia_srlinux": {
+        "expect_string": ANSI_TRAILING_PROMPT_PATTERN,
+        "cmd_verify": False,
+    },
+}
+SSH_SESSION_PREP_COMMANDS_MAP = {
+    "nokia_srlinux": [
+        "environment complete-on-space false",
+        "environment cli-engine type basic",
+    ],
+}
 
 DEFAULT_POLICY = {
     "include_device_types": [],
     "include_hostname_contains": [],
     "exclude_device_types": [],
     "exclude_hostname_contains": [],
-    "collect_running_config_for": ["nxos", "ios", "iosxe", "iosxr", "eos", "junos", "asa", "asav"],
+    "collect_running_config_for": ["nxos", "ios", "iosxe", "iosxr", "eos", "nokia_srlinux", "junos", "asa", "asav"],
 }
 
 DEFAULT_MAPPINGS = {
@@ -149,6 +172,7 @@ LLDP_COMMAND_MAP = {
     "iosxe": "show lldp neighbors detail",
     "iosxr": "show lldp neighbors detail",
     "eos": "show lldp neighbors detail",
+    "nokia_srlinux": "show system lldp neighbor",
     "junos": "show lldp neighbors",
     "asa": "show lldp neighbors detail",
     "asav": "show lldp neighbors detail",
@@ -169,9 +193,21 @@ RUNNING_CONFIG_COMMAND_MAP = {
     "iosxe": "show running-config",
     "iosxr": "show running-config",
     "eos": "show running-config",
+    "nokia_srlinux": "info flat",
     "junos": "show configuration | display set",
     "asa": "show running-config",
     "asav": "show running-config",
+}
+
+ADDITIONAL_RUNNING_CONFIG_COMMANDS_MAP = {
+    "nokia_srlinux": [
+        {
+            "suffix": "config",
+            "command": "info | as json",
+            "output_format": "json",
+            "read_timeout": 300,
+        },
+    ],
 }
 
 RUNNING_CONFIG_DIFF_COMMAND_MAP = {
@@ -188,6 +224,7 @@ SAVE_CONFIG_COMMAND_MAP = {
     "iosxe": "write memory",
     "iosxr": "commit",
     "eos": "write memory",
+    "nokia_srlinux": "save startup",
     "junos": "commit",
     "asa": "write memory",
     "asav": "write memory",
@@ -203,6 +240,7 @@ CONNECT_CHECK_COMMAND_MAP = {
     "iosxe": "show clock",
     "iosxr": "show clock",
     "eos": "show clock",
+    "nokia_srlinux": "show version",
     "junos": "show system uptime",
     "asa": "show clock",
     "asav": "show clock",
@@ -333,6 +371,7 @@ DEFAULT_CLAB_SET_CMDS = [
             "hosts": None,
             "clab_env": None,
             "input": "raw",
+            "file_suffix": "_run.txt",
             "output_hosts": "hosts.lab.yaml",
             "output_dir": "raw/labconfig",
             "log_file": "logs/clab-transform-config.log",

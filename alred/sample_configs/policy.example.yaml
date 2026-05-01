@@ -17,6 +17,7 @@ collect_running_config_for:
   - iosxe
   - iosxr
   - eos
+  - nokia_srlinux
   - junos
   - asa
   - asav

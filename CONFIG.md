@@ -8,17 +8,56 @@
 基本的な優先順位は次の通りです。
 
 1. CLI オプション
-2. 環境変数 (`.env`)
-3. コード内デフォルト
+2. コマンドごとの補助設定ファイル
+3. 環境変数 (`.env`)
+4. コード内デフォルト
 
 例:
 
 - `collect -u` / `--user` / `--username` と `--password` > `ALRED_USERNAME` / `ALRED_PASSWORD`
 - `collect --ask-pass` (`-k`) で入力した SSH パスワード > `ALRED_PASSWORD`
 - `collect --ask-become-pass` (`-K`) で入力した enable パスワード > `ALRED_ENABLE_SECRET`
+- `collect` / `push-config` / `check-clab-startup-config` などの `--user` / `--password` > `clab_credentials.yaml` > `ALRED_USERNAME` / `ALRED_PASSWORD`
 - `collect -i` / `--inventory` / `--hosts` > `./hosts.yaml`
 - `collect --output` > `ALRED_RAW_DIR` > `ALRED_OUTPUT_DIR` (legacy)
 - `--log-file` > `ALRED_LOG_DIR`
+
+## 1.1. 認証情報ファイル (`clab_credentials.yaml`)
+
+`collect` / `collect-clab` / `collect-all` / `check-logging` / `generate-vni-config` / `push-config` / `push-config-dir` / `write-memory` / `check-clab-startup-config` では、`--credentials` で認証情報 YAML を指定できます。未指定で `./clab_credentials.yaml` が存在する場合は自動で読み込みます。
+
+解決順序:
+
+1. CLI オプション (`--user` / `--password` / `--ask-pass` / `--enable-secret`)
+2. `hosts.<hostname>`
+3. `device_type.<device_type>`
+4. `defaults`
+5. 環境変数 (`ALRED_USERNAME` / `ALRED_PASSWORD` など)
+
+例:
+
+```yaml
+credentials:
+  defaults:
+    username: admin
+    password: admin
+  device_type:
+    nxos:
+      username: admin
+      password: admin
+    eos:
+      username: admin
+      password: admin
+    nokia_srlinux:
+      username: admin
+      password_env: CLAB_SRLINUX_PASSWORD
+  hosts:
+    leaf01:
+      username: admin
+      password_env: CLAB_LEAF01_PASSWORD
+```
+
+`password_env` / `username_env` / `enable_secret_env` を指定すると、値を環境変数から読み込みます。
 
 ## 2. 環境変数 (`.env`)
 
@@ -95,6 +134,7 @@ ALRED_LOG_ROTATION=20
 - `iosxe`
 - `iosxr`
 - `eos`
+- `nokia_srlinux`
 - `junos`
 - `asa`
 - `asav`
@@ -134,8 +174,16 @@ collect_running_config_for:
   - iosxe
   - iosxr
   - eos
+  - nokia_srlinux
   - junos
+  - asa
+  - asav
 ```
+
+補足:
+
+- `nokia_srlinux` は `<hostname>_run.txt` に `info flat` を保存します
+- `nokia_srlinux` は startup-config 用に、追加で `<hostname>_config.json` に `info | as json` を保存します
 
 項目:
 
@@ -319,7 +367,7 @@ topology:
 - 辞書同士は再帰的にマージ
 - それ以外の値 (文字列・配列など) は後勝ちで上書き
 - `topology.links` は追加マージ (generated links の後ろに merge 側 links を連結)
-- `clab-transform-config` は `--clab-env` で指定した YAML の `mgmt.ipv4-subnet` を参照して `hosts.lab.yaml` と `raw/labconfig/<hostname>_run.txt` の管理 IP を変換します
+- `clab-transform-config` は `--clab-env` で指定した YAML の `mgmt.ipv4-subnet` を参照して `hosts.lab.yaml` と `raw/labconfig/<hostname><suffix>` の管理 IP を変換します。`--file-suffix` の既定は `_run.txt` です
 
 ## 11. Linux サーバ CSV (`clab_linux_server.csv`)
 

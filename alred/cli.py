@@ -34,6 +34,7 @@ except ImportError as exc:
     NETMIKO_IMPORT_ERROR = exc
 
 from .constants import (
+    ADDITIONAL_RUNNING_CONFIG_COMMANDS_MAP,
     DEFAULT_CISCO_N9KV_KIND_ENV,
     DEFAULT_CISCO_N9KV_KIND_IMAGE,
     DEFAULT_CISCO_N9KV_KIND_NAME,
@@ -74,11 +75,14 @@ from .constants import (
     DEFAULT_VNI_MAP_MD_FILENAME,
     LLDP_COMMAND_MAP,
     PRIVILEGED_EXEC_DEVICE_TYPES,
+    REQUIRE_ENABLE_SECRET_DEVICE_TYPES,
     RUNNING_CONFIG_COMMAND_MAP,
     RUNNING_CONFIG_DIFF_COMMAND_MAP,
     RUNNING_CONFIG_DIFF_EXCLUDE_PREFIXES_MAP,
     SAVE_CONFIG_COMMAND_MAP,
     SAVE_CONFIG_SUCCESS_MARKER_MAP,
+    SEND_COMMAND_OPTIONS_MAP,
+    SSH_SESSION_PREP_COMMANDS_MAP,
     SHOW_LOGGING_COMMAND_MAP,
     PUSH_CONFIG_EXCLUDE_LINE_PREFIXES_MAP,
 )
@@ -161,6 +165,7 @@ from .utils import (
     get_ssh_options,
     get_topology_dir,
     load_yaml,
+    resolve_netmiko_device_type,
     save_yaml,
     setup_logging,
     write_text,
@@ -241,6 +246,13 @@ def get_save_config_success_marker(device_type: str) -> str | None:
     return SAVE_CONFIG_SUCCESS_MARKER_MAP.get(device_type)
 
 
+def get_send_command_options(device_type: str) -> Dict[str, Any]:
+    """
+    Return Netmiko send_command options for device-specific prompt handling.
+    """
+    return dict(SEND_COMMAND_OPTIONS_MAP.get(device_type, {}))
+
+
 def normalize_run_lines_for_diff(text: str, device_type: str) -> List[str]:
     """
     Normalize running-config lines for diff comparison.
@@ -285,7 +297,7 @@ def connect_to_host(
     hostname = host["hostname"]
     ip = host["ip"]
     device_type = host["device_type"]
-    netmiko_device_type = host.get("netmiko_device_type")
+    netmiko_device_type = resolve_netmiko_device_type(host)
 
     if not netmiko_device_type:
         raise ValueError(f"{hostname}: netmiko_device_type is not defined for device_type={device_type}")
@@ -302,16 +314,35 @@ def connect_to_host(
 
     logger.info("CONNECT %s (%s %s)", hostname, device_type, ip)
     conn = ConnectHandler(**conn_params)
+    for prep_command in SSH_SESSION_PREP_COMMANDS_MAP.get(device_type, []):
+        try:
+            logger.info("SESSION PREP %s: %s", hostname, prep_command)
+            conn.send_command_timing(
+                prep_command,
+                read_timeout=20,
+                strip_prompt=False,
+                strip_command=False,
+                cmd_verify=False,
+            )
+        except Exception as exc:
+            logger.warning("SESSION PREP FAILED %s command=%s error=%s", hostname, prep_command, exc)
 
     if device_type in PRIVILEGED_EXEC_DEVICE_TYPES:
-        if not enable_secret:
+        if not enable_secret and device_type in REQUIRE_ENABLE_SECRET_DEVICE_TYPES:
             conn.disconnect()
             raise ValueError(
                 f"{hostname}: device_type={device_type} requires enable secret. "
                 "Use --enable-secret, -K/--ask-become-pass, or define ALRED_ENABLE_SECRET."
             )
         logger.info("ENABLE %s", hostname)
-        conn.enable()
+        try:
+            conn.enable()
+        except Exception as exc:
+            conn.disconnect()
+            raise ValueError(
+                f"{hostname}: failed to enter privileged exec for device_type={device_type}. "
+                "Use --enable-secret, -K/--ask-become-pass, or define ALRED_ENABLE_SECRET if this device requires one."
+            ) from exc
 
     return conn
 
@@ -406,13 +437,35 @@ def collect_from_host(
         old_dir = output_dir / "old"
         generation_dir = old_dir / generation
         generation_dir.mkdir(parents=True, exist_ok=True)
+        output_text = command_result.output
+        if command_result.output_format == "json":
+            raw_json_text = output_text.lstrip()
+            json_start_positions = [
+                pos for pos in [raw_json_text.find("{"), raw_json_text.find("[")]
+                if pos >= 0
+            ]
+            if json_start_positions:
+                raw_json_text = raw_json_text[min(json_start_positions):]
+            try:
+                parsed_json, end_index = json.JSONDecoder().raw_decode(raw_json_text)
+                trailing_text = raw_json_text[end_index:].strip()
+                if trailing_text:
+                    logger.info(
+                        "TRIM JSON TRAILING OUTPUT %s suffix=%s chars=%d",
+                        hostname,
+                        suffix,
+                        len(trailing_text),
+                    )
+                output_text = json.dumps(parsed_json, ensure_ascii=False, indent=2) + "\n"
+            except Exception as exc:
+                logger.warning("FAILED TO NORMALIZE JSON %s suffix=%s error=%s", hostname, suffix, exc)
         old_path = build_collect_output_path(generation_dir, hostname, suffix, command_result.output_format)
-        old_path.write_text(command_result.output, encoding="utf-8")
+        old_path.write_text(output_text, encoding="utf-8")
         prune_old_generations(old_dir)
 
         reset_collect_output_variants_once(output_dir, suffix)
         output_path = build_collect_output_path(output_dir, hostname, suffix, command_result.output_format)
-        output_path.write_text(command_result.output, encoding="utf-8")
+        output_path.write_text(output_text, encoding="utf-8")
         logger.info(
             "SAVED %s transport=%s%s",
             old_path,
@@ -486,6 +539,21 @@ def collect_from_host(
                     run_output_format = preferred_run_result.output_format
                 else:
                     logger.warning("SKIP SAVE %s command=%s", hostname, run_cmd)
+
+                for extra in ADDITIONAL_RUNNING_CONFIG_COMMANDS_MAP.get(device_type, []):
+                    extra_cmd = str(extra.get("command", ""))
+                    extra_suffix = str(extra.get("suffix", ""))
+                    extra_output_format = extra.get("output_format")
+                    extra_read_timeout = int(extra.get("read_timeout", 300))
+                    if not extra_cmd or not extra_suffix:
+                        continue
+                    extra_result = collector.run_command(extra_cmd, read_timeout=extra_read_timeout)
+                    if extra_result.ok:
+                        if extra_output_format:
+                            extra_result.output_format = str(extra_output_format)
+                        save_command_result(run_outdir, extra_suffix, extra_result)
+                    else:
+                        logger.warning("SKIP SAVE %s command=%s", hostname, extra_cmd)
             else:
                 logger.info(
                     "SKIP RUNCFG %s: device_type=%s not in collect_running_config_for",
@@ -874,7 +942,7 @@ def filter_hosts_by_connect_check(
 
     with ThreadPoolExecutor(max_workers=workers) as executor:
         for host in hosts:
-            username, password, enable_secret = get_credentials_for_device(args, str(host.get("device_type", "")))
+            username, password, enable_secret = get_credentials_for_device(args, str(host.get("device_type", "")), host)
             transport = getattr(args, "transport", "ssh")
             cache_key = _build_connect_check_cache_key(host, transport, username)
             cached = cache.get(cache_key)
@@ -896,7 +964,7 @@ def filter_hosts_by_connect_check(
         for future in as_completed(future_to_host):
             host = future_to_host[future]
             result = future.result()
-            username, _password, _enable_secret = get_credentials_for_device(args, str(host.get("device_type", "")))
+            username, _password, _enable_secret = get_credentials_for_device(args, str(host.get("device_type", "")), host)
             transport = getattr(args, "transport", "ssh")
             cache[_build_connect_check_cache_key(host, transport, username)] = result
             cached_results[str(host.get("hostname", ""))] = result
@@ -1275,6 +1343,7 @@ def _build_completion_spec() -> Dict[str, str]:
         "clab_env": "yaml_file",
         "clab_merge": "yaml_file",
         "clab_lab_profile": "yaml_file",
+        "credentials": "yaml_file",
         "mappings": "yaml_file",
         "description_rules": "yaml_file",
         "show_commands_file": "txt_file",
@@ -1306,6 +1375,19 @@ def _iter_subparser_action(parser: argparse.ArgumentParser) -> argparse._SubPars
         if isinstance(action, argparse._SubParsersAction):
             return action
     return None
+
+
+def _hide_subparser_from_help(subparsers: argparse._SubParsersAction, name: str) -> None:
+    """
+    Keep an internal subcommand parseable while removing it from help output.
+    """
+    subparsers._choices_actions = [
+        action
+        for action in subparsers._choices_actions
+        if action.dest != name
+    ]
+    public_names = [choice_name for choice_name in subparsers.choices if choice_name != name]
+    subparsers.metavar = "{" + ",".join(public_names) + "}"
 
 
 def _find_active_parser(parser: argparse.ArgumentParser, words: List[str]) -> argparse.ArgumentParser:
@@ -3525,6 +3607,7 @@ def cmd_transform_config(args: argparse.Namespace) -> None:
     run_dir = get_run_input_dir(raw_dir)
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
+    suffix = str(getattr(args, "file_suffix", "_run.txt") or "")
 
     hosts = inventory_data.get("all", {}).get("hosts", {})
     if not isinstance(hosts, dict):
@@ -3534,7 +3617,7 @@ def cmd_transform_config(args: argparse.Namespace) -> None:
     missing_files: List[str] = []
 
     for hostname in sorted(hosts.keys()):
-        source_path = run_dir / f"{hostname}_run.txt"
+        source_path = run_dir / f"{hostname}{suffix}"
         if not source_path.exists():
             missing_files.append(str(source_path))
             logger.warning("SKIP MISSING RUN CONFIG %s", source_path)
@@ -3732,7 +3815,7 @@ def run_collect(args: argparse.Namespace, logger: Logger, old_generation_id: str
             executor.submit(
                 collect_from_host,
                 host,
-                *get_credentials_for_device(args, str(host.get("device_type", ""))),
+                *get_credentials_for_device(args, str(host.get("device_type", "")), host),
                 lldp_output_dir,
                 run_output_dir,
                 before_run_input_dir,
@@ -3928,7 +4011,7 @@ def run_check_logging_for_host(
     command = get_show_logging_command(device_type)
     collector = build_collector(
         host,
-        *get_credentials_for_device(args, device_type),
+        *get_credentials_for_device(args, device_type, host),
         logger,
         "ssh",
     )
@@ -4161,7 +4244,11 @@ def check_clab_startup_config_for_host(
     conn = connect_to_host(host, username, password, enable_secret, logger)
     try:
         logger.info("RUN %s: %s (for check-clab-startup-config)", hostname, run_cmd)
-        current_text = conn.send_command(run_cmd, read_timeout=300)
+        current_text = conn.send_command(
+            run_cmd,
+            read_timeout=300,
+            **get_send_command_options(device_type),
+        )
     finally:
         conn.disconnect()
 
@@ -4241,7 +4328,7 @@ def cmd_check_clab_startup_config(args: argparse.Namespace) -> None:
                 executor.submit(
                     check_clab_startup_config_for_host,
                     host,
-                    *get_credentials_for_device(args, str(host.get("device_type", ""))),
+                    *get_credentials_for_device(args, str(host.get("device_type", "")), host),
                     startup_dir,
                     current_dir,
                     logger,
@@ -4575,7 +4662,7 @@ def cmd_push_config(args: argparse.Namespace) -> None:
             executor.submit(
                 push_config_to_host,
                 host,
-                *get_credentials_for_device(args, str(host.get("device_type", ""))),
+                *get_credentials_for_device(args, str(host.get("device_type", "")), host),
                 config_lines,
                 logger,
             ): host
@@ -4600,7 +4687,7 @@ def cmd_push_config(args: argparse.Namespace) -> None:
                 executor.submit(
                     save_config_on_host,
                     host,
-                    *get_credentials_for_device(args, str(host.get("device_type", ""))),
+                    *get_credentials_for_device(args, str(host.get("device_type", "")), host),
                     logger,
                 ): host
                 for host in pushed_hosts
@@ -4740,7 +4827,7 @@ def cmd_push_config_dir(args: argparse.Namespace) -> None:
             future = executor.submit(
                 push_config_to_host,
                 host,
-                *get_credentials_for_device(args, str(host.get("device_type", ""))),
+                *get_credentials_for_device(args, str(host.get("device_type", "")), host),
                 config_lines,
                 logger,
             )
@@ -4765,7 +4852,7 @@ def cmd_push_config_dir(args: argparse.Namespace) -> None:
                 executor.submit(
                     save_config_on_host,
                     host,
-                    *get_credentials_for_device(args, str(host.get("device_type", ""))),
+                    *get_credentials_for_device(args, str(host.get("device_type", "")), host),
                     logger,
                 ): host
                 for host in pushed_hosts
@@ -4845,7 +4932,7 @@ def cmd_write_memory(args: argparse.Namespace) -> None:
             executor.submit(
                 save_config_on_host,
                 host,
-                *get_credentials_for_device(args, str(host.get("device_type", ""))),
+                *get_credentials_for_device(args, str(host.get("device_type", "")), host),
                 logger,
             ): host
             for host in targets
@@ -5718,6 +5805,7 @@ def run_collect_run_config_from_args(args: argparse.Namespace) -> None:
         username=args.username,
         password=args.password,
         enable_secret=args.enable_secret,
+        credentials=getattr(args, "credentials", None),
         transport=args.transport,
         target_hosts=args.target_hosts,
         output=args.collect_output,
@@ -6336,6 +6424,7 @@ def build_clab_set_step_args(
         "username": getattr(args, "username", None),
         "password": getattr(args, "password", None),
         "enable_secret": getattr(args, "enable_secret", None),
+        "credentials": getattr(args, "credentials", None),
         "transport": getattr(args, "transport", None),
         "target_hosts": getattr(args, "target_hosts", None),
         "workers": getattr(args, "workers", None),
@@ -6345,6 +6434,7 @@ def build_clab_set_step_args(
         "linux_csv": getattr(args, "linux_csv", None),
         "kind_cluster_csv": getattr(args, "kind_cluster_csv", None),
         "clab_env": getattr(args, "clab_env", None),
+        "file_suffix": getattr(args, "file_suffix", None),
         "clab_merge": getattr(args, "clab_merge", None),
         "clab_lab_profile": getattr(args, "clab_lab_profile", None),
         "include_svi": getattr(args, "include_svi", None),
@@ -6352,6 +6442,8 @@ def build_clab_set_step_args(
     for key, value in common_optional_overrides.items():
         if value is not None:
             data[key] = value
+    if "credentials" not in data and hasattr(args, "credentials"):
+        data["credentials"] = getattr(args, "credentials", None)
 
     raw_output = getattr(args, "output", None)
     if raw_output is not None:
@@ -6447,6 +6539,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Raw root directory for source running-config files (reads <input>/config when present)",
     )
     p_transform.add_argument(
+        "--file-suffix",
+        default="_run.txt",
+        help="Optional literal suffix in input filename pattern: <hostname><suffix>",
+    )
+    p_transform.add_argument(
         "--output-hosts",
         default="hosts.lab.yaml",
         help="Output transformed hosts inventory",
@@ -6501,6 +6598,10 @@ def build_parser() -> argparse.ArgumentParser:
         p.add_argument("--password", help="SSH password")
         p.add_argument("-k", "--ask-pass", action="store_true", help="Prompt for SSH password at runtime")
         p.add_argument("--enable-secret", help="Enable password for devices that require privileged exec")
+        p.add_argument(
+            "--credentials",
+            help="Credentials YAML path (default: ./clab_credentials.yaml if exists)",
+        )
         p.add_argument(
             "-K",
             "--ask-become-pass",
@@ -6745,6 +6846,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_check_logging.add_argument("-k", "--ask-pass", action="store_true", help="Prompt for SSH password at runtime")
     p_check_logging.add_argument("--enable-secret", help="Enable password for devices that require privileged exec")
     p_check_logging.add_argument(
+        "--credentials",
+        help="Credentials YAML path (default: ./clab_credentials.yaml if exists)",
+    )
+    p_check_logging.add_argument(
         "-K",
         "--ask-become-pass",
         action="store_true",
@@ -6829,6 +6934,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_check_clab_startup.add_argument("-k", "--ask-pass", action="store_true", help="Prompt for SSH password at runtime")
     p_check_clab_startup.add_argument("--enable-secret", help="Enable password for devices that require privileged exec")
     p_check_clab_startup.add_argument(
+        "--credentials",
+        help="Credentials YAML path (default: ./clab_credentials.yaml if exists)",
+    )
+    p_check_clab_startup.add_argument(
         "-K",
         "--ask-become-pass",
         action="store_true",
@@ -6879,6 +6988,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_clab_set.add_argument("-k", "--ask-pass", action="store_true", help="Prompt for SSH password at runtime")
     p_clab_set.add_argument("--enable-secret", help="Enable password for devices that require privileged exec")
     p_clab_set.add_argument(
+        "--credentials",
+        help="Credentials YAML path (default: ./clab_credentials.yaml if exists)",
+    )
+    p_clab_set.add_argument(
         "-K",
         "--ask-become-pass",
         action="store_true",
@@ -6912,6 +7025,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_clab_set.add_argument("--linux-csv", help="CSV override for generate-clab")
     p_clab_set.add_argument("--kind-cluster-csv", help="Kind cluster CSV override for generate-clab")
     p_clab_set.add_argument("--clab-env", help="YAML override for clab-transform-config")
+    p_clab_set.add_argument(
+        "--file-suffix",
+        default=None,
+        help="Suffix for clab-transform-config input filename pattern: <hostname><suffix>",
+    )
     p_clab_set.add_argument("--clab-merge", help="YAML override for generate-clab")
     p_clab_set.add_argument("--clab-lab-profile", help="Lab profile YAML override for generate-clab")
     p_clab_set.add_argument(
@@ -6938,6 +7056,10 @@ def build_parser() -> argparse.ArgumentParser:
         p.add_argument("--password", help="SSH password")
         p.add_argument("-k", "--ask-pass", action="store_true", help="Prompt for SSH password at runtime")
         p.add_argument("--enable-secret", help="Enable password for devices that require privileged exec")
+        p.add_argument(
+            "--credentials",
+            help="Credentials YAML path (default: ./clab_credentials.yaml if exists)",
+        )
         p.add_argument(
             "-K",
             "--ask-become-pass",
@@ -7297,6 +7419,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_vni_cfg.add_argument("-k", "--ask-pass", action="store_true", help="Prompt for SSH password at runtime")
     p_vni_cfg.add_argument("--enable-secret", help="Enable password for devices that require privileged exec")
     p_vni_cfg.add_argument(
+        "--credentials",
+        help="Credentials YAML path (default: ./clab_credentials.yaml if exists)",
+    )
+    p_vni_cfg.add_argument(
         "-K",
         "--ask-become-pass",
         action="store_true",
@@ -7386,6 +7512,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_internal_complete.add_argument("cword", type=int, help=argparse.SUPPRESS)
     p_internal_complete.add_argument("words", nargs=argparse.REMAINDER, help=argparse.SUPPRESS)
     p_internal_complete.set_defaults(func=cmd_internal_complete)
+    _hide_subparser_from_help(subparsers, "__complete")
     return parser
 
 
