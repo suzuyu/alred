@@ -208,13 +208,19 @@ def normalize_hostname(name: str, mappings: Dict[str, Any]) -> str:
     return mappings.get("node_name_map", {}).get(name, name)
 
 
-def normalize_interface_name(ifname: str, mappings: Dict[str, Any]) -> str:
+def normalize_interface_name(
+    ifname: str,
+    mappings: Dict[str, Any],
+    device_type: str | None = None,
+) -> str:
     """
     Normalize interface name to canonical format.
 
     Args:
         ifname: Raw interface name.
         mappings: Mapping config.
+        device_type: Optional endpoint device type. Linux interfaces use
+            container-style eth names; omitted keeps the legacy behavior.
 
     Returns:
         Canonical interface name.
@@ -227,6 +233,12 @@ def normalize_interface_name(ifname: str, mappings: Dict[str, Any]) -> str:
 
     x = re.sub(r"\s+", "", raw)
     xl = x.lower()
+
+    if (device_type or "").lower() == "linux":
+        m = re.fullmatch(r"(?:port|eth|ethernet)(\d+)", xl)
+        if m:
+            return f"eth{m.group(1)}"
+        return x
 
     m = re.fullmatch(r"(?:eth|ethernet)(\d+/\d+)", xl)
     if m:
@@ -249,6 +261,27 @@ def normalize_interface_name(ifname: str, mappings: Dict[str, Any]) -> str:
         return f"Port-channel{m.group(1)}"
 
     return x
+
+
+def get_inventory_device_type(
+    node_name: str,
+    inventory_map: Dict[str, Dict[str, Any]] | None,
+    mappings: Dict[str, Any],
+) -> str | None:
+    """Return an endpoint device type from an original or normalized node name."""
+    if not inventory_map:
+        return None
+
+    normalized_name = normalize_hostname(node_name, mappings)
+    attrs = inventory_map.get(node_name) or inventory_map.get(normalized_name)
+    if attrs is None:
+        for candidate, candidate_attrs in inventory_map.items():
+            if normalize_hostname(candidate, mappings) == normalized_name:
+                attrs = candidate_attrs
+                break
+    if not attrs:
+        return None
+    return str(attrs.get("device_type", "unknown"))
 
 
 def is_excluded_interface(ifname: str, mappings: Dict[str, Any]) -> bool:
@@ -556,7 +589,11 @@ def build_description_records(
     return records
 
 
-def normalize_link_record(record: Dict[str, str], mappings: Dict[str, Any]) -> Dict[str, str]:
+def normalize_link_record(
+    record: Dict[str, str],
+    mappings: Dict[str, Any],
+    inventory_map: Dict[str, Dict[str, Any]] | None = None,
+) -> Dict[str, str]:
     """
     Normalize one link record.
 
@@ -570,12 +607,24 @@ def normalize_link_record(record: Dict[str, str], mappings: Dict[str, Any]) -> D
     normalized = dict(record)
     normalized["src_node"] = normalize_hostname(record.get("src_node", ""), mappings)
     normalized["dst_node"] = normalize_hostname(record.get("dst_node", ""), mappings)
-    normalized["src_if"] = normalize_interface_name(record.get("src_if", ""), mappings)
-    normalized["dst_if"] = normalize_interface_name(record.get("dst_if", ""), mappings)
+    normalized["src_if"] = normalize_interface_name(
+        record.get("src_if", ""),
+        mappings,
+        get_inventory_device_type(record.get("src_node", ""), inventory_map, mappings),
+    )
+    normalized["dst_if"] = normalize_interface_name(
+        record.get("dst_if", ""),
+        mappings,
+        get_inventory_device_type(record.get("dst_node", ""), inventory_map, mappings),
+    )
     return normalized
 
 
-def normalize_link_records(records: Iterable[Dict[str, str]], mappings: Dict[str, Any]) -> List[Dict[str, str]]:
+def normalize_link_records(
+    records: Iterable[Dict[str, str]],
+    mappings: Dict[str, Any],
+    inventory_map: Dict[str, Dict[str, Any]] | None = None,
+) -> List[Dict[str, str]]:
     """
     Normalize all link records.
 
@@ -586,7 +635,7 @@ def normalize_link_records(records: Iterable[Dict[str, str]], mappings: Dict[str
     Returns:
         Normalized record list.
     """
-    return [normalize_link_record(r, mappings) for r in records]
+    return [normalize_link_record(r, mappings, inventory_map) for r in records]
 
 
 def record_key(r: Dict[str, str]) -> Tuple[str, str, str, str]:

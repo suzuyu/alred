@@ -95,6 +95,8 @@ hosts.lab.yaml
 
 # test code
 test*
+!tests/
+!tests/test_design.py
 
 # vscode 
 .vscode*
@@ -134,3 +136,7 @@ logging-error-string.txt
 
 # DRAFT
 *DRAFT*.md
+
+# test file
+init_clab_hosts.txt
+clab_cables.csv

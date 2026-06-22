@@ -93,6 +93,13 @@ from .collect import (
     is_nxos_host,
     probe_transport_connectivity,
 )
+from .design import (
+    normalize_and_validate_cables,
+    read_cable_table,
+    render_validation_report,
+    validate_inventory,
+    write_normalized_cables,
+)
 from . import __version__
 from .inventory import (
     build_inventory,
@@ -146,6 +153,7 @@ from .transform import (
 )
 from .topology import (
     build_node_definitions_from_links,
+    build_node_definitions_from_inventory,
     build_node_mgmt_ip_map,
     build_normalized_inventory_and_mgmt_maps,
     detect_node_role,
@@ -637,7 +645,7 @@ def collect_from_host(
                 run_diff_cmd = ""
 
             if run_diff_cmd:
-                logger.info("RUN %s: %s (for --show-run-diff-comands)", hostname, run_diff_cmd)
+                logger.info("RUN %s: %s (for --show-run-diff-commands)", hostname, run_diff_cmd)
                 diff_result = collector.run_command(run_diff_cmd, read_timeout=show_read_timeout)
                 diff_output = diff_result.output.strip() if diff_result.ok else ""
                 if diff_output:
@@ -1255,6 +1263,19 @@ def resolve_show_commands_path(raw: str | None) -> str | None:
     return None
 
 
+def require_collect_all_show_commands(args: argparse.Namespace) -> str:
+    """
+    Ensure collect-all can run its collect-list step before touching devices.
+    """
+    show_commands_file = resolve_show_commands_path(getattr(args, "show_commands_file", None))
+    if show_commands_file:
+        return show_commands_file
+    raise ValueError(
+        f"{args.command} requires --show-commands-file or ./{DEFAULT_SHOW_COMMANDS_PATH} "
+        "for the collect-list step"
+    )
+
+
 def _inventory_completion_candidates(parsed_args: argparse.Namespace) -> List[str]:
     """
     Return hostname candidates from the best available inventory file.
@@ -1338,6 +1359,7 @@ def _build_completion_spec() -> Dict[str, str]:
     """
     return {
         "hosts": "yaml_file",
+        "design_hosts": "txt_file",
         "policy": "yaml_file",
         "roles": "yaml_file",
         "clab_env": "yaml_file",
@@ -1362,6 +1384,7 @@ def _build_completion_spec() -> Dict[str, str]:
         "csv_file": "csv_file",
         "linux_csv": "csv_file",
         "kind_cluster_csv": "csv_file",
+        "cables": "csv_file",
         "target_hosts": "host_list",
         "show_hosts": "host_list",
     }
@@ -2882,6 +2905,35 @@ def apply_cisco_n9kv_kind_defaults(
     return topology_data
 
 
+def apply_linux_kind_defaults(
+    topology_data: Dict[str, Any],
+    logger: Logger,
+) -> Dict[str, Any]:
+    """Apply the default Linux image when at least one Linux node exists."""
+    topology = topology_data.get("topology", {})
+    if not isinstance(topology, dict):
+        return topology_data
+    nodes = topology.get("nodes", {})
+    if not isinstance(nodes, dict):
+        return topology_data
+    if not any(
+        isinstance(attrs, dict) and str(attrs.get("kind", "")).strip() == "linux"
+        for attrs in nodes.values()
+    ):
+        return topology_data
+
+    kinds = topology.setdefault("kinds", {})
+    if not isinstance(kinds, dict):
+        return topology_data
+    linux = kinds.setdefault("linux", {})
+    if not isinstance(linux, dict):
+        return topology_data
+    if "image" not in linux:
+        linux["image"] = DEFAULT_LINUX_KIND_IMAGE
+        logger.info("Applied default image for kind linux: %s", DEFAULT_LINUX_KIND_IMAGE)
+    return topology_data
+
+
 class FlowStyleList(list):
     """YAML dumper hint for flow-style sequence."""
 
@@ -3418,6 +3470,7 @@ def prepare_topology_diagram_context(args: argparse.Namespace, logger: Logger) -
             mappings=mappings,
             roles=roles,
             logger=logger,
+            inventory_map=inventory_map,
         )
 
     normalized_inventory_map, normalized_mgmt_ip_map = build_normalized_inventory_and_mgmt_maps(
@@ -3699,11 +3752,11 @@ def run_collect(args: argparse.Namespace, logger: Logger, old_generation_id: str
     if args.show_commands_file and args.show_run_diff:
         raise ValueError("--show-commands-file and --show-run-diff cannot be used together")
     if args.show_commands_file and args.show_run_diff_comands:
-        raise ValueError("--show-commands-file and --show-run-diff-comands cannot be used together")
+        raise ValueError("--show-commands-file and --show-run-diff-commands cannot be used together")
     if args.show_run_diff and args.show_run_diff_comands:
-        raise ValueError("--show-run-diff and --show-run-diff-comands cannot be used together")
+        raise ValueError("--show-run-diff and --show-run-diff-commands cannot be used together")
     if args.show_only and not show_commands and not args.show_run_diff and not args.show_run_diff_comands:
-        raise ValueError("--show-only requires --show-commands-file or --show-run-diff or --show-run-diff-comands")
+        raise ValueError("--show-only requires --show-commands-file or --show-run-diff or --show-run-diff-commands")
     if args.command == "collect-list" and not show_commands:
         raise ValueError(
             f"collect-list requires --show-commands-file or ./{DEFAULT_SHOW_COMMANDS_PATH}"
@@ -4212,6 +4265,7 @@ def check_clab_startup_config_for_host(
     enable_secret: str,
     startup_dir: Path,
     current_dir: Path,
+    file_suffix: str,
     logger: Logger,
 ) -> Dict[str, Any]:
     """
@@ -4219,7 +4273,7 @@ def check_clab_startup_config_for_host(
     """
     hostname = str(host.get("hostname", ""))
     device_type = str(host.get("device_type", ""))
-    startup_path = startup_dir / f"{hostname}_run.txt"
+    startup_path = startup_dir / f"{hostname}{file_suffix}"
 
     result: Dict[str, Any] = {
         "hostname": hostname,
@@ -4252,7 +4306,7 @@ def check_clab_startup_config_for_host(
     finally:
         conn.disconnect()
 
-    current_path = current_dir / f"{hostname}_run.txt"
+    current_path = current_dir / f"{hostname}{file_suffix}"
     current_path.parent.mkdir(parents=True, exist_ok=True)
     current_path.write_text(current_text.rstrip() + "\n", encoding="utf-8")
     result["current_path"] = str(current_path)
@@ -4302,9 +4356,11 @@ def cmd_check_clab_startup_config(args: argparse.Namespace) -> None:
     output_dir = Path(args.output_dir)
     current_dir = output_dir / "current"
     report_path = output_dir / "check-clab-startup-config.txt"
+    file_suffix = str(getattr(args, "file_suffix", "_run.txt") or "")
 
     logger.info("Loaded %d hosts from %s", len(hosts), hosts_path)
     logger.info("Startup config dir=%s", startup_dir)
+    logger.info("Startup config file suffix=%s", file_suffix)
     logger.info("Check targets=%d skipped=%d workers=%d", len(targets), skipped, max(1, args.workers))
 
     targets, connect_failures = filter_hosts_by_connect_check(targets, args, logger)
@@ -4331,6 +4387,7 @@ def cmd_check_clab_startup_config(args: argparse.Namespace) -> None:
                     *get_credentials_for_device(args, str(host.get("device_type", "")), host),
                     startup_dir,
                     current_dir,
+                    file_suffix,
                     logger,
                 ): host
                 for host in targets
@@ -4367,6 +4424,7 @@ def cmd_check_clab_startup_config(args: argparse.Namespace) -> None:
         "### CLAB STARTUP CONFIG CHECK SUMMARY",
         f"hosts_file: {hosts_path}",
         f"startup_dir: {startup_dir}",
+        f"file_suffix: {file_suffix}",
         f"current_dir: {current_dir}",
         f"matched: {counts['matched']}",
         f"diff: {counts['diff']}",
@@ -4432,6 +4490,7 @@ def run_collect_all_flow(args: argparse.Namespace, logger: Logger) -> Path:
     """
     Run all collect-family flows and package current outputs.
     """
+    require_collect_all_show_commands(args)
     generation_id = datetime.now().astimezone().strftime("%Y%m%d%H%M%S")
     setattr(args, "_connect_check_cache", {})
     logger.info("START COLLECT-ALL generation=%s", generation_id)
@@ -5004,8 +5063,8 @@ def cmd_normalize_links(args: argparse.Namespace) -> None:
         logger.info("PARSED RUN %s: %d description links", f.name, len(records))
         description_records.extend(records)
 
-    lldp_records = normalize_link_records(lldp_records, mappings)
-    description_records = normalize_link_records(description_records, mappings)
+    lldp_records = normalize_link_records(lldp_records, mappings, hosts)
+    description_records = normalize_link_records(description_records, mappings, hosts)
 
     confirmed, candidates = merge_lldp_and_description_links(
         lldp_records=lldp_records,
@@ -5997,6 +6056,7 @@ def cmd_generate_clab(args: argparse.Namespace) -> None:
     topology_data = apply_clab_merge_file(topology_data, args.clab_merge, logger, "clab-merge")
     topology_data = apply_clab_merge_file(topology_data, args.clab_lab_profile, logger, "clab-lab-profile")
     topology_data["name"] = args.name
+    topology_data = apply_linux_kind_defaults(topology_data, logger)
     topology_data = apply_cisco_n9kv_kind_defaults(topology_data, get_raw_dir("raw"), logger)
     topology_data = finalize_clab_topology_data(topology_data, generated_links, generated_node_names, roles)
     write_text(args.output, render_clab_yaml_lines(topology_data, generated_node_names, roles))
@@ -6007,6 +6067,112 @@ def cmd_generate_clab(args: argparse.Namespace) -> None:
         logger.info("Generated %d nodes", len(nodes))
         if args.group_by_role:
             logger.info("Added node groups from role detection")
+
+
+def cmd_init_clab(args: argparse.Namespace) -> None:
+    """Generate a containerlab topology from hosts.txt and a cable table."""
+    logger = setup_logging(args.log_file, args.verbose)
+    mappings = load_mappings(args.mappings)
+    roles = load_roles(args.roles)
+
+    entries = parse_hosts_txt(args.design_hosts)
+    source_inventory = build_inventory(entries)
+    clab_env_path = args.clab_env
+    if not clab_env_path and Path("clab_merge.yaml").exists():
+        clab_env_path = "clab_merge.yaml"
+    clab_env_data = load_yaml(clab_env_path)
+    try:
+        mgmt_subnet = parse_mgmt_ipv4_subnet(clab_env_data)
+    except ValueError:
+        mgmt_subnet = None
+    inventory_data = transform_inventory_mgmt_subnet(source_inventory, mgmt_subnet)
+    inventory_map = load_inventory_map_from_list(load_inventory_data(inventory_data))
+
+    raw_cables, issues = read_cable_table(args.cables)
+    normalized_cables, cable_issues = normalize_and_validate_cables(
+        raw_cables,
+        inventory_map,
+        mappings,
+    )
+    issues.extend(cable_issues)
+    issues.extend(validate_inventory(inventory_map, normalized_cables, mappings, clab_env_data))
+
+    write_normalized_cables(args.output_normalized, normalized_cables)
+    write_text(args.validation_report, render_validation_report(issues))
+    for issue in issues:
+        location = f"row {issue.row}: " if issue.row is not None else ""
+        getattr(logger, "error" if issue.severity == "error" else "warning")(
+            "%s%s", location, issue.message
+        )
+
+    errors = [issue for issue in issues if issue.severity == "error"]
+    if errors:
+        raise ValueError(
+            f"init-clab validation failed with {len(errors)} error(s); "
+            f"see {args.validation_report}"
+        )
+    if args.validate_only:
+        logger.info("Validation passed; topology generation skipped by --validate-only")
+        return
+
+    link_records = [
+        {
+            "src_node": str(record["src_node"]),
+            "src_if": str(record["src_if"]),
+            "dst_node": str(record["dst_node"]),
+            "dst_if": str(record["dst_if"]),
+            "protocol": "design",
+            "confidence": "high",
+            "evidence": "cable-table",
+        }
+        for record in normalized_cables
+        if record["enabled"]
+    ]
+    rendered_links, _ = prepare_rendered_links(
+        records=link_records,
+        mappings=mappings,
+        roles=roles,
+        min_confidence="low",
+        logger=logger,
+        inventory_map=inventory_map,
+        clab_mode=True,
+    )
+    mgmt_ip_map = build_node_mgmt_ip_map(inventory_map, mappings, logger)
+    nodes = build_node_definitions_from_inventory(
+        inventory_map=inventory_map,
+        mappings=mappings,
+        mgmt_ip_map=mgmt_ip_map,
+        roles=roles,
+        include_group=args.group_by_role,
+    )
+    topology_data = build_clab_topology_data(rendered_links, nodes, include_nodes=True)
+    topology_data["name"] = DEFAULT_CLAB_TOPOLOGY_NAME
+    generated_links = deepcopy(topology_data["topology"]["links"])
+    generated_node_names = set(nodes)
+
+    if clab_env_path:
+        topology_data = apply_clab_merge_file(topology_data, clab_env_path, logger, "clab-env")
+    if args.clab_merge and args.clab_merge != clab_env_path:
+        topology_data = apply_clab_merge_file(topology_data, args.clab_merge, logger, "clab-merge")
+    if args.clab_lab_profile:
+        topology_data = apply_clab_merge_file(
+            topology_data,
+            args.clab_lab_profile,
+            logger,
+            "clab-lab-profile",
+        )
+    if args.name:
+        topology_data["name"] = args.name
+    topology_data = apply_linux_kind_defaults(topology_data, logger)
+    topology_data = apply_cisco_n9kv_kind_defaults(topology_data, get_raw_dir("raw"), logger)
+    topology_data = finalize_clab_topology_data(
+        topology_data,
+        generated_links,
+        generated_node_names,
+        roles,
+    )
+    write_text(args.output, render_clab_yaml_lines(topology_data, generated_node_names, roles))
+    logger.info("Wrote %d nodes and %d links to %s", len(nodes), len(rendered_links), args.output)
 
 
 def cmd_generate_mermaid(args: argparse.Namespace) -> None:
@@ -6217,6 +6383,7 @@ def cmd_generate_doc(args: argparse.Namespace) -> None:
     generated_node_names = set(nodes.keys())
     topology_data = apply_clab_merge_file(topology_data, args.clab_merge, logger, "clab-merge")
     topology_data = apply_clab_merge_file(topology_data, args.clab_lab_profile, logger, "clab-lab-profile")
+    topology_data = apply_linux_kind_defaults(topology_data, logger)
     topology_data = apply_cisco_n9kv_kind_defaults(topology_data, get_raw_dir("raw"), logger)
     topology_data = finalize_clab_topology_data(topology_data, generated_links, generated_node_names, roles)
     write_text(args.output_clab, render_clab_yaml_lines(topology_data, generated_node_names, roles))
@@ -6228,6 +6395,7 @@ def cmd_generate_doc(args: argparse.Namespace) -> None:
             mappings=mappings,
             roles=roles,
             logger=logger,
+            inventory_map=inventory_map,
         )
 
     normalized_inventory_map, normalized_mgmt_ip_map = build_normalized_inventory_and_mgmt_maps(
@@ -6561,6 +6729,62 @@ def build_parser() -> argparse.ArgumentParser:
     p_transform.add_argument("--verbose", action="store_true", help="Verbose logging")
     p_transform.set_defaults(func=cmd_transform_config)
 
+    p_init_clab = subparsers.add_parser(
+        "init-clab",
+        help="Generate containerlab YAML from hosts.txt and a cable CSV",
+    )
+    p_init_clab.add_argument(
+        "--hosts",
+        dest="design_hosts",
+        default="hosts.txt",
+        help="Input hosts.txt (default: ./hosts.txt)",
+    )
+    p_init_clab.add_argument("--cables", required=True, help="Input cable CSV")
+    p_init_clab.add_argument(
+        "--clab-env",
+        help="containerlab environment YAML for mgmt IP conversion and merge (default: ./clab_merge.yaml if exists)",
+    )
+    p_init_clab.add_argument("--mappings", help="Mappings YAML path")
+    p_init_clab.add_argument("--roles", help=f"Role detection YAML path (default: ./{DEFAULT_ROLES_PATH} if exists)")
+    p_init_clab.add_argument("--clab-merge", help="Additional YAML to merge after --clab-env")
+    p_init_clab.add_argument("--clab-lab-profile", help="Lab profile YAML merged last")
+    p_init_clab.add_argument(
+        "--group-by-role",
+        dest="group_by_role",
+        action="store_true",
+        help="Add role-based group to topology.nodes",
+    )
+    p_init_clab.add_argument(
+        "--no-group-by-role",
+        dest="group_by_role",
+        action="store_false",
+        help="Do not add role-based group to topology.nodes",
+    )
+    p_init_clab.set_defaults(group_by_role=True)
+    p_init_clab.add_argument(
+        "--name",
+        help=f"Topology name override (default: {DEFAULT_CLAB_TOPOLOGY_NAME}, or merged YAML name)",
+    )
+    p_init_clab.add_argument(
+        "--output",
+        default=f"{default_topology_dir}/{DEFAULT_TOPOLOGY_CLAB_FILENAME}",
+        help="Output containerlab YAML",
+    )
+    p_init_clab.add_argument(
+        "--output-normalized",
+        default=f"{default_topology_dir}/links_design_normalized.csv",
+        help="Output normalized cable CSV",
+    )
+    p_init_clab.add_argument(
+        "--validation-report",
+        default=f"{default_topology_dir}/init_clab_validation.md",
+        help="Output validation report",
+    )
+    p_init_clab.add_argument("--validate-only", action="store_true", help="Validate inputs without generating topology YAML")
+    p_init_clab.add_argument("--log-file", default=f"{default_log_dir}/init-clab.log", help="Log file path")
+    p_init_clab.add_argument("--verbose", action="store_true", help="Verbose logging")
+    p_init_clab.set_defaults(func=cmd_init_clab)
+
     p_sample = subparsers.add_parser(
         "generate-sample-config",
         help="Generate sample config/input files for CLI arguments",
@@ -6674,7 +6898,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_collect.add_argument(
         "--show-only",
         action="store_true",
-        help="Run only extra show mode (--show-commands-file/--show-run-diff/--show-run-diff-comands) and skip base LLDP/running-config collection",
+        help="Run only extra show mode (--show-commands-file/--show-run-diff/--show-run-diff-commands) and skip base LLDP/running-config collection",
     )
     p_collect.set_defaults(func=cmd_collect)
 
@@ -6708,7 +6932,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_collect_run_diff_cmd = subparsers.add_parser(
         "collect-run-diff-cmd",
-        help="Collect with --show-run-diff-comands mode",
+        help="Collect with --show-run-diff-commands mode",
     )
     add_collect_common_arguments(p_collect_run_diff_cmd, require_show_commands_file=False)
     p_collect_run_diff_cmd.set_defaults(
@@ -6950,7 +7174,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_check_clab_startup.add_argument(
         "--startup-dir",
         default=f"{default_raw_dir}/labconfig",
-        help="Directory containing generated startup-config files (<hostname>_run.txt)",
+        help="Directory containing generated startup-config files (<hostname><suffix>)",
+    )
+    p_check_clab_startup.add_argument(
+        "--file-suffix",
+        default="_run.txt",
+        help="Optional literal suffix in startup-config filename pattern: <hostname><suffix>",
     )
     p_check_clab_startup.add_argument(
         "--output-dir",

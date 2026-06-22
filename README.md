@@ -695,6 +695,52 @@ alred generate-clab \
 
 merge 用 YAML、Linux サーバ CSV、Kind クラスタ CSV の詳細は [CONFIG.md](./CONFIG.md) を参照してください。
 
+### `init-clab`
+
+既存環境から情報を収集せず、`hosts.txt` とケーブル結線表から新しい containerlab topology YAML を生成します。
+
+```sh
+alred init-clab \
+  --hosts hosts.txt \
+  --cables clab_cables.csv \
+  --clab-env clab_merge.yaml \
+  --output output/topology.clab.yaml
+```
+
+`hosts.txt` は既存形式をそのまま利用します。
+
+```text
+192.168.129.81 leaf01 # nxos
+192.168.129.82 leaf02 # nxos
+192.168.129.90 server01 # linux
+```
+
+ケーブル結線表の例:
+
+```csv
+src_node,src_if,dst_node,dst_if,enabled,description
+leaf01,Eth1/1,leaf02,Eth1/1,true,peer link
+server01,Port 1,leaf01,Eth1/10,true,server connection
+```
+
+任意列:
+
+- `enabled`: 結線を生成対象にするかを指定します。省略時は `true` です。`false` / `no` / `0` / `off` を指定した行は topology YAML に出力しませんが、確認用の正規化 CSV には残します
+- `description`: 結線の用途や備考を記載します。省略可能で、topology YAML には出力せず確認用の正規化 CSV に残します
+
+主な動作:
+
+- `hosts.txt` の全ホストを、結線の有無にかかわらず `topology.nodes` へ生成します
+- 未結線ノードは警告として検証レポートへ記録します
+- インターフェース名は両端の `device_type` に応じて正規化します。NX-OS の `Eth1/1` は `Ethernet1/1`、Linux の `Port 1` は `eth1` になります
+- Linuxノードが存在する場合、`topology.kinds.linux.image`の既定値として`ghcr.io/hellt/network-multitool:latest`を設定します
+- `--clab-env` の `mgmt.ipv4-subnet` へホスト部を維持して管理 IP を変換し、同じ YAML を生成結果へマージします
+- `--validate-only` では topology YAML を生成せず、入力検証だけを実行します
+
+確認用に `output/links_design_normalized.csv` と `output/init_clab_validation.md` も出力します。入力仕様と検証内容の詳細は [CONFIG.md](./CONFIG.md) を参照してください。
+
+`generate-sample-config` が出力する `init_clab_hosts.example.txt` と `clab_cables.example.csv` を使って試すこともできます。
+
 ### `check-clab-startup-config`
 
 containerlab 起動後に、lab ノードへ接続して live の `show running-config` を取得し、`clab-transform-config` で生成した startup-config と比較します。
@@ -712,12 +758,13 @@ alred check-clab-startup-config \
   --hosts hosts.lab.yaml \
   --credentials clab_credentials.yaml \
   --startup-dir raw/labconfig \
+  --file-suffix _run.txt \
   --target-hosts lfsw0101,lfsw0102
 ```
 
 主なポイント:
 
-- `raw/labconfig/<hostname>_run.txt` を期待する startup-config、lab ノードの `show running-config` を実際の起動後 config として比較します
+- `raw/labconfig/<hostname><suffix>` を期待する startup-config、lab ノードの `show running-config` を実際の起動後 config として比較します。`--file-suffix` の既定は `_run.txt` です
 - 認証情報は CLI (`--user` / `--password` / `--ask-pass`) > `clab_credentials.yaml` の host 個別 > device_type 別 > defaults > 環境変数の順で解決します
 - 改行だけの差分や、既存の running-config diff 除外ルールに含まれる行は比較時に無視します
 - live の running-config は `<output>/check-clab-startup-config/current/` に保存されます

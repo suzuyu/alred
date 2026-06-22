@@ -1,0 +1,5 @@
+src_node,src_if,dst_node,dst_if,enabled,description
+leaf01,Eth1/1,spine01,Eth1/1,true,underlay link
+leaf02,Eth1/1,spine01,Eth1/2,true,underlay link
+server01,Port 1,leaf01,Eth1/10,true,server connection
+leaf01,Eth1/20,leaf02,Eth1/20,false,reserved

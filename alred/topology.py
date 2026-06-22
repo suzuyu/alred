@@ -8,7 +8,13 @@ from logging import Logger
 from typing import Any, Dict, List, Optional, Tuple
 
 from .constants import DEVICE_TYPE_TO_KIND, NETWORK_DEVICE_TYPES
-from .parsing import confidence_allowed, is_excluded_interface, normalize_hostname, normalize_interface_name
+from .parsing import (
+    confidence_allowed,
+    get_inventory_device_type,
+    is_excluded_interface,
+    normalize_hostname,
+    normalize_interface_name,
+)
 
 
 def is_network_device_type(device_type: str) -> bool:
@@ -309,6 +315,30 @@ def build_node_definitions_from_links(
     return dict(sorted(nodes.items(), key=lambda x: x[0]))
 
 
+def build_node_definitions_from_inventory(
+    inventory_map: Dict[str, Dict[str, Any]],
+    mappings: Dict[str, Any],
+    mgmt_ip_map: Dict[str, str],
+    roles: Optional[Dict[str, Any]] = None,
+    include_group: bool = False,
+) -> Dict[str, Dict[str, Any]]:
+    """Build topology.nodes for every host in an inventory."""
+    nodes: Dict[str, Dict[str, Any]] = {}
+    for original_name, attrs in inventory_map.items():
+        node_name = normalize_hostname(original_name, mappings)
+        device_type = str(attrs.get("device_type", "unknown"))
+        node_def: Dict[str, Any] = {
+            "kind": DEVICE_TYPE_TO_KIND.get(device_type, "linux"),
+        }
+        mgmt_ip = mgmt_ip_map.get(original_name) or mgmt_ip_map.get(node_name)
+        if mgmt_ip:
+            node_def["mgmt-ipv4"] = mgmt_ip
+        if include_group and roles is not None:
+            node_def["group"] = detect_node_role(node_name, roles)
+        nodes[node_name] = node_def
+    return dict(sorted(nodes.items(), key=lambda item: item[0]))
+
+
 def build_normalized_inventory_and_mgmt_maps(
     inventory_map: Dict[str, Dict[str, Any]],
     mgmt_ip_map: Dict[str, str],
@@ -358,8 +388,16 @@ def should_skip_clab_link(record: Dict[str, str], mappings: Dict[str, Any], inve
     Returns:
         True if link should be skipped.
     """
-    src_if = normalize_interface_name(record.get("src_if", ""), mappings)
-    dst_if = normalize_interface_name(record.get("dst_if", ""), mappings)
+    src_if = normalize_interface_name(
+        record.get("src_if", ""),
+        mappings,
+        get_inventory_device_type(record.get("src_node", ""), inventory_map, mappings),
+    )
+    dst_if = normalize_interface_name(
+        record.get("dst_if", ""),
+        mappings,
+        get_inventory_device_type(record.get("dst_node", ""), inventory_map, mappings),
+    )
 
     if src_if.lower().startswith("port-channel") or dst_if.lower().startswith("port-channel"):
         return True
@@ -426,8 +464,16 @@ def prepare_rendered_links(
 
         src_node = normalize_hostname(r["src_node"], mappings)
         dst_node = normalize_hostname(r["dst_node"], mappings)
-        src_if = normalize_interface_name(r["src_if"], mappings)
-        dst_if = normalize_interface_name(r["dst_if"], mappings)
+        src_if = normalize_interface_name(
+            r["src_if"],
+            mappings,
+            get_inventory_device_type(r["src_node"], inventory_map, mappings),
+        )
+        dst_if = normalize_interface_name(
+            r["dst_if"],
+            mappings,
+            get_inventory_device_type(r["dst_node"], inventory_map, mappings),
+        )
 
         if is_excluded_interface(src_if, mappings) or is_excluded_interface(dst_if, mappings):
             continue
@@ -457,6 +503,7 @@ def prepare_rendered_candidate_links(
     mappings: Dict[str, Any],
     roles: Dict[str, Any],
     logger: Optional[Logger] = None,
+    inventory_map: Optional[Dict[str, Dict[str, Any]]] = None,
 ) -> List[Dict[str, Any]]:
     """
     Normalize and sort candidate links for Mermaid rendering.
@@ -476,8 +523,16 @@ def prepare_rendered_candidate_links(
     for r in records:
         src_node = normalize_hostname(r["src_node"], mappings)
         dst_node = normalize_hostname(r["dst_node"], mappings)
-        src_if = normalize_interface_name(r["src_if"], mappings)
-        dst_if = normalize_interface_name(r["dst_if"], mappings)
+        src_if = normalize_interface_name(
+            r["src_if"],
+            mappings,
+            get_inventory_device_type(r["src_node"], inventory_map, mappings),
+        )
+        dst_if = normalize_interface_name(
+            r["dst_if"],
+            mappings,
+            get_inventory_device_type(r["dst_node"], inventory_map, mappings),
+        )
 
         if logger:
             logger.debug(

@@ -248,7 +248,7 @@ CONNECT_CHECK_COMMAND_MAP = {
 }
 
 PUSH_CONFIG_EXCLUDE_LINE_PREFIXES_MAP = {
-    "nxos": ["!", "version", "copp"],
+    "nxos": ["!", "version", "copp", "boot"],
 }
 
 DEFAULT_LOG_ROTATION = 20

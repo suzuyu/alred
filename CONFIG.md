@@ -221,6 +221,9 @@ exclude_interfaces:
 
 - `Port-channel` または `port-channel` を含めると `Port-channel<number>` も広く除外します
 - キー名は `interface_name_map` が正です (`interface_map` ではありません)
+- inventory が利用できるリンク処理では、両端の `device_type` に応じて名前を正規化します
+- Linux の `Port 1` / `port1` / `eth1` は `eth1` に正規化します。データリンクでの `eth0` は管理インターフェースと衝突するため `init-clab` ではエラーです
+- `interface_name_map` の完全一致は device_type 別の標準変換より優先されます
 
 ## 7. ロール定義 (`roles.yaml`)
 
@@ -369,7 +372,72 @@ topology:
 - `topology.links` は追加マージ (generated links の後ろに merge 側 links を連結)
 - `clab-transform-config` は `--clab-env` で指定した YAML の `mgmt.ipv4-subnet` を参照して `hosts.lab.yaml` と `raw/labconfig/<hostname><suffix>` の管理 IP を変換します。`--file-suffix` の既定は `_run.txt` です
 
-## 11. Linux サーバ CSV (`clab_linux_server.csv`)
+## 11. 新規 lab ケーブル結線表 (`clab_cables.csv`)
+
+`init-clab --cables` で利用します。UTF-8 の CSV とし、ヘッダーは必須です。
+配布サンプルの `init_clab_hosts.example.txt` と `clab_cables.example.csv` は対応する組み合わせです。
+
+```text
+src_node,src_if,dst_node,dst_if,enabled,description
+```
+
+必須列:
+
+- `src_node` / `src_if`: ケーブルの一方のノードとインターフェース
+- `dst_node` / `dst_if`: もう一方のノードとインターフェース
+
+任意列:
+
+- `enabled`: 省略時は `true`。`false` / `no` / `0` / `off` の行は生成対象外
+- `description`: 確認用の説明。topology YAML には出力しません
+
+`src` と `dst` に通信方向の意味はありません。ノード名とインターフェース名は正規化後に重複を判定します。
+
+```csv
+src_node,src_if,dst_node,dst_if,enabled,description
+leaf01,Eth1/1,spine01,Eth1/1,true,underlay link
+server01,Port 1,leaf01,Eth1/10,true,server connection
+leaf01,Eth1/20,leaf02,Eth1/20,false,reserved
+```
+
+`init-clab` の設定適用順序は次の通りです。後に適用される設定を優先します。
+
+```text
+自動生成 < --clab-env < --clab-merge < --clab-lab-profile
+```
+
+Linuxノードが存在し、mergeするYAMLにimage指定がない場合は次の既定値を設定します。
+
+```yaml
+topology:
+  kinds:
+    linux:
+      image: ghcr.io/hellt/network-multitool:latest
+```
+
+エラーとして生成を停止する項目:
+
+- 必須列・必須値の欠落、不正な `enabled`
+- `hosts.txt` に存在しないノード、自己接続
+- 正規化後のリンク重複、同一 endpoint の複数使用
+- Linux データリンクでの `eth0` 使用
+- 管理 IPv4 の不正、重複、subnet 外、network/broadcast アドレス
+- `mgmt.ipv4-range` が `mgmt.ipv4-subnet` の外側
+
+警告して生成を継続する項目:
+
+- `hosts.txt` に存在するが結線されていないノード
+- 未対応または `unknown` の `device_type`
+- 静的管理 IP と動的割当用 `mgmt.ipv4-range` の重複
+- 未知の CSV 列、除外対象インターフェース
+
+出力:
+
+- `output/topology.clab.yaml`: containerlab topology YAML (`--validate-only` では生成しません)
+- `output/links_design_normalized.csv`: 変換前後のendpointを含む確認用CSV
+- `output/init_clab_validation.md`: エラー・警告レポート
+
+## 12. Linux サーバ CSV (`clab_linux_server.csv`)
 
 `generate-clab --linux-csv` で利用します。
 
@@ -384,7 +452,7 @@ hostname,VLAN_ID,IP_CIDR,DEF_GW,IPV6_CIDR,DEF_GW6,LEAF1,LEAF1_IF,LEAF2,LEAF2_IF
 - `nodes.<hostname>` に `kind: linux` / `env` / `binds` / `exec` / `group: server`
 - `LEAF1` / `LEAF2` から `eth1` / `eth2` への links
 
-## 12. Kind クラスタ CSV (`clab_kind_cluster.csv`)
+## 13. Kind クラスタ CSV (`clab_kind_cluster.csv`)
 
 `generate-clab --kind-cluster-csv` で利用します。
 
@@ -400,7 +468,7 @@ cluster,hostname,VLAN_ID,IP_CIDR,DEF_GW,ROUTES4,IPV6_CIDR,DEF_GW6,ROUTES6,LEAF1,
 - `nodes.<cluster>-<hostname>` に `kind: ext-container` / `binds` / `exec`
 - `LEAF1` / `LEAF2` から `eth1` / `eth2` への links
 
-## 13. Mermaid underlay 表示設定 (`underlay_render.yaml`)
+## 14. Mermaid underlay 表示設定 (`underlay_render.yaml`)
 
 `generate-mermaid` / `generate-doc` で `--underlay` を使うと、対象ノードの表示を `mgmt` から underlay loopback に切り替えられます。
 
@@ -431,7 +499,7 @@ interfaces:
 - `interfaces[].label`: Mermaid 表示ラベル
 - `interfaces[].vrf`: そのインターフェースを評価する VRF (省略時は上位 `vrf`)
 
-## 14. 関連ドキュメント
+## 15. 関連ドキュメント
 
 - 利用手順と主要コマンド: [README.md](./README.md)
 - 設定値や入力ファイルの詳細: この `CONFIG.md`
