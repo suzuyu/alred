@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import tempfile
 import unittest
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import yaml
@@ -11,6 +12,7 @@ from alred.cli import apply_n9kv_startup_delay, build_clab_set_step_args, build_
 from alred.constants import DEFAULT_CLAB_SET_CMDS
 from alred.design import normalize_and_validate_cables
 from alred.parsing import normalize_interface_name
+from alred.topology import detect_node_site
 
 
 class DeviceAwareNormalizationTests(unittest.TestCase):
@@ -53,6 +55,18 @@ class DesignValidationTests(unittest.TestCase):
         errors = [issue.message for issue in issues if issue.severity == "error"]
         self.assertTrue(any("eth0" in message for message in errors))
         self.assertTrue(any("already used" in message for message in errors))
+
+
+class SiteDetectionTests(unittest.TestCase):
+    def test_specific_prefix_beats_earlier_broad_contains(self) -> None:
+        sites = {
+            "wan": {"contains": ["p", "pe", "internet"]},
+            "adc": {"startswith": ["adc-"]},
+        }
+
+        self.assertEqual(detect_node_site("adc-spsw0101", sites), "adc")
+        self.assertEqual(detect_node_site("p01", sites), "wan")
+        self.assertEqual(detect_node_site("internet-pe01", sites), "wan")
 
 
 class StartupDelayTests(unittest.TestCase):
@@ -295,9 +309,11 @@ class GenerateMermaidClabInputTests(unittest.TestCase):
             sites.write_text(
                 "site_detection:\n"
                 "  site-1:\n"
+                "    priority: 1\n"
                 "    startswith:\n"
                 "      - site1-\n"
                 "  wan:\n"
+                "    priority: 0\n"
                 "    startswith:\n"
                 "      - wan\n",
                 encoding="utf-8",
@@ -318,11 +334,17 @@ class GenerateMermaidClabInputTests(unittest.TestCase):
             mermaid = output.read_text(encoding="utf-8")
             self.assertIn("subgraph site_site_1[site-1]", mermaid)
             self.assertIn("subgraph site_wan[wan]", mermaid)
+            self.assertLess(
+                mermaid.index("subgraph site_wan[wan]"),
+                mermaid.index("subgraph site_site_1[site-1]"),
+            )
 
     def test_graphviz_and_drawio_group_by_site_from_clab(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             clab = root / "topology.clab.yaml"
+            roles = root / "roles.yaml"
+            sites = root / "sites.yaml"
             dot_output = root / "topology.dot"
             drawio_output = root / "topology.drawio"
 
@@ -331,16 +353,60 @@ class GenerateMermaidClabInputTests(unittest.TestCase):
                 "  nodes:\n"
                 "    site1-bgw01:\n"
                 "      kind: cisco_n9kv\n"
-                "      group: border-gateway\n"
+                "      group: bgw\n"
                 "      labels:\n"
                 "        site: site-1\n"
+                "    site1-rs01:\n"
+                "      kind: cisco_n9kv\n"
+                "      group: rs\n"
+                "      labels:\n"
+                "        site: site-1\n"
+                "    site1-spine01:\n"
+                "      kind: cisco_n9kv\n"
+                "      group: spine\n"
+                "      labels:\n"
+                "        site: site-1\n"
+                "    wan01:\n"
+                "      kind: cisco_n9kv\n"
+                "      group: wan\n"
+                "      labels:\n"
+                "        site: wan\n"
                 "    site2-bgw01:\n"
                 "      kind: cisco_n9kv\n"
-                "      group: border-gateway\n"
+                "      group: bgw\n"
                 "      labels:\n"
                 "        site: site-2\n"
                 "  links:\n"
-                "    - endpoints: [\"site1-bgw01:Ethernet1/1\", \"site2-bgw01:Ethernet1/1\"]\n",
+                "    - endpoints: [\"site1-bgw01:Ethernet1/1\", \"site1-rs01:Ethernet1/1\"]\n"
+                "    - endpoints: [\"site1-bgw01:Ethernet1/2\", \"site1-spine01:Ethernet1/1\"]\n"
+                "    - endpoints: [\"site1-bgw01:Ethernet1/3\", \"wan01:Ethernet1/1\"]\n"
+                "    - endpoints: [\"wan01:Ethernet1/2\", \"site2-bgw01:Ethernet1/1\"]\n",
+                encoding="utf-8",
+            )
+            roles.write_text(
+                "role_detection:\n"
+                "  border-gateway:\n"
+                "    priority: 0\n"
+                "    contains:\n"
+                "      - bgw\n"
+                "  route-server:\n"
+                "    priority: 0\n"
+                "    contains:\n"
+                "      - rs\n"
+                "  spine:\n"
+                "    priority: 2\n"
+                "    contains:\n"
+                "      - spine\n",
+                encoding="utf-8",
+            )
+            sites.write_text(
+                "site_detection:\n"
+                "  wan:\n"
+                "    priority: 0\n"
+                "  site-1:\n"
+                "    priority: 1\n"
+                "  site-2:\n"
+                "    priority: 1\n",
                 encoding="utf-8",
             )
 
@@ -348,6 +414,8 @@ class GenerateMermaidClabInputTests(unittest.TestCase):
             dot_args = parser.parse_args([
                 "generate-graphviz",
                 "--input", str(clab),
+                "--roles", str(roles),
+                "--sites", str(sites),
                 "--group-by-site",
                 "--group-by-role",
                 "--output", str(dot_output),
@@ -358,6 +426,8 @@ class GenerateMermaidClabInputTests(unittest.TestCase):
             drawio_args = parser.parse_args([
                 "generate-drawio",
                 "--input", str(clab),
+                "--roles", str(roles),
+                "--sites", str(sites),
                 "--group-by-site",
                 "--group-by-role",
                 "--output", str(drawio_output),
@@ -369,8 +439,57 @@ class GenerateMermaidClabInputTests(unittest.TestCase):
             drawio = drawio_output.read_text(encoding="utf-8")
             self.assertIn("subgraph cluster_site_site_1", dot)
             self.assertIn('label="site-1"', dot)
+            self.assertLess(dot.index('label="wan"'), dot.index('label="site-1"'))
+            self.assertLess(dot.index('label="bgw"'), dot.index('label="spine"'))
             self.assertIn("site-1", drawio)
             self.assertIn("site-2", drawio)
+            self.assertLess(drawio.index("wan"), drawio.index("site-1"))
+            self.assertLess(drawio.index('value="bgw"'), drawio.index('value="spine"'))
+            self.assertLess(drawio.index('value="rs"'), drawio.index('value="spine"'))
+            self.assertIn('value="bgw"', drawio)
+            self.assertIn('value="rs"', drawio)
+            drawio_root = ET.fromstring(drawio)
+            cells = {
+                cell.attrib.get("id", ""): cell
+                for cell in drawio_root.findall(".//mxCell")
+            }
+            site1_id = next(
+                cell_id
+                for cell_id, cell in cells.items()
+                if cell.attrib.get("value") == "site-1"
+            )
+            role_geometry = {}
+            for cell in cells.values():
+                if cell.attrib.get("parent") != site1_id:
+                    continue
+                value = cell.attrib.get("value")
+                if value not in {"bgw", "rs", "spine"}:
+                    continue
+                geom = cell.find("mxGeometry")
+                self.assertIsNotNone(geom)
+                role_geometry[value] = (
+                    int(float(geom.attrib.get("x", "0"))),
+                    int(float(geom.attrib.get("y", "0"))),
+                )
+            self.assertEqual(role_geometry["bgw"][1], role_geometry["rs"][1])
+            self.assertLess(role_geometry["bgw"][0], role_geometry["rs"][0])
+            self.assertLess(role_geometry["bgw"][1], role_geometry["spine"][1])
+
+            bgw_label = next(
+                cell
+                for cell in cells.values()
+                if "site1-bgw01" in cell.attrib.get("value", "")
+            )
+            bgw_device_id = bgw_label.attrib["parent"]
+            wan_nic = next(
+                cell
+                for cell in cells.values()
+                if cell.attrib.get("parent") == bgw_device_id
+                and cell.attrib.get("value") == "Ethernet1/3"
+            )
+            wan_nic_geom = wan_nic.find("mxGeometry")
+            self.assertIsNotNone(wan_nic_geom)
+            self.assertEqual(int(float(wan_nic_geom.attrib.get("y", "0"))), 0)
 
 
 if __name__ == "__main__":

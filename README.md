@@ -819,6 +819,7 @@ alred generate-mermaid \
 - containerlab YAML 入力で `--group-by-role` を指定した場合は、`topology.nodes.<node>.group` を Mermaid の subgraph 名として優先します
 - containerlab YAML 入力で `--group-by-site` を指定した場合は、`labels.site` / `labels.domain` を Mermaid / Graphviz / draw.io の site/domain group として使います
 - `--sites sites.yaml` または `./sites.yaml` がある場合は、ホスト名から site を自動判定します。`generate-clab` / `init-clab` では判定結果を `labels.site` へ出力します
+- `sites.yaml` の `priority` は site group の並び順に使います。小さい値ほど上位で、draw.io の `TD` では同じ priority の site を横並びにします
 - containerlab YAML 入力では `mgmt-ipv4` を mgmt 表示に使います。`kind: cisco_n9kv` は `nxos` 相当として扱います
 - `--min-confidence low` は confirmed links の `low` / `medium` / `high` をすべて表示します
 - `--min-confidence medium` は confirmed links の `medium` / `high` のみ表示します

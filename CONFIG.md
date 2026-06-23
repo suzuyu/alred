@@ -296,16 +296,19 @@ role_detection:
 ```yaml
 site_detection:
   site-1:
+    priority: 1
     startswith:
       - site1-
       - s1-
 
   site-2:
+    priority: 1
     startswith:
       - site2-
       - s2-
 
   wan:
+    priority: 0
     contains:
       - wan
       - dci
@@ -313,6 +316,7 @@ site_detection:
 
 各 site に定義できる主な条件は `roles.yaml` と同じです。
 
+- `priority` (数値。小さいほど上位。未指定は `99`)
 - `position_matches` (`pos`, `value`)
 - `startswith`
 - `endswith`
@@ -321,6 +325,7 @@ site_detection:
 利用方法:
 
 - `generate-mermaid --group-by-site` / `generate-graphviz --group-by-site` / `generate-drawio --group-by-site` は、`labels.site` がないノードを `sites.yaml` で自動判定して site group に配置します
+- site group は `priority` の小さい順に並びます。draw.io の `TD` では priority ごとに段を作り、同じ priority の site を横並びに配置します
 - `generate-clab --sites sites.yaml` / `init-clab --sites sites.yaml` は、生成する `topology.nodes.<node>.labels.site` に判定結果を書き込みます
 - 既に `labels.site` がある場合は、その値を優先し、`sites.yaml` では上書きしません
 

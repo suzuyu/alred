@@ -62,14 +62,17 @@ def detect_node_by_rules(node: str, rules: Dict[str, Any], default: str) -> str:
             if pos >= 0 and value and x[pos:pos + len(value)] == value:
                 return label
 
+    for label, rule in rules.items():
         for prefix in rule.get("startswith", []):
             if x.startswith(str(prefix).lower()):
                 return label
 
+    for label, rule in rules.items():
         for suffix in rule.get("endswith", []):
             if x.endswith(str(suffix).lower()):
                 return label
 
+    for label, rule in rules.items():
         for keyword in rule.get("contains", []):
             if str(keyword).lower() in x:
                 return label
@@ -180,6 +183,23 @@ def get_role_priority(role: str, roles: Dict[str, Any]) -> int:
         Numeric priority. Unknown roles default to 99.
     """
     rule = roles.get(role)
+    if not rule:
+        return 99
+    return int(rule.get("priority", 99))
+
+
+def get_site_priority(site: str, sites: Dict[str, Any]) -> int:
+    """
+    Return numeric sort priority for a site.
+
+    Args:
+        site: Site name.
+        sites: Site rules.
+
+    Returns:
+        Numeric priority. Unknown sites default to 99.
+    """
+    rule = sites.get(site)
     if not rule:
         return 99
     return int(rule.get("priority", 99))

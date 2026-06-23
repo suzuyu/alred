@@ -1,15 +1,18 @@
 site_detection:
   site-1:
+    priority: 1
     startswith:
       - site1-
       - s1-
 
   site-2:
+    priority: 1
     startswith:
       - site2-
       - s2-
 
   wan:
+    priority: 0
     contains:
       - wan
       - dci

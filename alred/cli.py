@@ -3876,6 +3876,7 @@ def prepare_topology_diagram_context(args: argparse.Namespace, logger: Logger) -
 
     return {
         "roles": roles,
+        "sites": sites,
         "normalized_inventory_map": normalized_inventory_map,
         "normalized_mgmt_ip_map": normalized_mgmt_ip_map,
         "rendered_links": rendered_links,
@@ -3930,6 +3931,7 @@ def build_drawio_page_diagram(
         node_interface_label_map=context["node_interface_label_map"],
         node_role_map=context["node_role_map"],
         node_site_map=context["node_site_map"],
+        sites=context["sites"],
     )
     root = ET.fromstring("\n".join(drawio_lines))
     diagram = root.find("diagram")
@@ -6557,6 +6559,7 @@ def cmd_generate_mermaid(args: argparse.Namespace) -> None:
         extra_node_names=context["extra_node_names"],
         node_role_map=context["node_role_map"],
         node_site_map=context["node_site_map"],
+        sites=context["sites"],
     )
     write_text(context["output_path"], md_lines)
 
@@ -6596,6 +6599,7 @@ def cmd_generate_graphviz(args: argparse.Namespace) -> None:
         link_label_map=context["link_label_map"],
         node_role_map=context["node_role_map"],
         node_site_map=context["node_site_map"],
+        sites=context["sites"],
     )
     write_text(context["output_path"], dot_lines)
 
@@ -6675,6 +6679,7 @@ def cmd_generate_drawio(args: argparse.Namespace) -> None:
         node_interface_label_map=context["node_interface_label_map"],
         node_role_map=context["node_role_map"],
         node_site_map=context["node_site_map"],
+        sites=context["sites"],
     )
     write_text(context["output_path"], drawio_lines)
 

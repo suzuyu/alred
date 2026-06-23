@@ -25,6 +25,63 @@ from .constants import (
 )
 
 
+def get_site_priority(site: str, sites: Optional[Dict[str, Any]]) -> int:
+    """
+    Return numeric sort priority for a site. Unknown sites default to 99.
+    """
+    if not sites:
+        return 99
+    rule = sites.get(site)
+    if not isinstance(rule, dict):
+        return 99
+    return int(rule.get("priority", 99))
+
+
+def site_sort_key(site: str, sites: Optional[Dict[str, Any]]) -> tuple[int, bool, str]:
+    """
+    Return stable site sort key using priority, keeping default sites last.
+    """
+    return (get_site_priority(site, sites), site == "default", site)
+
+
+def resolve_node_role_priority(
+    node: str,
+    role: str,
+    roles: Dict[str, Any],
+    detect_node_role_func: Callable[[str, Dict[str, Any]], str],
+    get_role_priority_func: Callable[[str, Dict[str, Any]], int],
+) -> int:
+    """
+    Return role priority for a node, falling back to hostname detection.
+
+    containerlab group names are useful as display labels, but they may be
+    short aliases such as "bgw" while roles.yaml defines "border-gateway".
+    """
+    if role in roles:
+        return get_role_priority_func(role, roles)
+    detected_role = detect_node_role_func(node, roles)
+    return get_role_priority_func(detected_role, roles)
+
+
+def grouped_role_sort_key(
+    role: str,
+    nodes: List[str],
+    roles: Dict[str, Any],
+    detect_node_role_func: Callable[[str, Dict[str, Any]], str],
+    get_role_priority_func: Callable[[str, Dict[str, Any]], int],
+) -> tuple[int, str]:
+    """
+    Return sort key for a displayed role group.
+    """
+    if role in roles:
+        return (get_role_priority_func(role, roles), role)
+    priorities = [
+        resolve_node_role_priority(node, role, roles, detect_node_role_func, get_role_priority_func)
+        for node in nodes
+    ]
+    return (min(priorities, default=99), role)
+
+
 def render_clab_lines(
     rendered_links: List[Dict[str, Any]],
     nodes: Dict[str, Dict[str, Any]],
@@ -214,6 +271,7 @@ def render_mermaid_graph_lines(
     extra_node_names: Optional[List[str]] = None,
     node_role_map: Optional[Dict[str, str]] = None,
     node_site_map: Optional[Dict[str, str]] = None,
+    sites: Optional[Dict[str, Any]] = None,
     group_by_site: bool = False,
 ) -> List[str]:
     """
@@ -280,8 +338,8 @@ def render_mermaid_graph_lines(
     sorted_nodes = sorted(
         node_names,
         key=lambda n: (
-            resolve_node_site(n),
-            get_role_priority_func(resolve_node_role(n), roles),
+            site_sort_key(resolve_node_site(n), sites),
+            resolve_node_role_priority(n, resolve_node_role(n), roles, detect_node_role_func, get_role_priority_func),
             n,
         ),
     )
@@ -294,7 +352,7 @@ def render_mermaid_graph_lines(
         for node in sorted_nodes:
             site_to_nodes.setdefault(resolve_node_site(node), []).append(node)
 
-        for site, site_nodes in sorted(site_to_nodes.items(), key=lambda x: (x[0] == "default", x[0])):
+        for site, site_nodes in sorted(site_to_nodes.items(), key=lambda x: site_sort_key(x[0], sites)):
             site_graph_name = mermaid_safe_node_id(f"site_{site}")
             lines.append(f"  subgraph {site_graph_name}[{site}]")
 
@@ -304,7 +362,13 @@ def render_mermaid_graph_lines(
                     role_to_nodes.setdefault(resolve_node_role(node), []).append(node)
                 for role, role_nodes in sorted(
                     role_to_nodes.items(),
-                    key=lambda x: (get_role_priority_func(x[0], roles), x[0]),
+                    key=lambda x: grouped_role_sort_key(
+                        x[0],
+                        x[1],
+                        roles,
+                        detect_node_role_func,
+                        get_role_priority_func,
+                    ),
                 ):
                     role_graph_name = mermaid_safe_node_id(f"{site}_{role}")
                     lines.append(f"    subgraph {role_graph_name}[{role}]")
@@ -323,7 +387,13 @@ def render_mermaid_graph_lines(
 
         for role, nodes in sorted(
             role_to_nodes.items(),
-            key=lambda x: (get_role_priority_func(x[0], roles), x[0]),
+            key=lambda x: grouped_role_sort_key(
+                x[0],
+                x[1],
+                roles,
+                detect_node_role_func,
+                get_role_priority_func,
+            ),
         ):
             subgraph_name = role.replace("-", "_")
             lines.append(f"  subgraph {subgraph_name}[{role}]")
@@ -403,6 +473,7 @@ def render_mermaid_markdown_lines(
     extra_node_names: Optional[List[str]] = None,
     node_role_map: Optional[Dict[str, str]] = None,
     node_site_map: Optional[Dict[str, str]] = None,
+    sites: Optional[Dict[str, Any]] = None,
     group_by_site: bool = False,
 ) -> List[str]:
     """
@@ -429,6 +500,7 @@ def render_mermaid_markdown_lines(
         extra_node_names: Optional standalone nodes to include.
         node_role_map: Optional node -> role/group override map.
         node_site_map: Optional node -> site/domain override map.
+        sites: Optional site rules.
 
     Returns:
         Markdown lines.
@@ -453,6 +525,7 @@ def render_mermaid_markdown_lines(
         extra_node_names=extra_node_names,
         node_role_map=node_role_map,
         node_site_map=node_site_map,
+        sites=sites,
     )
 
     lines: List[str] = []
@@ -484,6 +557,7 @@ def render_graphviz_dot_lines(
     link_label_map: Optional[Dict[str, str]] = None,
     node_role_map: Optional[Dict[str, str]] = None,
     node_site_map: Optional[Dict[str, str]] = None,
+    sites: Optional[Dict[str, Any]] = None,
     group_by_site: bool = False,
 ) -> List[str]:
     """
@@ -509,6 +583,7 @@ def render_graphviz_dot_lines(
         link_label_map: Optional link label override map.
         node_role_map: Optional node -> role/group override map.
         node_site_map: Optional node -> site/domain override map.
+        sites: Optional site rules.
 
     Returns:
         DOT lines.
@@ -543,8 +618,8 @@ def render_graphviz_dot_lines(
     sorted_nodes = sorted(
         node_names,
         key=lambda n: (
-            resolve_node_site(n),
-            get_role_priority_func(resolve_node_role(n), roles),
+            site_sort_key(resolve_node_site(n), sites),
+            resolve_node_role_priority(n, resolve_node_role(n), roles, detect_node_role_func, get_role_priority_func),
             n,
         ),
     )
@@ -578,7 +653,7 @@ def render_graphviz_dot_lines(
         for node in sorted_nodes:
             site_to_nodes.setdefault(resolve_node_site(node), []).append(node)
 
-        for site, site_nodes in sorted(site_to_nodes.items(), key=lambda x: (x[0] == "default", x[0])):
+        for site, site_nodes in sorted(site_to_nodes.items(), key=lambda x: site_sort_key(x[0], sites)):
             site_cluster_name = mermaid_safe_node_id(f"site_{site}")
             lines.append(f"  subgraph cluster_{site_cluster_name} {{")
             lines.append(f'    label="{graphviz_escape(site)}";')
@@ -590,7 +665,13 @@ def render_graphviz_dot_lines(
                     role_to_nodes.setdefault(resolve_node_role(node), []).append(node)
                 for role, nodes in sorted(
                     role_to_nodes.items(),
-                    key=lambda x: (get_role_priority_func(x[0], roles), x[0]),
+                    key=lambda x: grouped_role_sort_key(
+                        x[0],
+                        x[1],
+                        roles,
+                        detect_node_role_func,
+                        get_role_priority_func,
+                    ),
                 ):
                     role_cluster_name = mermaid_safe_node_id(f"{site}_{role}")
                     lines.append(f"    subgraph cluster_{role_cluster_name} {{")
@@ -612,7 +693,13 @@ def render_graphviz_dot_lines(
 
         for role, nodes in sorted(
             role_to_nodes.items(),
-            key=lambda x: (get_role_priority_func(x[0], roles), x[0]),
+            key=lambda x: grouped_role_sort_key(
+                x[0],
+                x[1],
+                roles,
+                detect_node_role_func,
+                get_role_priority_func,
+            ),
         ):
             cluster_name = mermaid_safe_node_id(role)
             lines.append(f"  subgraph cluster_{cluster_name} {{")
@@ -687,6 +774,7 @@ def render_drawio_xml_lines(
     node_interface_label_map: Optional[Dict[str, str]] = None,
     node_role_map: Optional[Dict[str, str]] = None,
     node_site_map: Optional[Dict[str, str]] = None,
+    sites: Optional[Dict[str, Any]] = None,
     group_by_site: bool = False,
 ) -> List[str]:
     """
@@ -712,6 +800,7 @@ def render_drawio_xml_lines(
         node_interface_label_map: Optional "node|interface" -> displayed NIC label map.
         node_role_map: Optional node -> role/group override map.
         node_site_map: Optional node -> site/domain override map.
+        sites: Optional site rules.
         group_by_site: Whether to use site containers.
 
     Returns:
@@ -738,8 +827,8 @@ def render_drawio_xml_lines(
     sorted_nodes = sorted(
         node_names,
         key=lambda n: (
-            resolve_node_site(n),
-            get_role_priority_func(resolve_node_role(n), roles),
+            site_sort_key(resolve_node_site(n), sites),
+            resolve_node_role_priority(n, resolve_node_role(n), roles, detect_node_role_func, get_role_priority_func),
             n,
         ),
     )
@@ -760,8 +849,22 @@ def render_drawio_xml_lines(
 
     node_role_map = {node: resolve_node_role(node) for node in sorted_nodes}
     node_site_map = {node: resolve_node_site(node) for node in sorted_nodes}
+    node_role_priority_map = {
+        node: resolve_node_role_priority(
+            node,
+            node_role_map[node],
+            roles,
+            detect_node_role_func,
+            get_role_priority_func,
+        )
+        for node in sorted_nodes
+    }
     role_priority_map = {
-        role: get_role_priority_func(role, roles)
+        role: min(
+            node_role_priority_map[node]
+            for node in sorted_nodes
+            if node_role_map[node] == role
+        )
         for role in {node_role_map[node] for node in sorted_nodes}
     }
     horizontal = direction in {"LR", "RL"}
@@ -781,8 +884,15 @@ def render_drawio_xml_lines(
     node_interface_side_map: Dict[tuple[str, str], str] = {}
 
     def infer_interface_side(node_name: str, peer_name: str) -> str:
-        node_priority = role_priority_map.get(node_role_map.get(node_name, ""), 9999)
-        peer_priority = role_priority_map.get(node_role_map.get(peer_name, ""), 9999)
+        node_site_priority = get_site_priority(node_site_map.get(node_name, "default"), sites)
+        peer_site_priority = get_site_priority(node_site_map.get(peer_name, "default"), sites)
+        if node_site_priority != peer_site_priority:
+            if horizontal:
+                return "left" if peer_site_priority < node_site_priority else "right"
+            return "top" if peer_site_priority < node_site_priority else "bottom"
+
+        node_priority = node_role_priority_map.get(node_name, 9999)
+        peer_priority = node_role_priority_map.get(peer_name, 9999)
         if horizontal:
             return "left" if peer_priority < node_priority else "right"
         return "top" if peer_priority < node_priority else "bottom"
@@ -1077,9 +1187,8 @@ def render_drawio_xml_lines(
         for node in sorted_nodes:
             site_to_nodes.setdefault(node_site_map[node], []).append(node)
 
-        cursor_x = origin_x
-        cursor_y = origin_y
-        for site, site_nodes in sorted(site_to_nodes.items(), key=lambda x: (x[0] == "default", x[0])):
+        site_specs: List[Dict[str, Any]] = []
+        for site, site_nodes in sorted(site_to_nodes.items(), key=lambda x: site_sort_key(x[0], sites)):
             role_to_nodes: Dict[str, List[str]] = {}
             if group_by_role:
                 for node in site_nodes:
@@ -1089,11 +1198,24 @@ def render_drawio_xml_lines(
 
             role_items = sorted(
                 role_to_nodes.items(),
-                key=lambda x: (get_role_priority_func(x[0], roles), x[0]),
+                key=lambda x: grouped_role_sort_key(
+                    x[0],
+                    x[1],
+                    roles,
+                    detect_node_role_func,
+                    get_role_priority_func,
+                ),
             )
 
             role_specs: List[Dict[str, Any]] = []
             for role, nodes in role_items:
+                role_priority = grouped_role_sort_key(
+                    role,
+                    nodes,
+                    roles,
+                    detect_node_role_func,
+                    get_role_priority_func,
+                )[0]
                 horizontal_nodes = not horizontal
                 role_width = (
                     sum(get_node_footprint_width(node) for node in nodes)
@@ -1114,54 +1236,130 @@ def render_drawio_xml_lines(
                 )
                 role_specs.append({
                     "role": role,
+                    "priority": role_priority,
                     "nodes": nodes,
                     "width": role_width,
                     "height": role_height,
                 })
 
-            if horizontal:
-                site_width = sum(int(spec["width"]) for spec in role_specs) + max(len(role_specs) - 1, 0) * container_gap + container_padding * 2
-                site_height = max([int(spec["height"]) for spec in role_specs], default=node_height) + container_header + container_padding * 2
-            else:
-                site_width = max([int(spec["width"]) for spec in role_specs], default=node_width) + container_padding * 2
-                site_height = sum(int(spec["height"]) for spec in role_specs) + max(len(role_specs) - 1, 0) * container_gap + container_header + container_padding * 2
+            role_bands: Dict[int, List[Dict[str, Any]]] = {}
+            for role_spec in role_specs:
+                role_bands.setdefault(int(role_spec["priority"]), []).append(role_spec)
 
+            if horizontal:
+                band_widths = [
+                    max(int(spec["width"]) for spec in band)
+                    for band in role_bands.values()
+                ]
+                band_heights = [
+                    sum(int(spec["height"]) for spec in band) + max(len(band) - 1, 0) * container_gap
+                    for band in role_bands.values()
+                ]
+                site_width = sum(band_widths) + max(len(band_widths) - 1, 0) * container_gap + container_padding * 2
+                site_height = max(band_heights, default=node_height) + container_header + container_padding * 2
+            else:
+                band_widths = [
+                    sum(int(spec["width"]) for spec in band) + max(len(band) - 1, 0) * container_gap
+                    for band in role_bands.values()
+                ]
+                band_heights = [
+                    max(int(spec["height"]) for spec in band)
+                    for band in role_bands.values()
+                ]
+                site_width = max(band_widths, default=node_width) + container_padding * 2
+                site_height = sum(band_heights) + max(len(band_heights) - 1, 0) * container_gap + container_header + container_padding * 2
+
+            site_specs.append({
+                "site": site,
+                "priority": get_site_priority(site, sites),
+                "role_specs": role_specs,
+                "role_bands": role_bands,
+                "width": site_width,
+                "height": site_height,
+            })
+
+        def add_site_spec(spec: Dict[str, Any], x: int, y: int) -> None:
             site_id = alloc_id()
             add_container(
                 container_id=site_id,
-                label=site,
-                x=cursor_x,
-                y=cursor_y,
-                width=site_width,
-                height=site_height,
+                label=str(spec["site"]),
+                x=x,
+                y=y,
+                width=int(spec["width"]),
+                height=int(spec["height"]),
                 style=build_container_style(),
             )
 
-            role_cursor_x = container_padding
-            role_cursor_y = container_header + container_padding
-            for spec in role_specs:
-                role_id = alloc_id()
-                role_label = str(spec["role"]) if group_by_role else ""
-                add_container(
-                    container_id=role_id,
-                    label=role_label,
-                    x=role_cursor_x,
-                    y=role_cursor_y,
-                    width=int(spec["width"]),
-                    height=int(spec["height"]),
-                    style=build_container_style(str(spec["role"]) == primary_leaf_role),
-                    parent_id=site_id,
-                )
-                layout_nodes_in_container(list(spec["nodes"]), role_id, not horizontal)
-                if horizontal:
-                    role_cursor_x += int(spec["width"]) + container_gap
-                else:
-                    role_cursor_y += int(spec["height"]) + container_gap
-
+            role_bands = spec["role_bands"]
             if horizontal:
-                cursor_x += site_width + container_gap
+                role_cursor_x = container_padding
+                for priority in sorted(role_bands):
+                    role_cursor_y = container_header + container_padding
+                    band_width = 0
+                    for role_spec in role_bands[priority]:
+                        role_id = alloc_id()
+                        role_label = str(role_spec["role"]) if group_by_role else ""
+                        add_container(
+                            container_id=role_id,
+                            label=role_label,
+                            x=role_cursor_x,
+                            y=role_cursor_y,
+                            width=int(role_spec["width"]),
+                            height=int(role_spec["height"]),
+                            style=build_container_style(str(role_spec["role"]) == primary_leaf_role),
+                            parent_id=site_id,
+                        )
+                        layout_nodes_in_container(list(role_spec["nodes"]), role_id, not horizontal)
+                        role_cursor_y += int(role_spec["height"]) + container_gap
+                        band_width = max(band_width, int(role_spec["width"]))
+                    role_cursor_x += band_width + container_gap
             else:
-                cursor_y += site_height + container_gap
+                role_cursor_y = container_header + container_padding
+                for priority in sorted(role_bands):
+                    role_cursor_x = container_padding
+                    band_height = 0
+                    for role_spec in role_bands[priority]:
+                        role_id = alloc_id()
+                        role_label = str(role_spec["role"]) if group_by_role else ""
+                        add_container(
+                            container_id=role_id,
+                            label=role_label,
+                            x=role_cursor_x,
+                            y=role_cursor_y,
+                            width=int(role_spec["width"]),
+                            height=int(role_spec["height"]),
+                            style=build_container_style(str(role_spec["role"]) == primary_leaf_role),
+                            parent_id=site_id,
+                        )
+                        layout_nodes_in_container(list(role_spec["nodes"]), role_id, not horizontal)
+                        role_cursor_x += int(role_spec["width"]) + container_gap
+                        band_height = max(band_height, int(role_spec["height"]))
+                    role_cursor_y += band_height + container_gap
+
+        site_bands: Dict[int, List[Dict[str, Any]]] = {}
+        for spec in site_specs:
+            site_bands.setdefault(int(spec["priority"]), []).append(spec)
+
+        if horizontal:
+            cursor_x = origin_x
+            for priority in sorted(site_bands):
+                cursor_y = origin_y
+                band_width = 0
+                for spec in site_bands[priority]:
+                    add_site_spec(spec, cursor_x, cursor_y)
+                    cursor_y += int(spec["height"]) + container_gap
+                    band_width = max(band_width, int(spec["width"]))
+                cursor_x += band_width + container_gap
+        else:
+            cursor_y = origin_y
+            for priority in sorted(site_bands):
+                cursor_x = origin_x
+                band_height = 0
+                for spec in site_bands[priority]:
+                    add_site_spec(spec, cursor_x, cursor_y)
+                    cursor_x += int(spec["width"]) + container_gap
+                    band_height = max(band_height, int(spec["height"]))
+                cursor_y += band_height + container_gap
     elif group_by_role:
         role_to_nodes: Dict[str, List[str]] = {}
         for node in sorted_nodes:
@@ -1170,7 +1368,13 @@ def render_drawio_xml_lines(
 
         role_items = sorted(
             role_to_nodes.items(),
-            key=lambda x: (get_role_priority_func(x[0], roles), x[0]),
+            key=lambda x: grouped_role_sort_key(
+                x[0],
+                x[1],
+                roles,
+                detect_node_role_func,
+                get_role_priority_func,
+            ),
         )
         leaf_nodes = role_to_nodes.get(primary_leaf_role or "", [])
         leaf_order_map = {node: index for index, node in enumerate(leaf_nodes)}
