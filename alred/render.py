@@ -211,6 +211,10 @@ def render_mermaid_graph_lines(
     node_address_label_map: Optional[Dict[str, str]] = None,
     node_address_lines_map: Optional[Dict[str, List[str]]] = None,
     link_label_map: Optional[Dict[str, str]] = None,
+    extra_node_names: Optional[List[str]] = None,
+    node_role_map: Optional[Dict[str, str]] = None,
+    node_site_map: Optional[Dict[str, str]] = None,
+    group_by_site: bool = False,
 ) -> List[str]:
     """
     Render Mermaid graph lines.
@@ -225,12 +229,16 @@ def render_mermaid_graph_lines(
         is_network_device_type_func: Injected device type checker.
         direction: Mermaid direction.
         group_by_role: Whether to use role subgraphs.
+        group_by_site: Whether to use site subgraphs.
         add_comments: Whether to add comments by left node.
         candidate_links: Optional candidate links.
         node_address_map: Optional node -> displayed address map.
         node_address_label_map: Optional node -> address label map.
         node_address_lines_map: Optional node -> multiple address label lines.
         link_label_map: Optional link label override map.
+        extra_node_names: Optional standalone nodes to include.
+        node_role_map: Optional node -> role/group override map.
+        node_site_map: Optional node -> site/domain override map.
 
     Returns:
         Mermaid graph lines without markdown fences.
@@ -248,10 +256,32 @@ def render_mermaid_graph_lines(
             node_names.add(ep1.split(":", 1)[0])
             node_names.add(ep2.split(":", 1)[0])
 
+    for node in extra_node_names or []:
+        node_names.add(node)
+
+    def resolve_node_role(node: str) -> str:
+        return (node_role_map or {}).get(node) or detect_node_role_func(node, roles)
+
+    def resolve_node_site(node: str) -> str:
+        return (node_site_map or {}).get(node) or "default"
+
+    def render_node_line(node: str) -> str:
+        host_info = normalized_inventory_map.get(node, {})
+        device_type = str(host_info.get("device_type", "unknown"))
+        address_value = ""
+        address_label = "mgmt"
+        if is_network_device_type_func(device_type):
+            if node_address_lines_map and node in node_address_lines_map:
+                return build_mermaid_node_line_with_lines(node, node_address_lines_map[node])
+            address_value = (node_address_map or normalized_mgmt_ip_map).get(node, "")
+            address_label = (node_address_label_map or {}).get(node, "mgmt")
+        return build_mermaid_node_line_with_label(node, address_value, address_label)
+
     sorted_nodes = sorted(
         node_names,
         key=lambda n: (
-            get_role_priority_func(detect_node_role_func(n, roles), roles),
+            resolve_node_site(n),
+            get_role_priority_func(resolve_node_role(n), roles),
             n,
         ),
     )
@@ -259,10 +289,36 @@ def render_mermaid_graph_lines(
     lines: List[str] = []
     lines.append(f"graph {direction}")
 
-    if group_by_role:
+    if group_by_site:
+        site_to_nodes: Dict[str, List[str]] = {}
+        for node in sorted_nodes:
+            site_to_nodes.setdefault(resolve_node_site(node), []).append(node)
+
+        for site, site_nodes in sorted(site_to_nodes.items(), key=lambda x: (x[0] == "default", x[0])):
+            site_graph_name = mermaid_safe_node_id(f"site_{site}")
+            lines.append(f"  subgraph {site_graph_name}[{site}]")
+
+            if group_by_role:
+                role_to_nodes: Dict[str, List[str]] = {}
+                for node in site_nodes:
+                    role_to_nodes.setdefault(resolve_node_role(node), []).append(node)
+                for role, role_nodes in sorted(
+                    role_to_nodes.items(),
+                    key=lambda x: (get_role_priority_func(x[0], roles), x[0]),
+                ):
+                    role_graph_name = mermaid_safe_node_id(f"{site}_{role}")
+                    lines.append(f"    subgraph {role_graph_name}[{role}]")
+                    for node in role_nodes:
+                        lines.append("  " + render_node_line(node))
+                    lines.append("    end")
+            else:
+                for node in site_nodes:
+                    lines.append(render_node_line(node))
+            lines.append("  end")
+    elif group_by_role:
         role_to_nodes: Dict[str, List[str]] = {}
         for node in sorted_nodes:
-            role = detect_node_role_func(node, roles)
+            role = resolve_node_role(node)
             role_to_nodes.setdefault(role, []).append(node)
 
         for role, nodes in sorted(
@@ -272,31 +328,11 @@ def render_mermaid_graph_lines(
             subgraph_name = role.replace("-", "_")
             lines.append(f"  subgraph {subgraph_name}[{role}]")
             for node in nodes:
-                host_info = normalized_inventory_map.get(node, {})
-                device_type = str(host_info.get("device_type", "unknown"))
-                address_value = ""
-                address_label = "mgmt"
-                if is_network_device_type_func(device_type):
-                    if node_address_lines_map and node in node_address_lines_map:
-                        lines.append(build_mermaid_node_line_with_lines(node, node_address_lines_map[node]))
-                        continue
-                    address_value = (node_address_map or normalized_mgmt_ip_map).get(node, "")
-                    address_label = (node_address_label_map or {}).get(node, "mgmt")
-                lines.append(build_mermaid_node_line_with_label(node, address_value, address_label))
+                lines.append(render_node_line(node))
             lines.append("  end")
     else:
         for node in sorted_nodes:
-            host_info = normalized_inventory_map.get(node, {})
-            device_type = str(host_info.get("device_type", "unknown"))
-            address_value = ""
-            address_label = "mgmt"
-            if is_network_device_type_func(device_type):
-                if node_address_lines_map and node in node_address_lines_map:
-                    lines.append(build_mermaid_node_line_with_lines(node, node_address_lines_map[node]))
-                    continue
-                address_value = (node_address_map or normalized_mgmt_ip_map).get(node, "")
-                address_label = (node_address_label_map or {}).get(node, "mgmt")
-            lines.append(build_mermaid_node_line_with_label(node, address_value, address_label))
+            lines.append(render_node_line(node))
 
     lines.append("")
 
@@ -364,6 +400,10 @@ def render_mermaid_markdown_lines(
     node_address_label_map: Optional[Dict[str, str]] = None,
     node_address_lines_map: Optional[Dict[str, List[str]]] = None,
     link_label_map: Optional[Dict[str, str]] = None,
+    extra_node_names: Optional[List[str]] = None,
+    node_role_map: Optional[Dict[str, str]] = None,
+    node_site_map: Optional[Dict[str, str]] = None,
+    group_by_site: bool = False,
 ) -> List[str]:
     """
     Render Markdown lines containing Mermaid fenced block.
@@ -378,6 +418,7 @@ def render_mermaid_markdown_lines(
         is_network_device_type_func: Injected device type checker.
         direction: Mermaid direction.
         group_by_role: Whether to use subgraphs.
+        group_by_site: Whether to use site subgraphs.
         add_comments: Whether to add comments.
         title: Markdown title.
         candidate_links: Optional candidate links.
@@ -385,6 +426,9 @@ def render_mermaid_markdown_lines(
         node_address_label_map: Optional node -> address label map.
         node_address_lines_map: Optional node -> multiple address label lines.
         link_label_map: Optional link label override map.
+        extra_node_names: Optional standalone nodes to include.
+        node_role_map: Optional node -> role/group override map.
+        node_site_map: Optional node -> site/domain override map.
 
     Returns:
         Markdown lines.
@@ -399,12 +443,16 @@ def render_mermaid_markdown_lines(
         is_network_device_type_func=is_network_device_type_func,
         direction=direction,
         group_by_role=group_by_role,
+        group_by_site=group_by_site,
         add_comments=add_comments,
         candidate_links=candidate_links,
         node_address_map=node_address_map,
         node_address_label_map=node_address_label_map,
         node_address_lines_map=node_address_lines_map,
         link_label_map=link_label_map,
+        extra_node_names=extra_node_names,
+        node_role_map=node_role_map,
+        node_site_map=node_site_map,
     )
 
     lines: List[str] = []
@@ -434,6 +482,9 @@ def render_graphviz_dot_lines(
     node_address_label_map: Optional[Dict[str, str]] = None,
     node_address_lines_map: Optional[Dict[str, List[str]]] = None,
     link_label_map: Optional[Dict[str, str]] = None,
+    node_role_map: Optional[Dict[str, str]] = None,
+    node_site_map: Optional[Dict[str, str]] = None,
+    group_by_site: bool = False,
 ) -> List[str]:
     """
     Render Graphviz DOT lines.
@@ -448,6 +499,7 @@ def render_graphviz_dot_lines(
         is_network_device_type_func: Injected device type checker.
         direction: Diagram direction.
         group_by_role: Whether to use role clusters.
+        group_by_site: Whether to use site clusters.
         add_comments: Whether to add comments.
         title: Graph label shown at top.
         candidate_links: Optional candidate links.
@@ -455,6 +507,8 @@ def render_graphviz_dot_lines(
         node_address_label_map: Optional node -> address label map.
         node_address_lines_map: Optional node -> multiple address label lines.
         link_label_map: Optional link label override map.
+        node_role_map: Optional node -> role/group override map.
+        node_site_map: Optional node -> site/domain override map.
 
     Returns:
         DOT lines.
@@ -480,10 +534,17 @@ def render_graphviz_dot_lines(
             node_names.add(ep1.split(":", 1)[0])
             node_names.add(ep2.split(":", 1)[0])
 
+    def resolve_node_role(node: str) -> str:
+        return (node_role_map or {}).get(node) or detect_node_role_func(node, roles)
+
+    def resolve_node_site(node: str) -> str:
+        return (node_site_map or {}).get(node) or "default"
+
     sorted_nodes = sorted(
         node_names,
         key=lambda n: (
-            get_role_priority_func(detect_node_role_func(n, roles), roles),
+            resolve_node_site(n),
+            get_role_priority_func(resolve_node_role(n), roles),
             n,
         ),
     )
@@ -512,10 +573,41 @@ def render_graphviz_dot_lines(
                     label_lines.append(f"{address_label}: {address_value}")
         return graphviz_escape("\n".join(label_lines))
 
-    if group_by_role:
+    if group_by_site:
+        site_to_nodes: Dict[str, List[str]] = {}
+        for node in sorted_nodes:
+            site_to_nodes.setdefault(resolve_node_site(node), []).append(node)
+
+        for site, site_nodes in sorted(site_to_nodes.items(), key=lambda x: (x[0] == "default", x[0])):
+            site_cluster_name = mermaid_safe_node_id(f"site_{site}")
+            lines.append(f"  subgraph cluster_{site_cluster_name} {{")
+            lines.append(f'    label="{graphviz_escape(site)}";')
+            lines.append('    style="rounded";')
+
+            if group_by_role:
+                role_to_nodes: Dict[str, List[str]] = {}
+                for node in site_nodes:
+                    role_to_nodes.setdefault(resolve_node_role(node), []).append(node)
+                for role, nodes in sorted(
+                    role_to_nodes.items(),
+                    key=lambda x: (get_role_priority_func(x[0], roles), x[0]),
+                ):
+                    role_cluster_name = mermaid_safe_node_id(f"{site}_{role}")
+                    lines.append(f"    subgraph cluster_{role_cluster_name} {{")
+                    lines.append(f'      label="{graphviz_escape(role)}";')
+                    for node in nodes:
+                        node_id = mermaid_safe_node_id(node)
+                        lines.append(f'      {node_id} [label="{build_node_label(node)}"];')
+                    lines.append("    }")
+            else:
+                for node in site_nodes:
+                    node_id = mermaid_safe_node_id(node)
+                    lines.append(f'    {node_id} [label="{build_node_label(node)}"];')
+            lines.append("  }")
+    elif group_by_role:
         role_to_nodes: Dict[str, List[str]] = {}
         for node in sorted_nodes:
-            role = detect_node_role_func(node, roles)
+            role = resolve_node_role(node)
             role_to_nodes.setdefault(role, []).append(node)
 
         for role, nodes in sorted(
@@ -593,6 +685,9 @@ def render_drawio_xml_lines(
     node_address_lines_map: Optional[Dict[str, List[str]]] = None,
     link_label_map: Optional[Dict[str, str]] = None,
     node_interface_label_map: Optional[Dict[str, str]] = None,
+    node_role_map: Optional[Dict[str, str]] = None,
+    node_site_map: Optional[Dict[str, str]] = None,
+    group_by_site: bool = False,
 ) -> List[str]:
     """
     Render draw.io XML lines.
@@ -615,6 +710,9 @@ def render_drawio_xml_lines(
         node_address_lines_map: Optional node -> multiple address label lines.
         link_label_map: Optional link label override map.
         node_interface_label_map: Optional "node|interface" -> displayed NIC label map.
+        node_role_map: Optional node -> role/group override map.
+        node_site_map: Optional node -> site/domain override map.
+        group_by_site: Whether to use site containers.
 
     Returns:
         draw.io XML lines.
@@ -631,10 +729,17 @@ def render_drawio_xml_lines(
         node_names.add(ep1.split(":", 1)[0])
         node_names.add(ep2.split(":", 1)[0])
 
+    def resolve_node_role(node: str) -> str:
+        return (node_role_map or {}).get(node) or detect_node_role_func(node, roles)
+
+    def resolve_node_site(node: str) -> str:
+        return (node_site_map or {}).get(node) or "default"
+
     sorted_nodes = sorted(
         node_names,
         key=lambda n: (
-            get_role_priority_func(detect_node_role_func(n, roles), roles),
+            resolve_node_site(n),
+            get_role_priority_func(resolve_node_role(n), roles),
             n,
         ),
     )
@@ -653,7 +758,8 @@ def render_drawio_xml_lines(
     nic_box_height = int(DRAWIO_LAYOUT["nic_box_height"])
     nic_box_gap = int(DRAWIO_LAYOUT["nic_box_gap"])
 
-    node_role_map = {node: detect_node_role_func(node, roles) for node in sorted_nodes}
+    node_role_map = {node: resolve_node_role(node) for node in sorted_nodes}
+    node_site_map = {node: resolve_node_site(node) for node in sorted_nodes}
     role_priority_map = {
         role: get_role_priority_func(role, roles)
         for role in {node_role_map[node] for node in sorted_nodes}
@@ -907,14 +1013,23 @@ def render_drawio_xml_lines(
                     }
                 )
 
-    def add_container(container_id: str, label: str, x: int, y: int, width: int, height: int, style: str) -> None:
+    def add_container(
+        container_id: str,
+        label: str,
+        x: int,
+        y: int,
+        width: int,
+        height: int,
+        style: str,
+        parent_id: str = "1",
+    ) -> None:
         cell_specs.append(
             {
                 "kind": "vertex",
                 "id": container_id,
                 "value": label,
                 "style": style,
-                "parent": "1",
+                "parent": parent_id,
                 "x": x,
                 "y": y,
                 "width": width,
@@ -922,7 +1037,132 @@ def render_drawio_xml_lines(
             }
         )
 
-    if group_by_role:
+    if group_by_site:
+        def build_container_style(is_leaf: bool = False) -> str:
+            base_style = DRAWIO_STYLE_LEAF_CONTAINER if is_leaf else DRAWIO_STYLE_CONTAINER
+            return f"{base_style}startSize={container_header};"
+
+        def layout_nodes_in_container(nodes: List[str], parent_id: str, horizontal_nodes: bool) -> tuple[int, int]:
+            max_width = 0
+            max_height = 0
+            if horizontal_nodes:
+                node_cursor_x = container_padding
+                for node in nodes:
+                    add_node(
+                        node=node,
+                        x=node_cursor_x,
+                        y=container_header + container_padding,
+                        parent_id=parent_id,
+                    )
+                    node_cursor_x += get_node_footprint_width(node) + node_gap_x
+                    max_height = max(max_height, get_node_footprint_height(node))
+                max_width = max(node_cursor_x - node_gap_x + container_padding, node_width + container_padding * 2)
+                max_height = max_height + container_header + container_padding * 2
+            else:
+                node_cursor_y = container_header + container_padding
+                for node in nodes:
+                    add_node(
+                        node=node,
+                        x=container_padding,
+                        y=node_cursor_y,
+                        parent_id=parent_id,
+                    )
+                    node_cursor_y += get_node_footprint_height(node) + node_gap_y
+                    max_width = max(max_width, get_node_footprint_width(node))
+                max_width = max_width + container_padding * 2
+                max_height = max(node_cursor_y - node_gap_y + container_padding, node_height + container_padding * 2)
+            return max_width, max_height
+
+        site_to_nodes: Dict[str, List[str]] = {}
+        for node in sorted_nodes:
+            site_to_nodes.setdefault(node_site_map[node], []).append(node)
+
+        cursor_x = origin_x
+        cursor_y = origin_y
+        for site, site_nodes in sorted(site_to_nodes.items(), key=lambda x: (x[0] == "default", x[0])):
+            role_to_nodes: Dict[str, List[str]] = {}
+            if group_by_role:
+                for node in site_nodes:
+                    role_to_nodes.setdefault(node_role_map[node], []).append(node)
+            else:
+                role_to_nodes = {site: site_nodes}
+
+            role_items = sorted(
+                role_to_nodes.items(),
+                key=lambda x: (get_role_priority_func(x[0], roles), x[0]),
+            )
+
+            role_specs: List[Dict[str, Any]] = []
+            for role, nodes in role_items:
+                horizontal_nodes = not horizontal
+                role_width = (
+                    sum(get_node_footprint_width(node) for node in nodes)
+                    + max(len(nodes) - 1, 0) * node_gap_x
+                    + container_padding * 2
+                    if horizontal_nodes
+                    else max(get_node_footprint_width(node) for node in nodes) + container_padding * 2
+                )
+                role_height = (
+                    max(get_node_footprint_height(node) for node in nodes)
+                    + container_header
+                    + container_padding * 2
+                    if horizontal_nodes
+                    else sum(get_node_footprint_height(node) for node in nodes)
+                    + max(len(nodes) - 1, 0) * node_gap_y
+                    + container_header
+                    + container_padding * 2
+                )
+                role_specs.append({
+                    "role": role,
+                    "nodes": nodes,
+                    "width": role_width,
+                    "height": role_height,
+                })
+
+            if horizontal:
+                site_width = sum(int(spec["width"]) for spec in role_specs) + max(len(role_specs) - 1, 0) * container_gap + container_padding * 2
+                site_height = max([int(spec["height"]) for spec in role_specs], default=node_height) + container_header + container_padding * 2
+            else:
+                site_width = max([int(spec["width"]) for spec in role_specs], default=node_width) + container_padding * 2
+                site_height = sum(int(spec["height"]) for spec in role_specs) + max(len(role_specs) - 1, 0) * container_gap + container_header + container_padding * 2
+
+            site_id = alloc_id()
+            add_container(
+                container_id=site_id,
+                label=site,
+                x=cursor_x,
+                y=cursor_y,
+                width=site_width,
+                height=site_height,
+                style=build_container_style(),
+            )
+
+            role_cursor_x = container_padding
+            role_cursor_y = container_header + container_padding
+            for spec in role_specs:
+                role_id = alloc_id()
+                role_label = str(spec["role"]) if group_by_role else ""
+                add_container(
+                    container_id=role_id,
+                    label=role_label,
+                    x=role_cursor_x,
+                    y=role_cursor_y,
+                    width=int(spec["width"]),
+                    height=int(spec["height"]),
+                    style=build_container_style(str(spec["role"]) == primary_leaf_role),
+                    parent_id=site_id,
+                )
+                layout_nodes_in_container(list(spec["nodes"]), role_id, not horizontal)
+                if horizontal:
+                    role_cursor_x += int(spec["width"]) + container_gap
+                else:
+                    role_cursor_y += int(spec["height"]) + container_gap
+
+            if horizontal:
+                cursor_x += site_width + container_gap
+            else:
+                cursor_y += site_height + container_gap
+    elif group_by_role:
         role_to_nodes: Dict[str, List[str]] = {}
         for node in sorted_nodes:
             role = node_role_map[node]

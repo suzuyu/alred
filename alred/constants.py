@@ -255,6 +255,7 @@ DEFAULT_LOG_ROTATION = 20
 DEFAULT_HOSTS_PATH = "hosts.yaml"
 DEFAULT_DESCRIPTION_RULES_PATH = "description_rules.yaml"
 DEFAULT_ROLES_PATH = "roles.yaml"
+DEFAULT_SITES_PATH = "sites.yaml"
 DEFAULT_SHOW_COMMANDS_PATH = "show_commands.txt"
 DEFAULT_SAMPLES_DIR = "samples"
 DEFAULT_LINKS_CONFIRMED_FILENAME = "links_confirmed.csv"
@@ -418,13 +419,16 @@ DEFAULT_CLAB_SET_CMDS = [
         "args": {
             "command": "generate-mermaid",
             "input": f"output/{DEFAULT_LINKS_CONFIRMED_FILENAME}",
+            "input_format": "csv",
             "input_candidates": f"output/{DEFAULT_LINKS_CANDIDATES_FILENAME}",
             "hosts": None,
             "mappings": None,
             "roles": "roles.yaml",
+            "sites": None,
             "min_confidence": "low",
             "direction": "LR",
             "group_by_role": True,
+            "group_by_site": False,
             "add_comments": False,
             "underlay": False,
             "underlay_config": None,
@@ -440,13 +444,16 @@ DEFAULT_CLAB_SET_CMDS = [
         "args": {
             "command": "generate-mermaid",
             "input": f"output/{DEFAULT_LINKS_CONFIRMED_FILENAME}",
+            "input_format": "csv",
             "input_candidates": None,
             "hosts": None,
             "mappings": None,
             "roles": "roles.yaml",
+            "sites": None,
             "min_confidence": "low",
             "direction": "LR",
             "group_by_role": True,
+            "group_by_site": False,
             "add_comments": False,
             "underlay": False,
             "underlay_config": None,
@@ -462,13 +469,16 @@ DEFAULT_CLAB_SET_CMDS = [
         "args": {
             "command": "generate-mermaid",
             "input": f"output/{DEFAULT_LINKS_CONFIRMED_FILENAME}",
+            "input_format": "csv",
             "input_candidates": None,
             "hosts": None,
             "mappings": None,
             "roles": "roles.yaml",
+            "sites": None,
             "min_confidence": "low",
             "direction": "LR",
             "group_by_role": True,
+            "group_by_site": False,
             "add_comments": False,
             "underlay": True,
             "underlay_config": "underlay_render.yaml",
@@ -484,13 +494,16 @@ DEFAULT_CLAB_SET_CMDS = [
         "args": {
             "command": "generate-drawio",
             "input": f"output/{DEFAULT_LINKS_CONFIRMED_FILENAME}",
+            "input_format": "csv",
             "input_candidates": f"output/{DEFAULT_LINKS_CANDIDATES_FILENAME}",
             "hosts": None,
             "mappings": None,
             "roles": "roles.yaml",
+            "sites": None,
             "min_confidence": "low",
             "direction": "TD",
             "group_by_role": True,
+            "group_by_site": False,
             "add_comments": False,
             "all_graph": True,
             "underlay": False,
@@ -519,6 +532,7 @@ DEFAULT_CLAB_SET_CMDS = [
 DEFAULT_LINUX_KIND_IMAGE = "ghcr.io/hellt/network-multitool:latest"
 DEFAULT_LINUX_NODE_BIND = ".alred/linux:/scripts:ro"
 DEFAULT_LINUX_NODE_EXEC = "sh -lc '/scripts/init-bond-singlevlan-route.sh'"
+DEFAULT_INIT_LINUX_NODE_BIND = "scripts/linux:/scripts:ro"
 
 DEFAULT_KIND_CLUSTER_KIND = "k8s-kind"
 DEFAULT_KIND_CLUSTER_IMAGE = "kindest/node:v1.34.3"

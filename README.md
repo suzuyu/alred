@@ -260,6 +260,7 @@ uv run python alred.py generate-sample-config
 - `samples/hosts.example.txt`
 - `samples/mappings.example.yaml`
 - `samples/roles.example.yaml`
+- `samples/sites.example.yaml`
 - `samples/description_rules.example.yaml`
 - `samples/underlay_render.example.yaml`
 - `samples/show_commands.example.txt`
@@ -270,22 +271,24 @@ uv run python alred.py generate-sample-config
 2. `hosts.txt` を作成する
 3. 必要に応じて `mappings.yaml` を用意する
 4. 必要に応じて `roles.yaml` を用意する
-5. 必要に応じて `description_rules.yaml` を用意する
-6. 必要に応じて `underlay_render.yaml` を用意する
-7. 必要に応じて `show_commands.txt` を用意する
+5. 必要に応じて `sites.yaml` を用意する
+6. 必要に応じて `description_rules.yaml` を用意する
+7. 必要に応じて `underlay_render.yaml` を用意する
+8. 必要に応じて `show_commands.txt` を用意する
 
 サンプルから作成する例:
 
 ```sh
 cp -p samples/mappings.example.yaml mappings.yaml
 cp -p samples/roles.example.yaml roles.yaml
+cp -p samples/sites.example.yaml sites.yaml
 cp -p samples/description_rules.example.yaml description_rules.yaml
 cp -p samples/underlay_render.example.yaml underlay_render.yaml
 cp -p samples/show_commands.example.txt show_commands.txt
 ```
 
 `clab-set-cmds` だけを最短で試すなら、必須なのは通常 `.env` と `hosts.txt` です。  
-ただし、実際には `mappings.yaml`、`roles.yaml`、`description_rules.yaml`、`underlay_render.yaml`、`show_commands.txt` を実施環境のルールに合わせて記載変更する必要があります。
+ただし、実際には `mappings.yaml`、`roles.yaml`、`sites.yaml`、`description_rules.yaml`、`underlay_render.yaml`、`show_commands.txt` を実施環境のルールに合わせて記載変更する必要があります。
 
 containerlab 連携まで行う場合は、必要に応じて次も用意します。
 
@@ -690,8 +693,11 @@ alred generate-clab \
   --mappings mappings.yaml \
   --roles roles.yaml \
   --group-by-role \
+  --n9kv-startup-delay 5,600 \
   --include-nodes
 ```
+
+`--n9kv-startup-delay 5,600` を指定すると、`kind: cisco_n9kv` ノードの起動を5台ごとに600秒ずつ遅らせます。先頭5台は delay なし、次の5台は `startup-delay: 600`、さらに次は `startup-delay: 1200` です。
 
 merge 用 YAML、Linux サーバ CSV、Kind クラスタ CSV の詳細は [CONFIG.md](./CONFIG.md) を参照してください。
 
@@ -712,7 +718,7 @@ alred init-clab \
 ```text
 192.168.129.81 leaf01 # nxos
 192.168.129.82 leaf02 # nxos
-192.168.129.90 server01 # linux
+192.168.129.101 server01 # linux, profile=bond, vlan=2001, ipv4=100.64.0.1/24, ipv4_gw=100.64.0.254, ipv6=fd12:0:0:1::101/64, ipv6_gw=fd12:0:0:1::1
 ```
 
 ケーブル結線表の例:
@@ -733,7 +739,9 @@ server01,Port 1,leaf01,Eth1/10,true,server connection
 - `hosts.txt` の全ホストを、結線の有無にかかわらず `topology.nodes` へ生成します
 - 未結線ノードは警告として検証レポートへ記録します
 - インターフェース名は両端の `device_type` に応じて正規化します。NX-OS の `Eth1/1` は `Ethernet1/1`、Linux の `Port 1` は `eth1` になります
+- Linux ノードで `profile=bond` を指定すると、`vlan` / `ipv4` / `ipv4_gw` / `ipv6` / `ipv6_gw` から `env` を生成し、`binds` と `exec` を追加します
 - Linuxノードが存在する場合、`topology.kinds.linux.image`の既定値として`ghcr.io/hellt/network-multitool:latest`を設定します
+- `--n9kv-startup-delay 5,600` で、`kind: cisco_n9kv` ノードの起動を5台ごとに600秒ずつ遅らせる `startup-delay` を追加できます
 - `--clab-env` の `mgmt.ipv4-subnet` へホスト部を維持して管理 IP を変換し、同じ YAML を生成結果へマージします
 - `--validate-only` では topology YAML を生成せず、入力検証だけを実行します
 
@@ -774,7 +782,7 @@ alred check-clab-startup-config \
 
 ### `generate-mermaid`
 
-正規化済みリンク CSV から Mermaid 構成図を生成します。
+正規化済みリンク CSV、または containerlab topology YAML から Mermaid 構成図を生成します。
 
 ```sh
 alred generate-mermaid --hosts hosts.yaml
@@ -794,8 +802,24 @@ alred generate-mermaid \
   --add-comments
 ```
 
+`init-clab` で作成した `topology.clab.yaml` から生成する例:
+
+```sh
+alred generate-mermaid \
+  --input output/topology.clab.yaml \
+  --direction LR \
+  --output output/topology.md
+```
+
 補足:
 
+- `--input-format auto` が既定です。`.yaml` / `.yml` は containerlab YAML、それ以外は links CSV として読み込みます
+- 明示したい場合は `--input-format csv` または `--input-format clab` を指定します
+- containerlab YAML 入力では `topology.links[*].endpoints` からリンクを読み、`topology.nodes` にある未結線ノードも Mermaid に表示します
+- containerlab YAML 入力で `--group-by-role` を指定した場合は、`topology.nodes.<node>.group` を Mermaid の subgraph 名として優先します
+- containerlab YAML 入力で `--group-by-site` を指定した場合は、`labels.site` / `labels.domain` を Mermaid / Graphviz / draw.io の site/domain group として使います
+- `--sites sites.yaml` または `./sites.yaml` がある場合は、ホスト名から site を自動判定します。`generate-clab` / `init-clab` では判定結果を `labels.site` へ出力します
+- containerlab YAML 入力では `mgmt-ipv4` を mgmt 表示に使います。`kind: cisco_n9kv` は `nxos` 相当として扱います
 - `--min-confidence low` は confirmed links の `low` / `medium` / `high` をすべて表示します
 - `--min-confidence medium` は confirmed links の `medium` / `high` のみ表示します
 - `--min-confidence high` は confirmed links の `high` のみ表示します

@@ -127,6 +127,25 @@ ALRED_LOG_ROTATION=20
 - `# <device_type>` を省略すると `unknown`
 - IP または hostname が重複するとエラー
 
+`init-clab` 用の Linux ノードでは、コメントに `key=value` のメタデータを追加できます。
+
+```text
+192.168.129.101 server01 # linux, profile=bond, vlan=2001, ipv4=100.64.0.1/24, ipv4_gw=100.64.0.254, ipv6=fd12:0:0:1::101/64, ipv6_gw=fd12:0:0:1::1
+```
+
+`profile=bond` の Linux ノードでは、次の設定を `topology.nodes.<node>` へ追加します。
+
+- `env.VLAN_ID`: `vlan`
+- `env.IP_CIDR`: `ipv4`
+- `env.DEF_GW`: `ipv4_gw`
+- `env.IPV6_CIDR`: `ipv6` (任意)
+- `env.DEF_GW6`: `ipv6_gw` (任意)
+- `env.SET_DEFAULT_ROUTE`: `default_route`。省略時は `true`
+- `binds`: 省略時 `scripts/linux:/scripts:ro`
+- `exec`: 省略時 `sh -lc '/scripts/init-bond-singlevlan-route.sh'`
+
+`key=value` を推奨します。`vlan:2001` のような単純な `key:value` も一部受け付けますが、IPv6 アドレスと紛らわしいため `=` を使ってください。
+
 主な `device_type`:
 
 - `nxos`
@@ -268,7 +287,44 @@ role_detection:
 - `[spine]` と `[underlay-route-reflector]` の両方の show command が適用されます
 - `generate-mermaid --underlay` / `generate-doc --underlay` では該当ノードのラベル先頭に `(BGP-RR)` を表示します
 
-## 8. Description ルール (`description_rules.yaml`)
+## 8. サイト定義 (`sites.yaml`)
+
+`generate-mermaid --group-by-site` / `generate-graphviz --group-by-site` / `generate-drawio --group-by-site`、`generate-clab`、`init-clab` で利用します。
+
+`--sites` を省略した場合でも、実行ディレクトリに `sites.yaml` があれば自動で読み込みます。
+
+```yaml
+site_detection:
+  site-1:
+    startswith:
+      - site1-
+      - s1-
+
+  site-2:
+    startswith:
+      - site2-
+      - s2-
+
+  wan:
+    contains:
+      - wan
+      - dci
+```
+
+各 site に定義できる主な条件は `roles.yaml` と同じです。
+
+- `position_matches` (`pos`, `value`)
+- `startswith`
+- `endswith`
+- `contains`
+
+利用方法:
+
+- `generate-mermaid --group-by-site` / `generate-graphviz --group-by-site` / `generate-drawio --group-by-site` は、`labels.site` がないノードを `sites.yaml` で自動判定して site group に配置します
+- `generate-clab --sites sites.yaml` / `init-clab --sites sites.yaml` は、生成する `topology.nodes.<node>.labels.site` に判定結果を書き込みます
+- 既に `labels.site` がある場合は、その値を優先し、`sites.yaml` では上書きしません
+
+## 9. Description ルール (`description_rules.yaml`)
 
 `normalize-links --description-rules` で利用します。
 
@@ -283,7 +339,7 @@ description_rules:
 - `regex` には `remote_host` の名前付きキャプチャを含めてください
 - `remote_if` は任意です。ホスト名のみを拾いたい場合は `remote_host` だけのルールでも構いません
 
-## 9. show commands (`show_commands.txt`)
+## 10. show commands (`show_commands.txt`)
 
 `collect --show-commands-file` で利用する追加 show コマンド定義ファイルです。
 
@@ -343,7 +399,7 @@ uv run python alred.py collect \
 - `<ALRED_RAW_DIR>/show_lists/`
 - `<ALRED_RAW_DIR>/show_lists/<hostname>/<hostname>_<command>_<YYYYMMDD-HHMMSS>.json` (NX-API JSON が取得できた場合)
 
-## 10. containerlab マージ設定
+## 11. containerlab マージ設定
 
 `generate-clab` と `generate-doc` の clab 出力では、生成結果へ YAML をマージできます。
 
@@ -372,7 +428,28 @@ topology:
 - `topology.links` は追加マージ (generated links の後ろに merge 側 links を連結)
 - `clab-transform-config` は `--clab-env` で指定した YAML の `mgmt.ipv4-subnet` を参照して `hosts.lab.yaml` と `raw/labconfig/<hostname><suffix>` の管理 IP を変換します。`--file-suffix` の既定は `_run.txt` です
 
-## 11. 新規 lab ケーブル結線表 (`clab_cables.csv`)
+### cisco_n9kv startup-delay
+
+`generate-clab` / `init-clab` / `generate-doc` では、`kind: cisco_n9kv` ノードに段階的な `startup-delay` を追加できます。
+
+```sh
+alred generate-clab \
+  --input output/links_confirmed.csv \
+  --hosts hosts.yaml \
+  --n9kv-startup-delay 5,600
+```
+
+`--n9kv-startup-delay BATCH,SECONDS` の形式で指定します。
+
+- `5,600` は5台ごとに600秒ずつ遅らせます
+- 1-5台目: `startup-delay` なし
+- 6-10台目: `startup-delay: 600`
+- 11-15台目: `startup-delay: 1200`
+- 既に `startup-delay` が指定済みのノードは上書きしません
+
+互換エイリアスとして `--startup-delay-nxos` も利用できます。
+
+## 12. 新規 lab ケーブル結線表 (`clab_cables.csv`)
 
 `init-clab --cables` で利用します。UTF-8 の CSV とし、ヘッダーは必須です。
 配布サンプルの `init_clab_hosts.example.txt` と `clab_cables.example.csv` は対応する組み合わせです。
@@ -437,7 +514,7 @@ topology:
 - `output/links_design_normalized.csv`: 変換前後のendpointを含む確認用CSV
 - `output/init_clab_validation.md`: エラー・警告レポート
 
-## 12. Linux サーバ CSV (`clab_linux_server.csv`)
+## 13. Linux サーバ CSV (`clab_linux_server.csv`)
 
 `generate-clab --linux-csv` で利用します。
 
@@ -452,7 +529,7 @@ hostname,VLAN_ID,IP_CIDR,DEF_GW,IPV6_CIDR,DEF_GW6,LEAF1,LEAF1_IF,LEAF2,LEAF2_IF
 - `nodes.<hostname>` に `kind: linux` / `env` / `binds` / `exec` / `group: server`
 - `LEAF1` / `LEAF2` から `eth1` / `eth2` への links
 
-## 13. Kind クラスタ CSV (`clab_kind_cluster.csv`)
+## 14. Kind クラスタ CSV (`clab_kind_cluster.csv`)
 
 `generate-clab --kind-cluster-csv` で利用します。
 
@@ -468,7 +545,60 @@ cluster,hostname,VLAN_ID,IP_CIDR,DEF_GW,ROUTES4,IPV6_CIDR,DEF_GW6,ROUTES6,LEAF1,
 - `nodes.<cluster>-<hostname>` に `kind: ext-container` / `binds` / `exec`
 - `LEAF1` / `LEAF2` から `eth1` / `eth2` への links
 
-## 14. Mermaid underlay 表示設定 (`underlay_render.yaml`)
+## 15. 構成図入力形式
+
+`generate-mermaid` / `generate-graphviz` / `generate-drawio` は `--input-format auto` が既定です。
+
+- `.yaml` / `.yml` は containerlab topology YAML として読み込みます
+- それ以外は正規化済み links CSV として読み込みます
+- 明示する場合は `--input-format csv` または `--input-format clab` を指定します
+
+containerlab topology YAML 入力では、次の値を利用します。
+
+- `topology.links[*].endpoints`: Mermaid のリンク
+- `topology.nodes`: Mermaid に表示するノード。リンクがないノードも表示します
+- `topology.nodes.<node>.mgmt-ipv4`: mgmt 表示
+- `topology.nodes.<node>.group`: `--group-by-role` 指定時の group 名
+- `topology.nodes.<node>.labels.site`: `--group-by-site` 指定時の site group 名
+- `topology.nodes.<node>.labels.domain`: `--group-by-site` 指定時の domain group 名。`site` がない場合に利用します
+- `topology.nodes.<node>.labels.alred.site` / `labels.alred.domain`: namespaced にしたい場合の代替
+- `topology.nodes.<node>.extras.alred.site` / `extras.alred.domain`: labels を使わない場合の代替
+- `topology.nodes.<node>.kind`: device_type 推定。例: `cisco_n9kv` は `nxos` 相当、`linux` は `linux`
+
+例:
+
+```sh
+alred generate-mermaid \
+  --input output/topology.clab.yaml \
+  --direction LR \
+  --group-by-site \
+  --group-by-role \
+  --output output/topology.md
+```
+
+EVPN Multisite のように WAN/DCI と複数サイトを表現したい場合は、site/domain と role を分けて定義します。
+
+```yaml
+topology:
+  nodes:
+    site1-bgw01:
+      kind: cisco_n9kv
+      group: border-gateway
+      labels:
+        site: site-1
+    wan01:
+      kind: cisco_n9kv
+      group: wan
+      labels:
+        site: wan
+    site2-bgw01:
+      kind: cisco_n9kv
+      group: border-gateway
+      labels:
+        site: site-2
+```
+
+## 16. Mermaid underlay 表示設定 (`underlay_render.yaml`)
 
 `generate-mermaid` / `generate-doc` で `--underlay` を使うと、対象ノードの表示を `mgmt` から underlay loopback に切り替えられます。
 
@@ -499,7 +629,7 @@ interfaces:
 - `interfaces[].label`: Mermaid 表示ラベル
 - `interfaces[].vrf`: そのインターフェースを評価する VRF (省略時は上位 `vrf`)
 
-## 15. 関連ドキュメント
+## 17. 関連ドキュメント
 
 - 利用手順と主要コマンド: [README.md](./README.md)
 - 設定値や入力ファイルの詳細: この `CONFIG.md`

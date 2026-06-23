@@ -1,4 +1,4 @@
 192.168.129.81 leaf01 # nxos
 192.168.129.82 leaf02 # nxos
 192.168.129.90 spine01 # nxos
-192.168.129.101 server01 # linux
+192.168.129.101 server01 # linux, profile=bond, vlan=2001, ipv4=100.64.0.1/24, ipv4_gw=100.64.0.254, ipv6=fd12:0:0:1::101/64, ipv6_gw=fd12:0:0:1::1

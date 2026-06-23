@@ -64,6 +64,7 @@ from .constants import (
     DEFAULT_LINKS_CONFIRMED_FILENAME,
     DEFAULT_LOGGING_THRESHOLD_MAP,
     DEFAULT_ROLES_PATH,
+    DEFAULT_SITES_PATH,
     DEFAULT_SAMPLES_DIR,
     DEFAULT_SHOW_COMMANDS_PATH,
     DEFAULT_TOPOLOGY_CLAB_FILENAME,
@@ -73,6 +74,7 @@ from .constants import (
     DEFAULT_TOPOLOGY_MERMAID_FILENAME,
     DEFAULT_VNI_MAP_CSV_FILENAME,
     DEFAULT_VNI_MAP_MD_FILENAME,
+    DEVICE_TYPE_TO_KIND,
     LLDP_COMMAND_MAP,
     PRIVILEGED_EXEC_DEVICE_TYPES,
     REQUIRE_ENABLE_SECRET_DEVICE_TYPES,
@@ -124,6 +126,7 @@ from .parsing import (
     load_mappings,
     load_policy_file,
     load_roles,
+    load_sites,
     merge_lldp_and_description_links,
     normalize_hostname,
     normalize_interface_name,
@@ -158,6 +161,7 @@ from .topology import (
     build_normalized_inventory_and_mgmt_maps,
     detect_node_role,
     detect_node_roles,
+    detect_node_site,
     get_role_priority,
     is_network_device_type,
     prepare_rendered_candidate_links,
@@ -1362,6 +1366,7 @@ def _build_completion_spec() -> Dict[str, str]:
         "design_hosts": "txt_file",
         "policy": "yaml_file",
         "roles": "yaml_file",
+        "sites": "yaml_file",
         "clab_env": "yaml_file",
         "clab_merge": "yaml_file",
         "clab_lab_profile": "yaml_file",
@@ -2934,6 +2939,96 @@ def apply_linux_kind_defaults(
     return topology_data
 
 
+def parse_startup_delay_batch_spec(value: str | None) -> Tuple[int, int] | None:
+    """
+    Parse startup delay batch spec.
+
+    Args:
+        value: Spec in BATCH,SECONDS format, e.g. 5,600.
+
+    Returns:
+        (batch_size, delay_seconds) or None.
+
+    Raises:
+        ValueError: If the spec is invalid.
+    """
+    if not value:
+        return None
+    parts = [part.strip() for part in str(value).split(",")]
+    if len(parts) != 2 or not parts[0] or not parts[1]:
+        raise ValueError("startup delay spec must be BATCH,SECONDS, e.g. 5,600")
+    try:
+        batch_size = int(parts[0])
+        delay_seconds = int(parts[1])
+    except ValueError as exc:
+        raise ValueError("startup delay spec must contain integers: BATCH,SECONDS") from exc
+    if batch_size <= 0:
+        raise ValueError("startup delay batch size must be greater than 0")
+    if delay_seconds < 0:
+        raise ValueError("startup delay seconds must be greater than or equal to 0")
+    return batch_size, delay_seconds
+
+
+def apply_n9kv_startup_delay(
+    topology_data: Dict[str, Any],
+    startup_delay_spec: str | None,
+    logger: Logger,
+) -> int:
+    """
+    Add staggered startup-delay to cisco_n9kv nodes.
+
+    Args:
+        topology_data: containerlab topology data.
+        startup_delay_spec: BATCH,SECONDS spec, e.g. 5,600.
+        logger: Logger.
+
+    Returns:
+        Number of nodes updated.
+    """
+    spec = parse_startup_delay_batch_spec(startup_delay_spec)
+    if spec is None:
+        return 0
+    batch_size, delay_seconds = spec
+
+    topology = topology_data.get("topology", {})
+    if not isinstance(topology, dict):
+        return 0
+    nodes = topology.get("nodes", {})
+    if not isinstance(nodes, dict):
+        return 0
+
+    n9kv_nodes = [
+        (node_name, attrs)
+        for node_name, attrs in nodes.items()
+        if isinstance(attrs, dict) and str(attrs.get("kind", "")).strip() == DEFAULT_CISCO_N9KV_KIND_NAME
+    ]
+
+    updated = 0
+    for index, (node_name, attrs) in enumerate(n9kv_nodes):
+        delay = (index // batch_size) * delay_seconds
+        if delay <= 0:
+            continue
+        if "startup-delay" in attrs:
+            logger.info(
+                "Skipped startup-delay for %s because it is already set: %s",
+                node_name,
+                attrs.get("startup-delay"),
+            )
+            continue
+        attrs["startup-delay"] = delay
+        updated += 1
+
+    if n9kv_nodes:
+        logger.info(
+            "Applied cisco_n9kv startup-delay spec batch=%d seconds=%d nodes=%d updated=%d",
+            batch_size,
+            delay_seconds,
+            len(n9kv_nodes),
+            updated,
+        )
+    return updated
+
+
 class FlowStyleList(list):
     """YAML dumper hint for flow-style sequence."""
 
@@ -3428,19 +3523,247 @@ def build_mermaid_address_maps(
     return address_map, label_map, lines_map
 
 
+def infer_generate_mermaid_input_format(input_path: str, requested_format: str) -> str:
+    """
+    Resolve generate-mermaid input format.
+
+    Args:
+        input_path: Input file path.
+        requested_format: csv, clab, or auto.
+
+    Returns:
+        Resolved format name.
+    """
+    if requested_format != "auto":
+        return requested_format
+
+    suffix = Path(input_path).suffix.lower()
+    if suffix in {".yaml", ".yml"}:
+        return "clab"
+    return "csv"
+
+
+def clab_kind_to_device_type(kind: str) -> str:
+    """
+    Convert containerlab kind to inventory device_type.
+
+    Args:
+        kind: containerlab kind value.
+
+    Returns:
+        device_type value used by alred inventory helpers.
+    """
+    for device_type, mapped_kind in DEVICE_TYPE_TO_KIND.items():
+        if kind == mapped_kind:
+            return device_type
+    return "linux" if kind == "linux" else "unknown"
+
+
+def read_clab_node_diagram_value(attrs: Dict[str, Any], key: str) -> str:
+    """
+    Read diagram metadata from a clab node definition.
+
+    Args:
+        attrs: Node attributes from topology.nodes.
+        key: Metadata key such as site or domain.
+
+    Returns:
+        Metadata value or empty string.
+    """
+    labels = attrs.get("labels", {})
+    if isinstance(labels, dict):
+        for label_key in (key, f"alred.{key}"):
+            value = labels.get(label_key)
+            if value:
+                return str(value).strip()
+
+    extras = attrs.get("extras", {})
+    if isinstance(extras, dict):
+        alred_data = extras.get("alred", {})
+        if isinstance(alred_data, dict):
+            value = alred_data.get(key)
+            if value:
+                return str(value).strip()
+
+    # Accept direct keys for diagram-only YAML inputs. containerlab-safe
+    # metadata should use labels or extras.alred.
+    value = attrs.get(key)
+    if value:
+        return str(value).strip()
+    return ""
+
+
+def split_clab_endpoint(endpoint: Any) -> Tuple[str, str]:
+    """
+    Split a containerlab endpoint string into node and interface.
+
+    Args:
+        endpoint: endpoint value like node:interface.
+
+    Returns:
+        Tuple of node name and interface name.
+
+    Raises:
+        ValueError: If the endpoint is malformed.
+    """
+    value = str(endpoint).strip()
+    if ":" not in value:
+        raise ValueError(f"Invalid clab endpoint without ':': {value}")
+    node, iface = value.split(":", 1)
+    node = node.strip()
+    iface = iface.strip()
+    if not node or not iface:
+        raise ValueError(f"Invalid clab endpoint: {value}")
+    return node, iface
+
+
+def read_clab_topology_for_diagram(input_path: str) -> Tuple[List[Dict[str, str]], Dict[str, Dict[str, Any]], List[str]]:
+    """
+    Read containerlab topology YAML as diagram records.
+
+    Args:
+        input_path: containerlab YAML path.
+
+    Returns:
+        (link records, inventory map inferred from topology.nodes, node names)
+    """
+    data = load_yaml(input_path)
+    topology = data.get("topology", {})
+    if not isinstance(topology, dict):
+        raise ValueError(f"Invalid clab topology YAML: {input_path}")
+
+    raw_nodes = topology.get("nodes", {})
+    node_inventory: Dict[str, Dict[str, Any]] = {}
+    node_names: List[str] = []
+    if isinstance(raw_nodes, dict):
+        for raw_name, raw_attrs in raw_nodes.items():
+            node_name = str(raw_name).strip()
+            if not node_name:
+                continue
+            attrs = raw_attrs if isinstance(raw_attrs, dict) else {}
+            kind = str(attrs.get("kind", "unknown"))
+            info: Dict[str, Any] = {
+                "hostname": node_name,
+                "device_type": clab_kind_to_device_type(kind),
+                "kind": kind,
+            }
+            mgmt_ip = attrs.get("mgmt-ipv4")
+            if mgmt_ip:
+                info["ip"] = str(mgmt_ip)
+            group = attrs.get("group")
+            if group:
+                info["group"] = str(group)
+            site = read_clab_node_diagram_value(attrs, "site") or read_clab_node_diagram_value(attrs, "domain")
+            if site:
+                info["site"] = site
+            node_inventory[node_name] = info
+            node_names.append(node_name)
+
+    records: List[Dict[str, str]] = []
+    raw_links = topology.get("links", [])
+    if not isinstance(raw_links, list):
+        raise ValueError(f"Invalid clab topology.links in {input_path}")
+
+    for idx, raw_link in enumerate(raw_links, start=1):
+        if not isinstance(raw_link, dict):
+            continue
+        endpoints = raw_link.get("endpoints", [])
+        if not isinstance(endpoints, list) or len(endpoints) != 2:
+            raise ValueError(f"Invalid clab link endpoints at topology.links[{idx}]")
+        src_node, src_if = split_clab_endpoint(endpoints[0])
+        dst_node, dst_if = split_clab_endpoint(endpoints[1])
+        records.append({
+            "src_node": src_node,
+            "src_if": src_if,
+            "dst_node": dst_node,
+            "dst_if": dst_if,
+            "protocol": "clab",
+            "confidence": "high",
+            "evidence": "clab-topology",
+        })
+        if src_node not in node_inventory and src_node not in node_names:
+            node_names.append(src_node)
+        if dst_node not in node_inventory and dst_node not in node_names:
+            node_names.append(dst_node)
+
+    return records, node_inventory, node_names
+
+
+def apply_site_labels_to_nodes(nodes: Dict[str, Dict[str, Any]], sites: Dict[str, Any]) -> int:
+    """
+    Add labels.site to node definitions from site detection rules.
+
+    Args:
+        nodes: topology.nodes mapping.
+        sites: Site detection rules.
+
+    Returns:
+        Number of nodes updated.
+    """
+    if not sites:
+        return 0
+
+    updated = 0
+    for node_name, attrs in nodes.items():
+        if not isinstance(attrs, dict):
+            continue
+        existing_site = read_clab_node_diagram_value(attrs, "site")
+        if existing_site:
+            continue
+        site = detect_node_site(node_name, sites)
+        if not site:
+            continue
+        labels = attrs.setdefault("labels", {})
+        if not isinstance(labels, dict):
+            labels = {}
+            attrs["labels"] = labels
+        labels["site"] = site
+        updated += 1
+
+    return updated
+
+
+def apply_site_labels_to_topology_data(topology_data: Dict[str, Any], sites: Dict[str, Any]) -> int:
+    """
+    Add labels.site to topology.nodes from site detection rules.
+
+    Args:
+        topology_data: containerlab topology data.
+        sites: Site detection rules.
+
+    Returns:
+        Number of nodes updated.
+    """
+    topology = topology_data.get("topology", {})
+    if not isinstance(topology, dict):
+        return 0
+    nodes = topology.get("nodes", {})
+    if not isinstance(nodes, dict):
+        return 0
+    return apply_site_labels_to_nodes(nodes, sites)
+
+
 def prepare_topology_diagram_context(args: argparse.Namespace, logger: Logger) -> Dict[str, Any]:
     """
     Build shared topology diagram rendering inputs for Mermaid/Graphviz/draw.io.
     """
-    records = read_links_csv(args.input)
+    input_format = infer_generate_mermaid_input_format(args.input, getattr(args, "input_format", "csv"))
     mappings = load_mappings(args.mappings)
     roles = load_roles(args.roles)
+    sites = load_sites(getattr(args, "sites", None))
 
     inventory_map: Dict[str, Dict[str, Any]] = {}
+    extra_node_names: List[str] = []
+    if input_format == "clab":
+        records, clab_inventory_map, extra_node_names = read_clab_topology_for_diagram(args.input)
+        inventory_map.update(clab_inventory_map)
+    else:
+        records = read_links_csv(args.input)
+
     hosts_path = resolve_hosts_path(args.hosts, required=False)
     if hosts_path:
         inventory_data = load_yaml(hosts_path)
-        inventory_map = load_inventory_map_from_list(load_inventory_data(inventory_data))
+        inventory_map.update(load_inventory_map_from_list(load_inventory_data(inventory_data)))
 
     candidate_records: List[Dict[str, str]] = []
     if getattr(args, "input_candidates", None):
@@ -3478,6 +3801,18 @@ def prepare_topology_diagram_context(args: argparse.Namespace, logger: Logger) -
         mgmt_ip_map=mgmt_ip_map,
         mappings=mappings,
     )
+    node_role_map = {
+        node: str(attrs.get("group", "")).strip()
+        for node, attrs in normalized_inventory_map.items()
+        if isinstance(attrs, dict) and str(attrs.get("group", "")).strip()
+    }
+    node_site_map = {
+        node: str(attrs.get("site", "")).strip()
+        for node, attrs in normalized_inventory_map.items()
+        if isinstance(attrs, dict) and str(attrs.get("site", "")).strip()
+    }
+    for node in list(normalized_inventory_map):
+        node_site_map.setdefault(node, detect_node_site(node, sites))
 
     node_address_map: Optional[Dict[str, str]] = None
     node_address_label_map: Optional[Dict[str, str]] = None
@@ -3550,6 +3885,9 @@ def prepare_topology_diagram_context(args: argparse.Namespace, logger: Logger) -
         "node_address_lines_map": node_address_lines_map,
         "link_label_map": link_label_map,
         "node_interface_label_map": node_interface_label_map,
+        "extra_node_names": extra_node_names,
+        "node_role_map": node_role_map,
+        "node_site_map": node_site_map,
         "output_path": output_path,
         "title": title,
         "skipped_by_confidence": skipped_by_confidence,
@@ -3581,6 +3919,7 @@ def build_drawio_page_diagram(
         is_network_device_type_func=is_network_device_type,
         direction=direction,
         group_by_role=args.group_by_role,
+        group_by_site=getattr(args, "group_by_site", False),
         add_comments=args.add_comments,
         title=context["title"],
         candidate_links=context["rendered_candidate_links"],
@@ -3589,6 +3928,8 @@ def build_drawio_page_diagram(
         node_address_lines_map=context["node_address_lines_map"],
         link_label_map=context["link_label_map"],
         node_interface_label_map=context["node_interface_label_map"],
+        node_role_map=context["node_role_map"],
+        node_site_map=context["node_site_map"],
     )
     root = ET.fromstring("\n".join(drawio_lines))
     diagram = root.find("diagram")
@@ -6007,6 +6348,7 @@ def cmd_generate_clab(args: argparse.Namespace) -> None:
     records = read_links_csv(args.input)
     mappings = load_mappings(args.mappings)
     roles = load_roles(args.roles)
+    sites = load_sites(getattr(args, "sites", None))
 
     inventory_map: Dict[str, Dict[str, Any]] = {}
     hosts_path = resolve_generate_clab_hosts_path(args.hosts)
@@ -6056,6 +6398,8 @@ def cmd_generate_clab(args: argparse.Namespace) -> None:
     topology_data = apply_clab_merge_file(topology_data, args.clab_merge, logger, "clab-merge")
     topology_data = apply_clab_merge_file(topology_data, args.clab_lab_profile, logger, "clab-lab-profile")
     topology_data["name"] = args.name
+    site_label_count = apply_site_labels_to_topology_data(topology_data, sites)
+    apply_n9kv_startup_delay(topology_data, getattr(args, "n9kv_startup_delay", None), logger)
     topology_data = apply_linux_kind_defaults(topology_data, logger)
     topology_data = apply_cisco_n9kv_kind_defaults(topology_data, get_raw_dir("raw"), logger)
     topology_data = finalize_clab_topology_data(topology_data, generated_links, generated_node_names, roles)
@@ -6067,6 +6411,8 @@ def cmd_generate_clab(args: argparse.Namespace) -> None:
         logger.info("Generated %d nodes", len(nodes))
         if args.group_by_role:
             logger.info("Added node groups from role detection")
+        if site_label_count:
+            logger.info("Added site labels from site detection: %d nodes", site_label_count)
 
 
 def cmd_init_clab(args: argparse.Namespace) -> None:
@@ -6074,6 +6420,7 @@ def cmd_init_clab(args: argparse.Namespace) -> None:
     logger = setup_logging(args.log_file, args.verbose)
     mappings = load_mappings(args.mappings)
     roles = load_roles(args.roles)
+    sites = load_sites(getattr(args, "sites", None))
 
     entries = parse_hosts_txt(args.design_hosts)
     source_inventory = build_inventory(entries)
@@ -6145,6 +6492,7 @@ def cmd_init_clab(args: argparse.Namespace) -> None:
         roles=roles,
         include_group=args.group_by_role,
     )
+    site_label_count = apply_site_labels_to_nodes(nodes, sites)
     topology_data = build_clab_topology_data(rendered_links, nodes, include_nodes=True)
     topology_data["name"] = DEFAULT_CLAB_TOPOLOGY_NAME
     generated_links = deepcopy(topology_data["topology"]["links"])
@@ -6163,6 +6511,7 @@ def cmd_init_clab(args: argparse.Namespace) -> None:
         )
     if args.name:
         topology_data["name"] = args.name
+    apply_n9kv_startup_delay(topology_data, getattr(args, "n9kv_startup_delay", None), logger)
     topology_data = apply_linux_kind_defaults(topology_data, logger)
     topology_data = apply_cisco_n9kv_kind_defaults(topology_data, get_raw_dir("raw"), logger)
     topology_data = finalize_clab_topology_data(
@@ -6173,6 +6522,8 @@ def cmd_init_clab(args: argparse.Namespace) -> None:
     )
     write_text(args.output, render_clab_yaml_lines(topology_data, generated_node_names, roles))
     logger.info("Wrote %d nodes and %d links to %s", len(nodes), len(rendered_links), args.output)
+    if site_label_count:
+        logger.info("Added site labels from site detection: %d nodes", site_label_count)
 
 
 def cmd_generate_mermaid(args: argparse.Namespace) -> None:
@@ -6195,6 +6546,7 @@ def cmd_generate_mermaid(args: argparse.Namespace) -> None:
         is_network_device_type_func=is_network_device_type,
         direction=args.direction,
         group_by_role=args.group_by_role,
+        group_by_site=getattr(args, "group_by_site", False),
         add_comments=args.add_comments,
         title=context["title"],
         candidate_links=context["rendered_candidate_links"],
@@ -6202,6 +6554,9 @@ def cmd_generate_mermaid(args: argparse.Namespace) -> None:
         node_address_label_map=context["node_address_label_map"],
         node_address_lines_map=context["node_address_lines_map"],
         link_label_map=context["link_label_map"],
+        extra_node_names=context["extra_node_names"],
+        node_role_map=context["node_role_map"],
+        node_site_map=context["node_site_map"],
     )
     write_text(context["output_path"], md_lines)
 
@@ -6231,6 +6586,7 @@ def cmd_generate_graphviz(args: argparse.Namespace) -> None:
         is_network_device_type_func=is_network_device_type,
         direction=args.direction,
         group_by_role=args.group_by_role,
+        group_by_site=getattr(args, "group_by_site", False),
         add_comments=args.add_comments,
         title=context["title"],
         candidate_links=context["rendered_candidate_links"],
@@ -6238,6 +6594,8 @@ def cmd_generate_graphviz(args: argparse.Namespace) -> None:
         node_address_label_map=context["node_address_label_map"],
         node_address_lines_map=context["node_address_lines_map"],
         link_label_map=context["link_label_map"],
+        node_role_map=context["node_role_map"],
+        node_site_map=context["node_site_map"],
     )
     write_text(context["output_path"], dot_lines)
 
@@ -6306,6 +6664,7 @@ def cmd_generate_drawio(args: argparse.Namespace) -> None:
         is_network_device_type_func=is_network_device_type,
         direction=args.direction,
         group_by_role=args.group_by_role,
+        group_by_site=getattr(args, "group_by_site", False),
         add_comments=args.add_comments,
         title=context["title"],
         candidate_links=context["rendered_candidate_links"],
@@ -6314,6 +6673,8 @@ def cmd_generate_drawio(args: argparse.Namespace) -> None:
         node_address_lines_map=context["node_address_lines_map"],
         link_label_map=context["link_label_map"],
         node_interface_label_map=context["node_interface_label_map"],
+        node_role_map=context["node_role_map"],
+        node_site_map=context["node_site_map"],
     )
     write_text(context["output_path"], drawio_lines)
 
@@ -6383,6 +6744,7 @@ def cmd_generate_doc(args: argparse.Namespace) -> None:
     generated_node_names = set(nodes.keys())
     topology_data = apply_clab_merge_file(topology_data, args.clab_merge, logger, "clab-merge")
     topology_data = apply_clab_merge_file(topology_data, args.clab_lab_profile, logger, "clab-lab-profile")
+    apply_n9kv_startup_delay(topology_data, getattr(args, "n9kv_startup_delay", None), logger)
     topology_data = apply_linux_kind_defaults(topology_data, logger)
     topology_data = apply_cisco_n9kv_kind_defaults(topology_data, get_raw_dir("raw"), logger)
     topology_data = finalize_clab_topology_data(topology_data, generated_links, generated_node_names, roles)
@@ -6599,6 +6961,7 @@ def build_clab_set_step_args(
         "mappings": getattr(args, "mappings", None),
         "description_rules": getattr(args, "description_rules", None),
         "roles": getattr(args, "roles", None),
+        "sites": getattr(args, "sites", None),
         "linux_csv": getattr(args, "linux_csv", None),
         "kind_cluster_csv": getattr(args, "kind_cluster_csv", None),
         "clab_env": getattr(args, "clab_env", None),
@@ -6606,6 +6969,7 @@ def build_clab_set_step_args(
         "clab_merge": getattr(args, "clab_merge", None),
         "clab_lab_profile": getattr(args, "clab_lab_profile", None),
         "include_svi": getattr(args, "include_svi", None),
+        "group_by_site": getattr(args, "group_by_site", None),
     }
     for key, value in common_optional_overrides.items():
         if value is not None:
@@ -6626,6 +6990,13 @@ def build_clab_set_step_args(
             data["underlay_raw"] = raw_output
 
     step_args = argparse.Namespace(**data)
+    if handler_command in {"generate-mermaid", "generate-graphviz", "generate-drawio"}:
+        if not hasattr(step_args, "input_format"):
+            step_args.input_format = "csv"
+        if not hasattr(step_args, "sites"):
+            step_args.sites = None
+        if not hasattr(step_args, "group_by_site"):
+            step_args.group_by_site = False
     if handler_command == "generate-clab":
         return apply_generate_clab_auto_files(step_args)
     return step_args
@@ -6746,8 +7117,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_init_clab.add_argument("--mappings", help="Mappings YAML path")
     p_init_clab.add_argument("--roles", help=f"Role detection YAML path (default: ./{DEFAULT_ROLES_PATH} if exists)")
+    p_init_clab.add_argument("--sites", help=f"Site detection YAML path (default: ./{DEFAULT_SITES_PATH} if exists)")
     p_init_clab.add_argument("--clab-merge", help="Additional YAML to merge after --clab-env")
     p_init_clab.add_argument("--clab-lab-profile", help="Lab profile YAML merged last")
+    p_init_clab.add_argument(
+        "--n9kv-startup-delay",
+        "--startup-delay-nxos",
+        dest="n9kv_startup_delay",
+        help="Add staggered startup-delay to cisco_n9kv nodes as BATCH,SECONDS, e.g. 5,600",
+    )
     p_init_clab.add_argument(
         "--group-by-role",
         dest="group_by_role",
@@ -7251,6 +7629,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--roles",
         help=f"Role detection YAML path override for render steps (default: ./{DEFAULT_ROLES_PATH} if exists)",
     )
+    p_clab_set.add_argument(
+        "--sites",
+        help=f"Site detection YAML path override for render steps (default: ./{DEFAULT_SITES_PATH} if exists)",
+    )
+    p_clab_set.add_argument("--group-by-site", action="store_true", help="Group rendered diagrams by site/domain metadata or sites.yaml")
     p_clab_set.add_argument("--linux-csv", help="CSV override for generate-clab")
     p_clab_set.add_argument("--kind-cluster-csv", help="Kind cluster CSV override for generate-clab")
     p_clab_set.add_argument("--clab-env", help="YAML override for clab-transform-config")
@@ -7411,7 +7794,14 @@ def build_parser() -> argparse.ArgumentParser:
     p_gen.add_argument("-i", "--inventory", "--hosts", dest="hosts", help="Input hosts YAML (default: ./hosts.lab.yaml, then ./hosts.yaml)")
     p_gen.add_argument("--mappings", help="Mappings YAML path")
     p_gen.add_argument("--roles", help=f"Role detection YAML path (default: ./{DEFAULT_ROLES_PATH} if exists)")
+    p_gen.add_argument("--sites", help=f"Site detection YAML path (default: ./{DEFAULT_SITES_PATH} if exists)")
     p_gen.add_argument("--min-confidence", choices=["low", "medium", "high"], default="low")
+    p_gen.add_argument(
+        "--n9kv-startup-delay",
+        "--startup-delay-nxos",
+        dest="n9kv_startup_delay",
+        help="Add staggered startup-delay to cisco_n9kv nodes as BATCH,SECONDS, e.g. 5,600",
+    )
     p_gen.add_argument(
         "--include-nodes",
         dest="include_nodes",
@@ -7460,15 +7850,18 @@ def build_parser() -> argparse.ArgumentParser:
     p_mermaid.add_argument(
         "--input",
         default=f"{default_links_dir}/{DEFAULT_LINKS_CONFIRMED_FILENAME}",
-        help="Input confirmed links CSV",
+        help="Input confirmed links CSV or containerlab YAML",
     )
+    p_mermaid.add_argument("--input-format", choices=["auto", "csv", "clab"], default="auto", help="Input format (default: auto)")
     p_mermaid.add_argument("--input-candidates", help="Optional input candidate links CSV")
     p_mermaid.add_argument("-i", "--inventory", "--hosts", dest="hosts", help=f"Input hosts.yaml (default: ./{DEFAULT_HOSTS_PATH} if exists)")
     p_mermaid.add_argument("--mappings", help="Mappings YAML path")
     p_mermaid.add_argument("--roles", help=f"Role detection YAML path (default: ./{DEFAULT_ROLES_PATH} if exists)")
+    p_mermaid.add_argument("--sites", help=f"Site detection YAML path (default: ./{DEFAULT_SITES_PATH} if exists)")
     p_mermaid.add_argument("--min-confidence", choices=["low", "medium", "high"], default="low")
     p_mermaid.add_argument("--direction", choices=["TD", "LR", "BT", "RL"], default="TD")
     p_mermaid.add_argument("--group-by-role", action="store_true")
+    p_mermaid.add_argument("--group-by-site", action="store_true", help="Group nodes by site/domain metadata or sites.yaml")
     p_mermaid.add_argument("--add-comments", action="store_true")
     p_mermaid.add_argument("--underlay", action="store_true", help="Show underlay loopback instead of mgmt for target roles")
     p_mermaid.add_argument("--underlay-config", help="YAML config for underlay display (roles/vrf/interface/label)")
@@ -7491,15 +7884,18 @@ def build_parser() -> argparse.ArgumentParser:
     p_graphviz.add_argument(
         "--input",
         default=f"{default_links_dir}/{DEFAULT_LINKS_CONFIRMED_FILENAME}",
-        help="Input confirmed links CSV",
+        help="Input confirmed links CSV or containerlab YAML",
     )
+    p_graphviz.add_argument("--input-format", choices=["auto", "csv", "clab"], default="auto", help="Input format (default: auto)")
     p_graphviz.add_argument("--input-candidates", help="Optional input candidate links CSV")
     p_graphviz.add_argument("-i", "--inventory", "--hosts", dest="hosts", help=f"Input hosts.yaml (default: ./{DEFAULT_HOSTS_PATH} if exists)")
     p_graphviz.add_argument("--mappings", help="Mappings YAML path")
     p_graphviz.add_argument("--roles", help=f"Role detection YAML path (default: ./{DEFAULT_ROLES_PATH} if exists)")
+    p_graphviz.add_argument("--sites", help=f"Site detection YAML path (default: ./{DEFAULT_SITES_PATH} if exists)")
     p_graphviz.add_argument("--min-confidence", choices=["low", "medium", "high"], default="low")
     p_graphviz.add_argument("--direction", choices=["TD", "LR", "BT", "RL"], default="TD")
     p_graphviz.add_argument("--group-by-role", action="store_true")
+    p_graphviz.add_argument("--group-by-site", action="store_true", help="Group nodes by site/domain metadata or sites.yaml")
     p_graphviz.add_argument("--add-comments", action="store_true")
     p_graphviz.add_argument("--underlay", action="store_true", help="Show underlay loopback instead of mgmt for target roles")
     p_graphviz.add_argument("--underlay-config", help="YAML config for underlay display (roles/vrf/interface/label)")
@@ -7522,15 +7918,18 @@ def build_parser() -> argparse.ArgumentParser:
     p_drawio.add_argument(
         "--input",
         default=f"{default_links_dir}/{DEFAULT_LINKS_CONFIRMED_FILENAME}",
-        help="Input confirmed links CSV",
+        help="Input confirmed links CSV or containerlab YAML",
     )
+    p_drawio.add_argument("--input-format", choices=["auto", "csv", "clab"], default="auto", help="Input format (default: auto)")
     p_drawio.add_argument("--input-candidates", help="Optional input candidate links CSV")
     p_drawio.add_argument("-i", "--inventory", "--hosts", dest="hosts", help=f"Input hosts.yaml (default: ./{DEFAULT_HOSTS_PATH} if exists)")
     p_drawio.add_argument("--mappings", help="Mappings YAML path")
     p_drawio.add_argument("--roles", help=f"Role detection YAML path (default: ./{DEFAULT_ROLES_PATH} if exists)")
+    p_drawio.add_argument("--sites", help=f"Site detection YAML path (default: ./{DEFAULT_SITES_PATH} if exists)")
     p_drawio.add_argument("--min-confidence", choices=["low", "medium", "high"], default="low")
     p_drawio.add_argument("--direction", choices=["TD", "LR", "BT", "RL"], default="TD")
     p_drawio.add_argument("--group-by-role", action="store_true")
+    p_drawio.add_argument("--group-by-site", action="store_true", help="Group nodes by site/domain metadata or sites.yaml")
     p_drawio.add_argument("--add-comments", action="store_true")
     p_drawio.add_argument("--all-graph", action="store_true", help="Write all draw.io graph variants as separate pages")
     p_drawio.add_argument("--underlay", action="store_true", help="Show underlay loopback instead of mgmt for target roles")
@@ -7557,6 +7956,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_doc.add_argument("--mappings", help="Mappings YAML path")
     p_doc.add_argument("--roles", help=f"Role detection YAML path (default: ./{DEFAULT_ROLES_PATH} if exists)")
     p_doc.add_argument("--min-confidence", choices=["low", "medium", "high"], default="low")
+    p_doc.add_argument(
+        "--n9kv-startup-delay",
+        "--startup-delay-nxos",
+        dest="n9kv_startup_delay",
+        help="Add staggered startup-delay to cisco_n9kv nodes as BATCH,SECONDS, e.g. 5,600",
+    )
     p_doc.add_argument("--include-nodes", action="store_true")
     p_doc.add_argument("--direction", choices=["TD", "LR", "BT", "RL"], default="TD")
     p_doc.add_argument("--group-by-role", action="store_true")

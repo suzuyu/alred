@@ -1,0 +1,15 @@
+site_detection:
+  site-1:
+    startswith:
+      - site1-
+      - s1-
+
+  site-2:
+    startswith:
+      - site2-
+      - s2-
+
+  wan:
+    contains:
+      - wan
+      - dci

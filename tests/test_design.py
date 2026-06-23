@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+import logging
 import tempfile
 import unittest
 from pathlib import Path
 
 import yaml
 
-from alred.cli import build_parser
+from alred.cli import apply_n9kv_startup_delay, build_clab_set_step_args, build_parser
+from alred.constants import DEFAULT_CLAB_SET_CMDS
 from alred.design import normalize_and_validate_cables
 from alred.parsing import normalize_interface_name
 
@@ -53,6 +55,47 @@ class DesignValidationTests(unittest.TestCase):
         self.assertTrue(any("already used" in message for message in errors))
 
 
+class StartupDelayTests(unittest.TestCase):
+    def test_applies_staggered_n9kv_startup_delay(self) -> None:
+        topology = {
+            "topology": {
+                "nodes": {
+                    "n1": {"kind": "cisco_n9kv"},
+                    "n2": {"kind": "cisco_n9kv"},
+                    "n3": {"kind": "cisco_n9kv"},
+                    "n4": {"kind": "cisco_n9kv", "startup-delay": 123},
+                    "n5": {"kind": "cisco_n9kv"},
+                    "server1": {"kind": "linux"},
+                }
+            }
+        }
+
+        updated = apply_n9kv_startup_delay(topology, "2,600", logging.getLogger("test"))
+        nodes = topology["topology"]["nodes"]
+
+        self.assertEqual(updated, 2)
+        self.assertNotIn("startup-delay", nodes["n1"])
+        self.assertNotIn("startup-delay", nodes["n2"])
+        self.assertEqual(nodes["n3"]["startup-delay"], 600)
+        self.assertEqual(nodes["n4"]["startup-delay"], 123)
+        self.assertEqual(nodes["n5"]["startup-delay"], 1200)
+        self.assertNotIn("startup-delay", nodes["server1"])
+
+
+class ClabSetCmdsTests(unittest.TestCase):
+    def test_generate_diagram_steps_have_site_grouping_defaults(self) -> None:
+        parser = build_parser()
+        args = parser.parse_args(["clab-set-cmds"])
+
+        for step in DEFAULT_CLAB_SET_CMDS:
+            if step.get("command") not in {"generate-mermaid", "generate-graphviz", "generate-drawio"}:
+                continue
+            step_args = build_clab_set_step_args(step, args, verbose=False)
+            self.assertEqual(step_args.input_format, "csv")
+            self.assertIsNone(step_args.sites)
+            self.assertFalse(step_args.group_by_site)
+
+
 class InitClabIntegrationTests(unittest.TestCase):
     def test_generates_all_nodes_and_reports_warnings(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -60,13 +103,16 @@ class InitClabIntegrationTests(unittest.TestCase):
             hosts = root / "hosts.txt"
             cables = root / "clab_cables.csv"
             env = root / "clab_merge.yaml"
+            sites = root / "sites.yaml"
             output = root / "topology.clab.yaml"
             normalized = root / "links_design_normalized.csv"
             report = root / "validation.md"
 
             hosts.write_text(
                 "10.0.0.81 leaf01 # nxos\n"
-                "10.0.0.90 server01 # linux\n"
+                "10.0.0.90 server01 # linux, profile=bond, vlan=2001, ipv4=100.64.0.1/24, "
+                "ipv4_gw=100.64.0.254, ipv6=fd12:0:0:1::101/64, "
+                "ipv6_gw=fd12:0:0:1::1\n"
                 "10.0.0.91 unused01 # linux\n",
                 encoding="utf-8",
             )
@@ -82,6 +128,14 @@ class InitClabIntegrationTests(unittest.TestCase):
                 "  ipv4-range: 192.168.129.80/28\n",
                 encoding="utf-8",
             )
+            sites.write_text(
+                "site_detection:\n"
+                "  site-a:\n"
+                "    startswith:\n"
+                "      - leaf\n"
+                "      - server\n",
+                encoding="utf-8",
+            )
 
             parser = build_parser()
             args = parser.parse_args([
@@ -89,6 +143,7 @@ class InitClabIntegrationTests(unittest.TestCase):
                 "--hosts", str(hosts),
                 "--cables", str(cables),
                 "--clab-env", str(env),
+                "--sites", str(sites),
                 "--output", str(output),
                 "--output-normalized", str(normalized),
                 "--validation-report", str(report),
@@ -105,6 +160,16 @@ class InitClabIntegrationTests(unittest.TestCase):
             )
             self.assertEqual(nodes["leaf01"]["mgmt-ipv4"], "192.168.129.81")
             self.assertEqual(nodes["server01"]["mgmt-ipv4"], "192.168.129.90")
+            self.assertEqual(nodes["leaf01"]["labels"]["site"], "site-a")
+            self.assertEqual(nodes["server01"]["labels"]["site"], "site-a")
+            self.assertEqual(nodes["server01"]["env"]["VLAN_ID"], "2001")
+            self.assertEqual(nodes["server01"]["env"]["IP_CIDR"], "100.64.0.1/24")
+            self.assertEqual(nodes["server01"]["env"]["DEF_GW"], "100.64.0.254")
+            self.assertEqual(nodes["server01"]["env"]["IPV6_CIDR"], "fd12:0:0:1::101/64")
+            self.assertEqual(nodes["server01"]["env"]["DEF_GW6"], "fd12:0:0:1::1")
+            self.assertEqual(nodes["server01"]["env"]["SET_DEFAULT_ROUTE"], "true")
+            self.assertEqual(nodes["server01"]["binds"], ["scripts/linux:/scripts:ro"])
+            self.assertEqual(nodes["server01"]["exec"], ["sh -lc '/scripts/init-bond-singlevlan-route.sh'"])
             self.assertEqual(
                 set(topology["topology"]["links"][0]["endpoints"]),
                 {"leaf01:Ethernet1/1", "server01:eth1"},
@@ -115,6 +180,197 @@ class InitClabIntegrationTests(unittest.TestCase):
             report_text = report.read_text(encoding="utf-8")
             self.assertIn("Node has no cable connections: unused01", report_text)
             self.assertIn("overlaps dynamic range", report_text)
+
+
+class GenerateMermaidClabInputTests(unittest.TestCase):
+    def test_generates_mermaid_from_clab_topology_with_standalone_nodes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            clab = root / "topology.clab.yaml"
+            output = root / "topology.md"
+
+            clab.write_text(
+                "topology:\n"
+                "  nodes:\n"
+                "    leaf01:\n"
+                "      kind: cisco_n9kv\n"
+                "      mgmt-ipv4: 192.0.2.11\n"
+                "      group: leaf\n"
+                "    server01:\n"
+                "      kind: linux\n"
+                "      group: server\n"
+                "    unused01:\n"
+                "      kind: linux\n"
+                "      group: standalone\n"
+                "  links:\n"
+                "    - endpoints: [\"leaf01:Ethernet1/1\", \"server01:eth1\"]\n",
+                encoding="utf-8",
+            )
+
+            parser = build_parser()
+            args = parser.parse_args([
+                "generate-mermaid",
+                "--input", str(clab),
+                "--group-by-role",
+                "--output", str(output),
+                "--log-file", str(root / "generate-mermaid.log"),
+            ])
+            args.func(args)
+
+            mermaid = output.read_text(encoding="utf-8")
+            self.assertIn("leaf01<br/>mgmt: 192.0.2.11", mermaid)
+            self.assertIn("server01", mermaid)
+            self.assertIn("unused01", mermaid)
+            self.assertIn("subgraph leaf[leaf]", mermaid)
+            self.assertIn("subgraph standalone[standalone]", mermaid)
+            self.assertIn('server01 -->|"eth1 ↔ Ethernet1/1"| leaf01', mermaid)
+
+    def test_generates_site_and_role_hierarchy_from_clab_labels(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            clab = root / "topology.clab.yaml"
+            output = root / "topology.md"
+
+            clab.write_text(
+                "topology:\n"
+                "  nodes:\n"
+                "    site1-bgw01:\n"
+                "      kind: cisco_n9kv\n"
+                "      group: border-gateway\n"
+                "      labels:\n"
+                "        site: site-1\n"
+                "    wan01:\n"
+                "      kind: cisco_n9kv\n"
+                "      group: wan\n"
+                "      labels:\n"
+                "        site: wan\n"
+                "    site2-bgw01:\n"
+                "      kind: cisco_n9kv\n"
+                "      group: border-gateway\n"
+                "      labels:\n"
+                "        site: site-2\n"
+                "  links:\n"
+                "    - endpoints: [\"site1-bgw01:Ethernet1/1\", \"wan01:Ethernet1/1\"]\n"
+                "    - endpoints: [\"wan01:Ethernet1/2\", \"site2-bgw01:Ethernet1/1\"]\n",
+                encoding="utf-8",
+            )
+
+            parser = build_parser()
+            args = parser.parse_args([
+                "generate-mermaid",
+                "--input", str(clab),
+                "--group-by-site",
+                "--group-by-role",
+                "--output", str(output),
+                "--log-file", str(root / "generate-mermaid.log"),
+            ])
+            args.func(args)
+
+            mermaid = output.read_text(encoding="utf-8")
+            self.assertIn("subgraph site_site_1[site-1]", mermaid)
+            self.assertIn("subgraph site_1_border_gateway[border-gateway]", mermaid)
+            self.assertIn("subgraph site_wan[wan]", mermaid)
+            self.assertIn("subgraph site_site_2[site-2]", mermaid)
+
+    def test_detects_sites_from_sites_yaml(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            clab = root / "topology.clab.yaml"
+            sites = root / "sites.yaml"
+            output = root / "topology.md"
+
+            clab.write_text(
+                "topology:\n"
+                "  nodes:\n"
+                "    site1-bgw01:\n"
+                "      kind: cisco_n9kv\n"
+                "      group: border-gateway\n"
+                "    wan01:\n"
+                "      kind: cisco_n9kv\n"
+                "      group: wan\n"
+                "  links:\n"
+                "    - endpoints: [\"site1-bgw01:Ethernet1/1\", \"wan01:Ethernet1/1\"]\n",
+                encoding="utf-8",
+            )
+            sites.write_text(
+                "site_detection:\n"
+                "  site-1:\n"
+                "    startswith:\n"
+                "      - site1-\n"
+                "  wan:\n"
+                "    startswith:\n"
+                "      - wan\n",
+                encoding="utf-8",
+            )
+
+            parser = build_parser()
+            args = parser.parse_args([
+                "generate-mermaid",
+                "--input", str(clab),
+                "--sites", str(sites),
+                "--group-by-site",
+                "--group-by-role",
+                "--output", str(output),
+                "--log-file", str(root / "generate-mermaid.log"),
+            ])
+            args.func(args)
+
+            mermaid = output.read_text(encoding="utf-8")
+            self.assertIn("subgraph site_site_1[site-1]", mermaid)
+            self.assertIn("subgraph site_wan[wan]", mermaid)
+
+    def test_graphviz_and_drawio_group_by_site_from_clab(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            clab = root / "topology.clab.yaml"
+            dot_output = root / "topology.dot"
+            drawio_output = root / "topology.drawio"
+
+            clab.write_text(
+                "topology:\n"
+                "  nodes:\n"
+                "    site1-bgw01:\n"
+                "      kind: cisco_n9kv\n"
+                "      group: border-gateway\n"
+                "      labels:\n"
+                "        site: site-1\n"
+                "    site2-bgw01:\n"
+                "      kind: cisco_n9kv\n"
+                "      group: border-gateway\n"
+                "      labels:\n"
+                "        site: site-2\n"
+                "  links:\n"
+                "    - endpoints: [\"site1-bgw01:Ethernet1/1\", \"site2-bgw01:Ethernet1/1\"]\n",
+                encoding="utf-8",
+            )
+
+            parser = build_parser()
+            dot_args = parser.parse_args([
+                "generate-graphviz",
+                "--input", str(clab),
+                "--group-by-site",
+                "--group-by-role",
+                "--output", str(dot_output),
+                "--log-file", str(root / "generate-graphviz.log"),
+            ])
+            dot_args.func(dot_args)
+
+            drawio_args = parser.parse_args([
+                "generate-drawio",
+                "--input", str(clab),
+                "--group-by-site",
+                "--group-by-role",
+                "--output", str(drawio_output),
+                "--log-file", str(root / "generate-drawio.log"),
+            ])
+            drawio_args.func(drawio_args)
+
+            dot = dot_output.read_text(encoding="utf-8")
+            drawio = drawio_output.read_text(encoding="utf-8")
+            self.assertIn("subgraph cluster_site_site_1", dot)
+            self.assertIn('label="site-1"', dot)
+            self.assertIn("site-1", drawio)
+            self.assertIn("site-2", drawio)
 
 
 if __name__ == "__main__":

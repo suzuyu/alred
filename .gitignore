@@ -140,3 +140,4 @@ logging-error-string.txt
 # test file
 init_clab_hosts.txt
 clab_cables.csv
+sites.yaml

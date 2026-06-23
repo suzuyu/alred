@@ -7,7 +7,12 @@ from __future__ import annotations
 from logging import Logger
 from typing import Any, Dict, List, Optional, Tuple
 
-from .constants import DEVICE_TYPE_TO_KIND, NETWORK_DEVICE_TYPES
+from .constants import (
+    DEFAULT_INIT_LINUX_NODE_BIND,
+    DEFAULT_LINUX_NODE_EXEC,
+    DEVICE_TYPE_TO_KIND,
+    NETWORK_DEVICE_TYPES,
+)
 from .parsing import (
     confidence_allowed,
     get_inventory_device_type,
@@ -30,6 +35,48 @@ def is_network_device_type(device_type: str) -> bool:
     return device_type in NETWORK_DEVICE_TYPES
 
 
+def detect_node_by_rules(node: str, rules: Dict[str, Any], default: str) -> str:
+    """
+    Detect a logical label from node name using role/site style rules.
+
+    Matching order:
+    1. position_matches
+    2. startswith
+    3. endswith
+    4. contains
+
+    Args:
+        node: Node name.
+        rules: Detection rules.
+        default: Value returned when nothing matches.
+
+    Returns:
+        Detected label or default.
+    """
+    x = node.lower()
+
+    for label, rule in rules.items():
+        for item in rule.get("position_matches", []):
+            pos = int(item.get("pos", -1))
+            value = str(item.get("value", "")).lower()
+            if pos >= 0 and value and x[pos:pos + len(value)] == value:
+                return label
+
+        for prefix in rule.get("startswith", []):
+            if x.startswith(str(prefix).lower()):
+                return label
+
+        for suffix in rule.get("endswith", []):
+            if x.endswith(str(suffix).lower()):
+                return label
+
+        for keyword in rule.get("contains", []):
+            if str(keyword).lower() in x:
+                return label
+
+    return default
+
+
 def detect_node_role(node: str, roles: Dict[str, Any]) -> str:
     """
     Detect logical role from node name.
@@ -47,28 +94,21 @@ def detect_node_role(node: str, roles: Dict[str, Any]) -> str:
     Returns:
         Detected role or "other".
     """
-    x = node.lower()
+    return detect_node_by_rules(node, roles, "other")
 
-    for role, rule in roles.items():
-        for item in rule.get("position_matches", []):
-            pos = int(item.get("pos", -1))
-            value = str(item.get("value", "")).lower()
-            if pos >= 0 and value and x[pos:pos + len(value)] == value:
-                return role
 
-        for prefix in rule.get("startswith", []):
-            if x.startswith(str(prefix).lower()):
-                return role
+def detect_node_site(node: str, sites: Dict[str, Any]) -> str:
+    """
+    Detect logical site from node name.
 
-        for suffix in rule.get("endswith", []):
-            if x.endswith(str(suffix).lower()):
-                return role
+    Args:
+        node: Node name.
+        sites: Site rules.
 
-        for keyword in rule.get("contains", []):
-            if str(keyword).lower() in x:
-                return role
-
-    return "other"
+    Returns:
+        Detected site or empty string.
+    """
+    return detect_node_by_rules(node, sites, "")
 
 
 def detect_node_roles(node: str, roles: Dict[str, Any]) -> List[str]:
@@ -302,6 +342,8 @@ def build_node_definitions_from_links(
 
             if node_name not in nodes:
                 node_def: Dict[str, Any] = {"kind": kind}
+                if device_type == "linux":
+                    node_def.update(build_linux_node_options(host_info))
 
                 if is_network_device_type(device_type):
                     mgmt_ip = mgmt_ip_map.get(node_name, "")
@@ -313,6 +355,44 @@ def build_node_definitions_from_links(
                 nodes[node_name] = node_def
 
     return dict(sorted(nodes.items(), key=lambda x: x[0]))
+
+
+def build_linux_node_options(host_info: Dict[str, Any]) -> Dict[str, Any]:
+    """Build optional containerlab settings for linux nodes from host metadata."""
+    metadata = host_info.get("metadata", {})
+    if not isinstance(metadata, dict):
+        return {}
+
+    profile = str(metadata.get("profile", "")).strip().lower()
+    if profile != "bond":
+        return {}
+
+    env_key_map = {
+        "vlan": "VLAN_ID",
+        "ipv4": "IP_CIDR",
+        "ipv4_gw": "DEF_GW",
+        "ipv6": "IPV6_CIDR",
+        "ipv6_gw": "DEF_GW6",
+    }
+    env: Dict[str, str] = {}
+    for source_key, env_key in env_key_map.items():
+        value = str(metadata.get(source_key, "")).strip()
+        if value:
+            env[env_key] = value
+
+    default_route = str(metadata.get("default_route", "true")).strip().lower()
+    if default_route in {"true", "yes", "1", "on"}:
+        env["SET_DEFAULT_ROUTE"] = "true"
+    elif default_route in {"false", "no", "0", "off"}:
+        env["SET_DEFAULT_ROUTE"] = "false"
+
+    options: Dict[str, Any] = {
+        "binds": [str(metadata.get("bind", DEFAULT_INIT_LINUX_NODE_BIND)).strip() or DEFAULT_INIT_LINUX_NODE_BIND],
+        "exec": [str(metadata.get("exec", DEFAULT_LINUX_NODE_EXEC)).strip() or DEFAULT_LINUX_NODE_EXEC],
+    }
+    if env:
+        options["env"] = env
+    return options
 
 
 def build_node_definitions_from_inventory(
@@ -330,6 +410,8 @@ def build_node_definitions_from_inventory(
         node_def: Dict[str, Any] = {
             "kind": DEVICE_TYPE_TO_KIND.get(device_type, "linux"),
         }
+        if device_type == "linux":
+            node_def.update(build_linux_node_options(attrs))
         mgmt_ip = mgmt_ip_map.get(original_name) or mgmt_ip_map.get(node_name)
         if mgmt_ip:
             node_def["mgmt-ipv4"] = mgmt_ip

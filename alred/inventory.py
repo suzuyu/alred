@@ -10,7 +10,43 @@ from typing import Any, Callable, Dict, List
 from .constants import DEVICE_MAP
 
 
-def parse_hosts_txt(path: str) -> List[Dict[str, str]]:
+def parse_hosts_comment(comment: str) -> Dict[str, Any]:
+    """
+    Parse hosts.txt comment metadata.
+
+    Example:
+        linux, profile=bond, vlan=2001, ipv4=100.64.0.1/24
+    """
+    parts = [part.strip() for part in comment.split(",") if part.strip()]
+    if not parts:
+        return {"device_type": "unknown", "metadata": {}}
+
+    device_type = parts[0]
+    metadata: Dict[str, str] = {}
+    flags: List[str] = []
+    colon_keys = {"profile", "vlan", "ipv4", "ipv4_gw", "ipv6", "ipv6_gw", "default_route", "bind", "exec"}
+    for part in parts[1:]:
+        if "=" in part:
+            key, value = part.split("=", 1)
+        elif ":" in part and part.split(":", 1)[0].strip().lower().replace("-", "_") in colon_keys:
+            key, value = part.split(":", 1)
+        else:
+            flags.append(part)
+            continue
+        key = key.strip().lower().replace("-", "_")
+        value = value.strip()
+        if key:
+            metadata[key] = value
+
+    if "bond" in {flag.lower() for flag in flags} and "profile" not in metadata:
+        metadata["profile"] = "bond"
+    if flags:
+        metadata["flags"] = ",".join(flags)
+
+    return {"device_type": device_type.strip(), "metadata": metadata}
+
+
+def parse_hosts_txt(path: str) -> List[Dict[str, Any]]:
     """
     Parse hosts.txt into structured entries.
 
@@ -36,10 +72,13 @@ def parse_hosts_txt(path: str) -> List[Dict[str, str]]:
             continue
 
         device_type = "unknown"
+        metadata: Dict[str, str] = {}
         data_part = line
         if "#" in line:
             data_part, comment = line.split("#", 1)
-            device_type = comment.strip()
+            parsed_comment = parse_hosts_comment(comment.strip())
+            device_type = str(parsed_comment["device_type"])
+            metadata = parsed_comment["metadata"]
 
         parts = data_part.split()
         if len(parts) < 2:
@@ -54,11 +93,14 @@ def parse_hosts_txt(path: str) -> List[Dict[str, str]]:
 
         seen_ips.add(ip)
         seen_hosts.add(hostname)
-        entries.append({
+        entry: Dict[str, Any] = {
             "hostname": hostname,
             "ip": ip,
             "device_type": device_type,
-        })
+        }
+        if metadata:
+            entry["metadata"] = metadata
+        entries.append(entry)
 
     return entries
 
@@ -81,6 +123,8 @@ def build_inventory(entries: List[Dict[str, str]]) -> Dict[str, Any]:
             "device_type": entry["device_type"],
             "os_type": entry["device_type"],
         }
+        if entry.get("metadata"):
+            host_vars["metadata"] = entry["metadata"]
         host_vars.update(DEVICE_MAP.get(entry["device_type"], {}))
         inventory["all"]["hosts"][entry["hostname"]] = host_vars
 
@@ -108,6 +152,7 @@ def load_inventory_data(data: Dict[str, Any]) -> List[Dict[str, Any]]:
             "ansible_connection": attrs.get("ansible_connection"),
             "netmiko_device_type": attrs.get("netmiko_device_type"),
             "ansible_network_os": attrs.get("ansible_network_os"),
+            "metadata": attrs.get("metadata", {}),
         })
 
     return result

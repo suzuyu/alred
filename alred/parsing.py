@@ -18,6 +18,7 @@ from .constants import (
     DEFAULT_POLICY,
     DEFAULT_ROLES,
     DEFAULT_ROLES_PATH,
+    DEFAULT_SITES_PATH,
 )
 from .utils import load_yaml
 
@@ -86,6 +87,27 @@ def load_roles(path: str | None) -> Dict[str, Any]:
 
     loaded = load_yaml(path)
     return loaded.get("role_detection", {}) or {}
+
+
+def load_sites(path: str | None) -> Dict[str, Any]:
+    """
+    Load site detection configuration.
+
+    Args:
+        path: Optional sites YAML path.
+
+    Returns:
+        Site rules.
+    """
+    if not path:
+        default_path = Path(DEFAULT_SITES_PATH)
+        if default_path.exists():
+            loaded = load_yaml(str(default_path))
+            return loaded.get("site_detection", {}) or {}
+        return {}
+
+    loaded = load_yaml(path)
+    return loaded.get("site_detection", {}) or {}
 
 
 def load_description_rules(path: str | None) -> List[Dict[str, str]]:
