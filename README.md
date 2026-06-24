@@ -394,7 +394,7 @@ alred prepare-hosts --input hosts.txt --output hosts.yaml
 
 ### `clab-transform-config`
 
-`hosts.yaml` と `raw/config/<hostname>_run.txt` を元に、lab 用の管理 IP と NX-OS 9000v 非対応の L2 sub-interface、L3 Interface へ`no switchport`を追加する変換をします。
+`hosts.yaml` と `raw/config/<hostname>_run.txt` を元に、lab 用の管理 IP、NX-OS ユーザー、NX-OS 9000v 非対応の L2 sub-interface、L3 Interface へ`no switchport`を追加する変換をします。
 
 出力:
 
@@ -405,11 +405,70 @@ alred prepare-hosts --input hosts.txt --output hosts.yaml
 alred clab-transform-config \
   --hosts hosts.yaml \
   --clab-env clab_merge.yaml \
+  --node-map clab_node_map.csv \
+  --credentials clab_credentials.yaml \
   --input raw \
   --file-suffix _run.txt
 ```
 
 `--file-suffix` を指定すると、`push-config-dir` と同様に `raw/config/<hostname><suffix>` を読み込みます。既定は `_run.txt` です。
+
+NX-OS ホストでは、認証情報が解決できた場合、startup-config 内の既存 `username` 行を削除して次のラボ用ユーザーへ置換します。
+
+```text
+username admin password 0 admin role network-admin
+```
+
+認証情報は `--user` / `--password`、`clab_credentials.yaml`、環境変数の順で解決します。ラボユーザーと同名の既存設定だけを置換し、その他のユーザーは変更しません。同名ユーザーが存在しない場合は新規追加します。認証情報がまったく無い場合はユーザー設定を変更しません。パスワードは空文字や空白を含む値を指定できません。
+
+注意: `clab_credentials.yaml` がカレントディレクトリに存在する場合は、`--credentials` を明示しなくても自動で読み込まれます。また、`.env` の `ALRED_USERNAME` / `ALRED_PASSWORD` も認証情報として利用されます。これらは収集時のSSH接続だけでなく、デフォルトでは `clab-transform-config` によるNX-OS startup-configの `username` 追加・置換にも使用されます。そのため、オプションを指定せずに `clab-set-cmds` を実行した場合でも、認証情報が解決できれば `raw/labconfig/` の同名ユーザー設定は書き換えられます。
+
+例えば `clab_credentials.yaml` または `.env` で `admin` の認証情報が解決された場合、既存の `username admin ...` は次の形式へ置換されます。
+
+```text
+username admin password 0 <resolved-password> role network-admin
+```
+
+containerlab イメージのデフォルトユーザーをそのまま利用する場合は `--delete-username` を指定します。NX-OS startup-config から全 `username` 行と、ユーザーに紐づく全 `snmp-server user` 行を削除し、ラボユーザーは追加しません。
+
+```sh
+alred clab-transform-config \
+  --hosts hosts.yaml \
+  --delete-username
+```
+
+`clab-set-cmds --delete-username` でも同じ変換を指定できます。この場合も `--credentials` は収集時の接続認証に利用できますが、startup-config へのユーザー追加には利用されません。
+
+本番環境のVTYアクセス制限をラボへ持ち込まない場合は `--delete-access-class` を指定します。NX-OSの `line vty` セクション内にある `access-class` と `ipv6 access-class` 行だけを削除し、`exec-timeout` や `transport input`、`line console` などの設定は保持します。
+
+```sh
+alred clab-transform-config \
+  --hosts hosts.yaml \
+  --delete-access-class
+```
+
+`clab-set-cmds --delete-access-class` にも対応しています。
+
+ホスト名と管理IPを明示的な対応表でラボ用に変更する場合は、`--node-map` でCSVを指定します。
+
+```csv
+source_hostname,source_mgmt_ip,target_hostname,target_mgmt_ip
+lfsw0101,192.168.129.81,lab-leaf01,172.20.20.11
+lfsw0102,192.168.129.82,lab-leaf02,172.20.20.12
+```
+
+互換性のため、`prd_hostname,prd_mgmt_ip,lab_hostname,lab_mgmt_ip` ヘッダーも利用できます。
+
+変換対象:
+
+- startup-config の `hostname` と同名の `vdc`
+- `interface mgmt0` の管理IP
+- `vpc domain` 内の `peer-keepalive` source / destination IP
+- `hosts.lab.yaml` のホストキーと `ansible_host`
+- `raw/labconfig/<target_hostname><suffix>` の出力ファイル名
+- `clab-set-cmds` 後続処理のリンク、構成図、containerlabノード名
+
+CSVの管理IP変換は `mgmt.ipv4-subnet` による自動変換より優先します。対応表にない管理系IPは従来どおりサブネット変換されます。管理VRFの経路宛先プレフィックスやデータプレーンIP、description内の文字列は変更しません。CSVのsource管理IPとinventoryの `ansible_host` が異なる場合はエラーになります。
 
 ### `clab-set-cmds`
 
@@ -429,6 +488,7 @@ alred clab-set-cmds --hosts hosts.yaml --without-collect
 
 - `collect-clab` から `generate-vni-map` までを順番に実行します
 - `clab-transform-config` は `collect-clab` の直後、`generate-clab` より前に実行されます
+- `clab_credentials.yaml` の NX-OS 認証情報は、収集時の接続と startup-config のラボユーザー変換の両方に利用されます
 - `--without-collect` を指定すると `collect-clab` をスキップし、展開済みの `raw/` を使って後続処理だけを実行できます
 - `--transport auto` が既定です
 - `--mappings`、`--roles`、`--description-rules` などの上書き指定ができます

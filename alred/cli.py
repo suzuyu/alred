@@ -124,10 +124,12 @@ from .parsing import (
     is_excluded_interface,
     load_description_rules,
     load_mappings,
+    load_node_map_csv,
     load_policy_file,
     load_roles,
     load_sites,
     merge_lldp_and_description_links,
+    merge_node_map_into_mappings,
     normalize_hostname,
     normalize_interface_name,
     normalize_link_records,
@@ -169,6 +171,7 @@ from .topology import (
 )
 from .utils import (
     get_credentials_for_device,
+    get_optional_credentials_for_device,
     get_default_log_dir,
     get_links_dir,
     get_netmiko_unavailable_message,
@@ -1265,6 +1268,15 @@ def resolve_show_commands_path(raw: str | None) -> str | None:
     if default_path.exists():
         return str(default_path)
     return None
+
+
+def load_effective_mappings(args: argparse.Namespace) -> Dict[str, Any]:
+    """
+    Load standard mappings and merge optional node-map CSV hostname mappings.
+    """
+    mappings = load_mappings(getattr(args, "mappings", None))
+    node_map_rows = load_node_map_csv(getattr(args, "node_map", None))
+    return merge_node_map_into_mappings(mappings, node_map_rows)
 
 
 def require_collect_all_show_commands(args: argparse.Namespace) -> str:
@@ -3748,7 +3760,7 @@ def prepare_topology_diagram_context(args: argparse.Namespace, logger: Logger) -
     Build shared topology diagram rendering inputs for Mermaid/Graphviz/draw.io.
     """
     input_format = infer_generate_mermaid_input_format(args.input, getattr(args, "input_format", "csv"))
-    mappings = load_mappings(args.mappings)
+    mappings = load_effective_mappings(args)
     roles = load_roles(args.roles)
     sites = load_sites(getattr(args, "sites", None))
 
@@ -3990,8 +4002,21 @@ def cmd_transform_config(args: argparse.Namespace) -> None:
         clab_env_path = "clab_merge.yaml"
     clab_env_data = load_yaml(clab_env_path)
     mgmt_subnet = parse_mgmt_ipv4_subnet(clab_env_data)
+    node_map_rows = load_node_map_csv(getattr(args, "node_map", None))
+    hostname_map = {
+        row["source_hostname"]: row["target_hostname"]
+        for row in node_map_rows
+    }
+    management_address_map = {
+        row["source_mgmt_ip"]: row["target_mgmt_ip"]
+        for row in node_map_rows
+    }
 
-    transformed_inventory = transform_inventory_mgmt_subnet(inventory_data, mgmt_subnet)
+    transformed_inventory = transform_inventory_mgmt_subnet(
+        inventory_data,
+        mgmt_subnet,
+        node_map_rows=node_map_rows,
+    )
     save_yaml(transformed_inventory, args.output_hosts)
     logger.info(
         "WROTE TRANSFORMED HOSTS %s mgmt_subnet=%s",
@@ -4013,6 +4038,17 @@ def cmd_transform_config(args: argparse.Namespace) -> None:
     missing_files: List[str] = []
 
     for hostname in sorted(hosts.keys()):
+        host_attrs = hosts.get(hostname, {})
+        if not isinstance(host_attrs, dict):
+            host_attrs = {}
+        host = dict(host_attrs)
+        host["hostname"] = hostname
+        device_type = str(host.get("device_type", ""))
+        lab_credentials = None
+        delete_username = bool(getattr(args, "delete_username", False))
+        if device_type == "nxos" and not delete_username:
+            lab_credentials = get_optional_credentials_for_device(args, device_type, host)
+
         source_path = run_dir / f"{hostname}{suffix}"
         if not source_path.exists():
             missing_files.append(str(source_path))
@@ -4020,12 +4056,23 @@ def cmd_transform_config(args: argparse.Namespace) -> None:
             continue
 
         source_text = source_path.read_text(encoding="utf-8", errors="ignore")
-        transformed_text, stats = transform_run_config_text(source_text, mgmt_subnet)
-        output_path = output_dir / source_path.name
+        target_hostname = hostname_map.get(hostname, hostname)
+        transformed_text, stats = transform_run_config_text(
+            source_text,
+            mgmt_subnet,
+            lab_username=lab_credentials[0] if lab_credentials else None,
+            lab_password=lab_credentials[1] if lab_credentials else None,
+            delete_username=delete_username and device_type == "nxos",
+            delete_access_class=bool(getattr(args, "delete_access_class", False))
+            and device_type == "nxos",
+            hostname_map=hostname_map,
+            management_address_map=management_address_map,
+        )
+        output_path = output_dir / f"{target_hostname}{suffix}"
         output_path.write_text(transformed_text, encoding="utf-8")
         transformed_count += 1
         logger.info(
-            "WROTE LAB CONFIG %s subif_conversions=%d mgmt_sections=%d parent_added=%d parent_merged=%d svi_merged=%d no_switchport_added=%d",
+            "WROTE LAB CONFIG %s subif_conversions=%d mgmt_sections=%d parent_added=%d parent_merged=%d svi_merged=%d no_switchport_added=%d username_removed=%d snmp_user_removed=%d access_class_removed=%d hostname_renamed=%d lab_username_added=%d",
             output_path,
             stats["subinterface_conversions"],
             stats["management_section_updates"],
@@ -4033,6 +4080,11 @@ def cmd_transform_config(args: argparse.Namespace) -> None:
             stats["merged_existing_parent_interfaces"],
             stats["merged_existing_svis"],
             stats["inserted_no_switchport"],
+            stats["removed_username_lines"],
+            stats["removed_snmp_user_lines"],
+            stats["removed_access_class_lines"],
+            stats["renamed_hostname_lines"],
+            stats["inserted_lab_username"],
         )
 
     logger.info(
@@ -5370,7 +5422,7 @@ def cmd_normalize_links(args: argparse.Namespace) -> None:
     inventory_data = load_yaml(hosts_path)
     hosts = {h["hostname"]: h for h in load_inventory_data(inventory_data)}
 
-    mappings = load_mappings(args.mappings)
+    mappings = load_effective_mappings(args)
     description_rules = load_description_rules(args.description_rules)
     raw_dir = Path(args.input)
     lldp_dir = get_lldp_input_dir(raw_dir)
@@ -5783,6 +5835,9 @@ def cmd_generate_vni_map(args: argparse.Namespace) -> None:
     """
     logger = setup_logging(args.log_file, args.verbose)
     records = collect_vni_gateway_records_from_run_dir(args.input, logger)
+    mappings = load_effective_mappings(args)
+    for record in records:
+        record["device"] = normalize_hostname(str(record.get("device", "")), mappings)
     write_vni_gateway_csv(records, args.output_csv, include_vlan_name=args.include_vlan_name)
     write_text(
         args.output_md,
@@ -6348,7 +6403,7 @@ def cmd_generate_clab(args: argparse.Namespace) -> None:
     logger = setup_logging(args.log_file, args.verbose)
 
     records = read_links_csv(args.input)
-    mappings = load_mappings(args.mappings)
+    mappings = load_effective_mappings(args)
     roles = load_roles(args.roles)
     sites = load_sites(getattr(args, "sites", None))
 
@@ -6420,7 +6475,7 @@ def cmd_generate_clab(args: argparse.Namespace) -> None:
 def cmd_init_clab(args: argparse.Namespace) -> None:
     """Generate a containerlab topology from hosts.txt and a cable table."""
     logger = setup_logging(args.log_file, args.verbose)
-    mappings = load_mappings(args.mappings)
+    mappings = load_effective_mappings(args)
     roles = load_roles(args.roles)
     sites = load_sites(getattr(args, "sites", None))
 
@@ -6699,7 +6754,7 @@ def cmd_generate_doc(args: argparse.Namespace) -> None:
     logger = setup_logging(args.log_file, args.verbose)
 
     records = read_links_csv(args.input)
-    mappings = load_mappings(args.mappings)
+    mappings = load_effective_mappings(args)
     roles = load_roles(args.roles)
 
     inventory_map: Dict[str, Dict[str, Any]] = {}
@@ -6970,7 +7025,10 @@ def build_clab_set_step_args(
         "linux_csv": getattr(args, "linux_csv", None),
         "kind_cluster_csv": getattr(args, "kind_cluster_csv", None),
         "clab_env": getattr(args, "clab_env", None),
+        "node_map": getattr(args, "node_map", None),
         "file_suffix": getattr(args, "file_suffix", None),
+        "delete_username": getattr(args, "delete_username", None),
+        "delete_access_class": getattr(args, "delete_access_class", None),
         "clab_merge": getattr(args, "clab_merge", None),
         "clab_lab_profile": getattr(args, "clab_lab_profile", None),
         "include_svi": getattr(args, "include_svi", None),
@@ -6993,6 +7051,13 @@ def build_clab_set_step_args(
             data["input"] = raw_output
         if "underlay_raw" in data:
             data["underlay_raw"] = raw_output
+    if getattr(args, "node_map", None) and handler_command in {
+        "generate-clab",
+        "generate-mermaid",
+        "generate-graphviz",
+        "generate-drawio",
+    }:
+        data["hosts"] = "hosts.lab.yaml"
 
     step_args = argparse.Namespace(**data)
     if handler_command in {"generate-mermaid", "generate-graphviz", "generate-drawio"}:
@@ -7076,6 +7141,26 @@ def build_parser() -> argparse.ArgumentParser:
     p_transform.add_argument(
         "--clab-env",
         help="containerlab env YAML used to read mgmt.ipv4-subnet (default: ./clab_merge.yaml if exists)",
+    )
+    p_transform.add_argument(
+        "--node-map",
+        help="CSV mapping source/production hostnames and management IPs to target/lab values",
+    )
+    p_transform.add_argument("-u", "--user", "--username", dest="username", help="Lab username for NX-OS startup-config")
+    p_transform.add_argument("--password", help="Lab password for NX-OS startup-config")
+    p_transform.add_argument(
+        "--credentials",
+        help="Credentials YAML path used for NX-OS lab users (default: ./clab_credentials.yaml if exists)",
+    )
+    p_transform.add_argument(
+        "--delete-username",
+        action="store_true",
+        help="Remove NX-OS username and snmp-server user lines instead of adding a lab user",
+    )
+    p_transform.add_argument(
+        "--delete-access-class",
+        action="store_true",
+        help="Remove access-class commands from NX-OS line vty sections",
     )
     p_transform.add_argument(
         "--input",
@@ -7642,6 +7727,20 @@ def build_parser() -> argparse.ArgumentParser:
     p_clab_set.add_argument("--linux-csv", help="CSV override for generate-clab")
     p_clab_set.add_argument("--kind-cluster-csv", help="Kind cluster CSV override for generate-clab")
     p_clab_set.add_argument("--clab-env", help="YAML override for clab-transform-config")
+    p_clab_set.add_argument(
+        "--node-map",
+        help="CSV mapping source/production hostnames and management IPs to target/lab values",
+    )
+    p_clab_set.add_argument(
+        "--delete-username",
+        action="store_true",
+        help="Remove NX-OS username and snmp-server user lines from generated startup-configs",
+    )
+    p_clab_set.add_argument(
+        "--delete-access-class",
+        action="store_true",
+        help="Remove access-class commands from NX-OS line vty sections in generated startup-configs",
+    )
     p_clab_set.add_argument(
         "--file-suffix",
         default=None,

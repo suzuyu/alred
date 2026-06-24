@@ -5,6 +5,7 @@ Parsing and normalization helpers for LLDP / descriptions / links.
 from __future__ import annotations
 
 import csv
+import ipaddress
 from logging import Logger
 import re
 from pathlib import Path
@@ -65,6 +66,116 @@ def load_mappings(path: str | None) -> Dict[str, Any]:
         DEFAULT_MAPPINGS["exclude_interfaces"],
     ) or []
     return mappings
+
+
+def load_node_map_csv(path: str | None) -> List[Dict[str, str]]:
+    """
+    Load production/source to lab/target hostname and management IP mappings.
+    """
+    if not path:
+        return []
+
+    rows: List[Dict[str, str]] = []
+    with Path(path).open("r", newline="", encoding="utf-8-sig") as fh:
+        reader = csv.DictReader(fh)
+        headers = set(reader.fieldnames or [])
+        canonical = {
+            "source_hostname",
+            "source_mgmt_ip",
+            "target_hostname",
+            "target_mgmt_ip",
+        }
+        legacy = {
+            "prd_hostname",
+            "prd_mgmt_ip",
+            "lab_hostname",
+            "lab_mgmt_ip",
+        }
+        if canonical.issubset(headers):
+            field_map = {
+                "source_hostname": "source_hostname",
+                "source_mgmt_ip": "source_mgmt_ip",
+                "target_hostname": "target_hostname",
+                "target_mgmt_ip": "target_mgmt_ip",
+            }
+        elif legacy.issubset(headers):
+            field_map = {
+                "source_hostname": "prd_hostname",
+                "source_mgmt_ip": "prd_mgmt_ip",
+                "target_hostname": "lab_hostname",
+                "target_mgmt_ip": "lab_mgmt_ip",
+            }
+        else:
+            raise ValueError(
+                "Node map CSV requires source_hostname,source_mgmt_ip,"
+                "target_hostname,target_mgmt_ip columns."
+            )
+
+        seen_source_hostnames: set[str] = set()
+        seen_target_hostnames: set[str] = set()
+        seen_source_ips: set[str] = set()
+        seen_target_ips: set[str] = set()
+        for line_number, raw in enumerate(reader, start=2):
+            row = {
+                key: str(raw.get(column, "") or "").strip()
+                for key, column in field_map.items()
+            }
+            if not any(row.values()):
+                continue
+            if not all(row.values()):
+                raise ValueError(f"Incomplete node map CSV row at line {line_number}: {path}")
+            for field in ("source_hostname", "target_hostname"):
+                if not re.fullmatch(r"[A-Za-z0-9_.-]+", row[field]):
+                    raise ValueError(
+                        f"Invalid {field} at line {line_number}: {path}"
+                    )
+            try:
+                source_ip = str(ipaddress.ip_address(row["source_mgmt_ip"]))
+                target_ip = str(ipaddress.ip_address(row["target_mgmt_ip"]))
+            except ValueError as exc:
+                raise ValueError(f"Invalid node map IP at line {line_number}: {path}") from exc
+            if ":" in source_ip or ":" in target_ip:
+                raise ValueError(f"Node map management IPs must be IPv4 at line {line_number}: {path}")
+            row["source_mgmt_ip"] = source_ip
+            row["target_mgmt_ip"] = target_ip
+
+            duplicate = (
+                row["source_hostname"] in seen_source_hostnames
+                or row["target_hostname"] in seen_target_hostnames
+                or source_ip in seen_source_ips
+                or target_ip in seen_target_ips
+            )
+            if duplicate:
+                raise ValueError(f"Duplicate hostname or management IP at line {line_number}: {path}")
+            seen_source_hostnames.add(row["source_hostname"])
+            seen_target_hostnames.add(row["target_hostname"])
+            seen_source_ips.add(source_ip)
+            seen_target_ips.add(target_ip)
+            rows.append(row)
+    return rows
+
+
+def merge_node_map_into_mappings(
+    mappings: Dict[str, Any],
+    node_map_rows: Iterable[Dict[str, str]],
+) -> Dict[str, Any]:
+    """
+    Merge node-map hostname translations into normal node_name_map mappings.
+    """
+    merged = {
+        **mappings,
+        "node_name_map": dict(mappings.get("node_name_map", {})),
+    }
+    for row in node_map_rows:
+        source = row["source_hostname"]
+        target = row["target_hostname"]
+        existing = merged["node_name_map"].get(source)
+        if existing is not None and existing != target:
+            raise ValueError(
+                f"Conflicting hostname mapping for {source}: {existing} != {target}"
+            )
+        merged["node_name_map"][source] = target
+    return merged
 
 
 def load_roles(path: str | None) -> Dict[str, Any]:

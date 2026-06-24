@@ -432,6 +432,14 @@ topology:
 - それ以外の値 (文字列・配列など) は後勝ちで上書き
 - `topology.links` は追加マージ (generated links の後ろに merge 側 links を連結)
 - `clab-transform-config` は `--clab-env` で指定した YAML の `mgmt.ipv4-subnet` を参照して `hosts.lab.yaml` と `raw/labconfig/<hostname><suffix>` の管理 IP を変換します。`--file-suffix` の既定は `_run.txt` です
+- `clab-transform-config` は NX-OS ホストの認証情報を `--user` / `--password` > `clab_credentials.yaml` の host 個別 > device_type 別 > defaults > 環境変数の順で解決し、同名の既存ユーザーを `username <user> password 0 <password> role network-admin` へ置換します
+- 指定したユーザー名以外の `username` 行は変更しません。同名ユーザーが存在しない場合は新規追加し、NX-OS 認証情報がまったく無い場合はユーザー設定を変更しません
+- startup-config に書き込むパスワードには空文字または空白を含む値を指定できません
+- `--delete-username` を指定すると、containerlab イメージのデフォルト認証を維持するため、NX-OS startup-config から全 `username` 行と全 `snmp-server user` 行を削除します。このモードでは認証情報が指定されていてもラボユーザーを追加しません
+- `--delete-access-class` を指定すると、NX-OSの `line vty` セクション内にある `access-class` と `ipv6 access-class` 行を削除します。`line console` や、VTY内のその他の設定は変更しません
+- `--node-map` では `source_hostname,source_mgmt_ip,target_hostname,target_mgmt_ip` のCSVを指定できます。`prd_hostname,prd_mgmt_ip,lab_hostname,lab_mgmt_ip` も互換ヘッダーとして受け付けます
+- node mapは `hostname`、同名の `vdc`、`interface mgmt0`、`vpc domain` の `peer-keepalive`、`hosts.lab.yaml` のホストキーと `ansible_host`、labconfigの出力ファイル名へ適用されます
+- CSVの管理IP対応は `mgmt.ipv4-subnet` より優先します。source管理IPとinventoryが一致しない場合、重複したホスト名/IP、inventoryに存在しないsourceホストはエラーです
 
 ### cisco_n9kv startup-delay
 

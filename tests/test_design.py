@@ -11,8 +11,9 @@ import yaml
 from alred.cli import apply_n9kv_startup_delay, build_clab_set_step_args, build_parser
 from alred.constants import DEFAULT_CLAB_SET_CMDS
 from alred.design import normalize_and_validate_cables
-from alred.parsing import normalize_interface_name
+from alred.parsing import load_node_map_csv, normalize_interface_name
 from alred.topology import detect_node_site
+from alred.transform import transform_inventory_mgmt_subnet, transform_run_config_text
 
 
 class DeviceAwareNormalizationTests(unittest.TestCase):
@@ -96,6 +97,258 @@ class StartupDelayTests(unittest.TestCase):
         self.assertNotIn("startup-delay", nodes["server1"])
 
 
+class TransformRunConfigTextTests(unittest.TestCase):
+    def test_node_map_transforms_hostname_mgmt_and_vpc_keepalive(self) -> None:
+        source = """hostname prd-leaf01
+vdc prd-leaf01 id 1
+vrf context management
+  ip route 0.0.0.0/0 192.0.2.254
+vpc domain 10
+  peer-keepalive destination 192.0.2.12 source 192.0.2.11 vrf management
+interface mgmt0
+  ip address 192.0.2.11/24
+"""
+
+        transformed, stats = transform_run_config_text(
+            source,
+            None,
+            hostname_map={"prd-leaf01": "lab-leaf01"},
+            management_address_map={
+                "192.0.2.11": "172.20.20.11",
+                "192.0.2.12": "172.20.20.12",
+            },
+        )
+
+        self.assertEqual(
+            transformed,
+            """hostname lab-leaf01
+vdc lab-leaf01 id 1
+vrf context management
+  ip route 0.0.0.0/0 192.0.2.254
+vpc domain 10
+  peer-keepalive destination 172.20.20.12 source 172.20.20.11 vrf management
+interface mgmt0
+  ip address 172.20.20.11/24
+""",
+        )
+        self.assertEqual(stats["renamed_hostname_lines"], 2)
+
+    def test_node_map_transforms_inventory_key_and_management_ip(self) -> None:
+        inventory = {
+            "all": {
+                "hosts": {
+                    "prd-leaf01": {
+                        "ansible_host": "192.0.2.11",
+                        "device_type": "nxos",
+                    }
+                }
+            }
+        }
+        rows = [{
+            "source_hostname": "prd-leaf01",
+            "source_mgmt_ip": "192.0.2.11",
+            "target_hostname": "lab-leaf01",
+            "target_mgmt_ip": "172.20.20.11",
+        }]
+
+        transformed = transform_inventory_mgmt_subnet(inventory, None, rows)
+
+        self.assertEqual(
+            transformed["all"]["hosts"],
+            {
+                "lab-leaf01": {
+                    "ansible_host": "172.20.20.11",
+                    "device_type": "nxos",
+                }
+            },
+        )
+
+    def test_load_node_map_accepts_source_target_and_prd_lab_headers(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            canonical = root / "canonical.csv"
+            canonical.write_text(
+                "source_hostname,source_mgmt_ip,target_hostname,target_mgmt_ip\n"
+                "prd01,192.0.2.1,lab01,172.20.20.1\n",
+                encoding="utf-8",
+            )
+            legacy = root / "legacy.csv"
+            legacy.write_text(
+                "prd_hostname,prd_mgmt_ip,lab_hostname,lab_mgmt_ip\n"
+                "prd02,192.0.2.2,lab02,172.20.20.2\n",
+                encoding="utf-8",
+            )
+
+            self.assertEqual(load_node_map_csv(str(canonical))[0]["target_hostname"], "lab01")
+            self.assertEqual(load_node_map_csv(str(legacy))[0]["target_hostname"], "lab02")
+
+    def test_replaces_existing_username_lines_with_lab_user(self) -> None:
+        source = """version 10.4(3)
+username admin password 5 old-admin-hash role network-admin
+username admin passphrase lifetime 99999 warntime 14 gracetime 3
+username cisco password 5 old-cisco-hash role network-admin
+username cisco passphrase lifetime 99999 warntime 14 gracetime 3
+interface mgmt0
+  ip address 192.0.2.10/24
+"""
+
+        transformed, stats = transform_run_config_text(
+            source,
+            None,
+            lab_username="admin",
+            lab_password="lab-secret",
+        )
+
+        self.assertEqual(
+            transformed,
+            """version 10.4(3)
+username admin password 0 lab-secret role network-admin
+username cisco password 5 old-cisco-hash role network-admin
+username cisco passphrase lifetime 99999 warntime 14 gracetime 3
+interface mgmt0
+  ip address 192.0.2.10/24
+""",
+        )
+        self.assertEqual(stats["removed_username_lines"], 2)
+        self.assertEqual(stats["inserted_lab_username"], 1)
+
+    def test_replaces_only_matching_lab_user(self) -> None:
+        source = """username admin password 5 old-admin-hash role network-admin
+username cisco password 5 old-cisco-hash role network-admin
+username cisco passphrase lifetime 99999 warntime 14 gracetime 3
+interface Ethernet1/1
+  switchport
+"""
+
+        transformed, stats = transform_run_config_text(
+            source,
+            None,
+            lab_username="admin",
+            lab_password="lab-secret",
+        )
+
+        self.assertEqual(
+            transformed,
+            """username admin password 0 lab-secret role network-admin
+username cisco password 5 old-cisco-hash role network-admin
+username cisco passphrase lifetime 99999 warntime 14 gracetime 3
+interface Ethernet1/1
+  switchport
+""",
+        )
+        self.assertEqual(stats["removed_username_lines"], 1)
+
+    def test_adds_lab_user_when_matching_user_does_not_exist(self) -> None:
+        source = """username cisco password 5 old-cisco-hash role network-admin
+interface Ethernet1/1
+  switchport
+"""
+
+        transformed, stats = transform_run_config_text(
+            source,
+            None,
+            lab_username="admin",
+            lab_password="lab-secret",
+        )
+
+        self.assertEqual(
+            transformed,
+            """username cisco password 5 old-cisco-hash role network-admin
+username admin password 0 lab-secret role network-admin
+interface Ethernet1/1
+  switchport
+""",
+        )
+        self.assertEqual(stats["removed_username_lines"], 0)
+        self.assertEqual(stats["inserted_lab_username"], 1)
+
+    def test_does_not_change_users_without_lab_credentials(self) -> None:
+        source = "username cisco password 5 old-hash role network-admin\n"
+
+        transformed, stats = transform_run_config_text(source, None)
+
+        self.assertEqual(transformed, source)
+        self.assertEqual(stats["removed_username_lines"], 0)
+        self.assertEqual(stats["inserted_lab_username"], 0)
+
+    def test_delete_username_removes_all_users_and_snmp_users(self) -> None:
+        source = """no password strength-check
+username admin password 5 old-admin-hash role network-admin
+username cisco password 5 old-cisco-hash role network-admin
+username cisco passphrase lifetime 99999 warntime 14 gracetime 3
+snmp-server user admin network-admin auth md5 admin-hash localizedV2key
+snmp-server user cisco network-admin auth md5 cisco-hash localizedV2key
+snmp-server community public group network-operator
+interface mgmt0
+  ip address 192.0.2.10/24
+"""
+
+        transformed, stats = transform_run_config_text(
+            source,
+            None,
+            lab_username="ignored",
+            lab_password="ignored",
+            delete_username=True,
+        )
+
+        self.assertEqual(
+            transformed,
+            """no password strength-check
+snmp-server community public group network-operator
+interface mgmt0
+  ip address 192.0.2.10/24
+""",
+        )
+        self.assertEqual(stats["removed_username_lines"], 3)
+        self.assertEqual(stats["removed_snmp_user_lines"], 2)
+        self.assertEqual(stats["inserted_lab_username"], 0)
+
+    def test_delete_access_class_only_changes_line_vty_sections(self) -> None:
+        source = """interface Ethernet1/1
+  description access-class should remain in text
+line console
+  access-class CONSOLE-ACL in
+  exec-timeout 0
+line vty
+  access-class MGMT-V4 in
+  ipv6 access-class MGMT-V6 in
+  exec-timeout 0
+line vty 0 4
+  access-class SECONDARY-V4 in vrf-also
+  transport input ssh
+"""
+
+        transformed, stats = transform_run_config_text(
+            source,
+            None,
+            delete_access_class=True,
+        )
+
+        self.assertEqual(
+            transformed,
+            """interface Ethernet1/1
+  description access-class should remain in text
+line console
+  access-class CONSOLE-ACL in
+  exec-timeout 0
+line vty
+  exec-timeout 0
+line vty 0 4
+  transport input ssh
+""",
+        )
+        self.assertEqual(stats["removed_access_class_lines"], 3)
+
+    def test_rejects_lab_password_with_whitespace(self) -> None:
+        with self.assertRaisesRegex(ValueError, "must not contain whitespace"):
+            transform_run_config_text(
+                "interface mgmt0\n",
+                None,
+                lab_username="admin",
+                lab_password="invalid password",
+            )
+
+
 class ClabSetCmdsTests(unittest.TestCase):
     def test_generate_diagram_steps_have_site_grouping_defaults(self) -> None:
         parser = build_parser()
@@ -108,6 +361,129 @@ class ClabSetCmdsTests(unittest.TestCase):
             self.assertEqual(step_args.input_format, "csv")
             self.assertIsNone(step_args.sites)
             self.assertFalse(step_args.group_by_site)
+
+    def test_transform_step_receives_credentials(self) -> None:
+        parser = build_parser()
+        args = parser.parse_args([
+            "clab-set-cmds",
+            "--credentials",
+            "lab-credentials.yaml",
+        ])
+        transform_step = next(
+            step for step in DEFAULT_CLAB_SET_CMDS
+            if step.get("command") == "clab-transform-config"
+        )
+
+        step_args = build_clab_set_step_args(transform_step, args, verbose=False)
+
+        self.assertEqual(step_args.credentials, "lab-credentials.yaml")
+
+    def test_transform_step_receives_delete_username(self) -> None:
+        parser = build_parser()
+        args = parser.parse_args(["clab-set-cmds", "--delete-username"])
+        transform_step = next(
+            step for step in DEFAULT_CLAB_SET_CMDS
+            if step.get("command") == "clab-transform-config"
+        )
+
+        step_args = build_clab_set_step_args(transform_step, args, verbose=False)
+
+        self.assertTrue(step_args.delete_username)
+
+    def test_transform_step_receives_delete_access_class(self) -> None:
+        parser = build_parser()
+        args = parser.parse_args(["clab-set-cmds", "--delete-access-class"])
+        transform_step = next(
+            step for step in DEFAULT_CLAB_SET_CMDS
+            if step.get("command") == "clab-transform-config"
+        )
+
+        step_args = build_clab_set_step_args(transform_step, args, verbose=False)
+
+        self.assertTrue(step_args.delete_access_class)
+
+    def test_node_map_is_forwarded_and_lab_inventory_is_used_downstream(self) -> None:
+        parser = build_parser()
+        args = parser.parse_args(["clab-set-cmds", "--node-map", "clab_node_map.csv"])
+        transform_step = next(
+            step for step in DEFAULT_CLAB_SET_CMDS
+            if step.get("command") == "clab-transform-config"
+        )
+        generate_step = next(
+            step for step in DEFAULT_CLAB_SET_CMDS
+            if step.get("command") == "generate-clab"
+        )
+
+        transform_args = build_clab_set_step_args(transform_step, args, verbose=False)
+        generate_args = build_clab_set_step_args(generate_step, args, verbose=False)
+
+        self.assertEqual(transform_args.node_map, "clab_node_map.csv")
+        self.assertEqual(generate_args.node_map, "clab_node_map.csv")
+        self.assertEqual(generate_args.hosts, "hosts.lab.yaml")
+
+
+class TransformConfigIntegrationTests(unittest.TestCase):
+    def test_node_map_renames_output_file_and_inventory(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            raw_config = root / "raw" / "config"
+            raw_config.mkdir(parents=True)
+            hosts = root / "hosts.yaml"
+            node_map = root / "clab_node_map.csv"
+            clab_env = root / "clab_merge.yaml"
+            output_hosts = root / "hosts.lab.yaml"
+            output_dir = root / "raw" / "labconfig"
+            hosts.write_text(
+                yaml.safe_dump({
+                    "all": {
+                        "hosts": {
+                            "prd-leaf01": {
+                                "ansible_host": "192.0.2.11",
+                                "device_type": "nxos",
+                            }
+                        }
+                    }
+                }, sort_keys=False),
+                encoding="utf-8",
+            )
+            node_map.write_text(
+                "source_hostname,source_mgmt_ip,target_hostname,target_mgmt_ip\n"
+                "prd-leaf01,192.0.2.11,lab-leaf01,172.20.20.11\n",
+                encoding="utf-8",
+            )
+            clab_env.write_text("{}\n", encoding="utf-8")
+            (raw_config / "prd-leaf01_run.txt").write_text(
+                """hostname prd-leaf01
+vdc prd-leaf01 id 1
+interface mgmt0
+  ip address 192.0.2.11/24
+""",
+                encoding="utf-8",
+            )
+            parser = build_parser()
+            args = parser.parse_args([
+                "clab-transform-config",
+                "--hosts", str(hosts),
+                "--clab-env", str(clab_env),
+                "--node-map", str(node_map),
+                "--delete-username",
+                "--input", str(root / "raw"),
+                "--output-hosts", str(output_hosts),
+                "--output-dir", str(output_dir),
+                "--log-file", str(root / "transform.log"),
+            ])
+
+            args.func(args)
+
+            generated = output_dir / "lab-leaf01_run.txt"
+            self.assertTrue(generated.exists())
+            self.assertFalse((output_dir / "prd-leaf01_run.txt").exists())
+            self.assertIn("hostname lab-leaf01", generated.read_text(encoding="utf-8"))
+            transformed_inventory = yaml.safe_load(output_hosts.read_text(encoding="utf-8"))
+            self.assertEqual(
+                transformed_inventory["all"]["hosts"]["lab-leaf01"]["ansible_host"],
+                "172.20.20.11",
+            )
 
 
 class InitClabIntegrationTests(unittest.TestCase):

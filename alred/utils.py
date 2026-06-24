@@ -359,6 +359,46 @@ def get_credentials_for_device(
     return username, password, enable_secret
 
 
+def get_optional_credentials_for_device(
+    args: argparse.Namespace,
+    device_type: str,
+    host: Dict[str, Any] | None = None,
+) -> Tuple[str, str, str] | None:
+    """
+    Resolve credentials when configured, otherwise return None.
+
+    Unlike get_credentials_for_device(), a completely absent username/password
+    pair is allowed. A partially configured pair is still rejected.
+    """
+    structured_credentials = _get_structured_credentials(args, device_type, host)
+    username = (
+        getattr(args, "username", None)
+        or structured_credentials.get("username")
+        or os.environ.get("ALRED_USERNAME")
+        or os.environ.get("NW_TOOL_USERNAME")
+    )
+    password = (
+        getattr(args, "password", None)
+        or structured_credentials.get("password")
+        or os.environ.get("ALRED_PASSWORD")
+        or os.environ.get("NW_TOOL_PASSWORD")
+    )
+    enable_secret = (
+        getattr(args, "enable_secret", None)
+        or structured_credentials.get("enable_secret")
+        or os.environ.get("ALRED_ENABLE_SECRET", "")
+        or os.environ.get("NW_TOOL_ENABLE_SECRET", "")
+    )
+
+    if not username and not password:
+        return None
+    if not username or not password:
+        raise ValueError(
+            "Both username and password are required to transform lab user configuration."
+        )
+    return str(username), str(password), str(enable_secret)
+
+
 def resolve_netmiko_device_type(host: Dict[str, Any]) -> str | None:
     """
     Return the Netmiko driver name to use for a host.

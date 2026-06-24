@@ -26,6 +26,13 @@ _ENCAP_DOT1Q_RE = re.compile(r"^\s*encapsulation\s+dot1q\s+(\d+)\s*$", re.IGNORE
 _IP_TOKEN_RE = re.compile(r"(?<![\d.])((?:\d{1,3}\.){3}\d{1,3})(/\d{1,2})?(?![\d.])")
 _IP_ADDRESS_LINE_RE = re.compile(r"^\s*ip address\s+\S+", re.IGNORECASE)
 _NO_SWITCHPORT_LINE_RE = re.compile(r"^\s*no switchport\s*$", re.IGNORECASE)
+_USERNAME_LINE_RE = re.compile(r"^username\s+(\S+)\b", re.IGNORECASE)
+_SNMP_SERVER_USER_LINE_RE = re.compile(r"^snmp-server\s+user\s+\S+\b", re.IGNORECASE)
+_LINE_VTY_HEADER_RE = re.compile(r"^line\s+vty(?:\s+\d+(?:\s+\d+)?)?\s*$", re.IGNORECASE)
+_ACCESS_CLASS_LINE_RE = re.compile(r"^\s*(?:ipv6\s+)?access-class\b", re.IGNORECASE)
+_HOSTNAME_LINE_RE = re.compile(r"^hostname\s+(\S+)\s*$", re.IGNORECASE)
+_VDC_LINE_RE = re.compile(r"^vdc\s+(\S+)(\s+.*)?$", re.IGNORECASE)
+_VALID_LAB_USERNAME_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
 _L3_SWITCHPORT_COMPATIBLE_INTERFACE_RE = re.compile(
     r"^interface\s+(?:Ethernet|port-channel)\S*\s*$",
     re.IGNORECASE,
@@ -88,18 +95,36 @@ def remap_ipv4_string(value: str, target_subnet: ipaddress.IPv4Network, replace_
     return f"{remapped}/{target_subnet.prefixlen if replace_prefixlen else prefix_part}"
 
 
-def replace_ipv4_tokens(line: str, target_subnet: ipaddress.IPv4Network, replace_prefixlen: bool = False) -> str:
+def replace_ipv4_tokens(
+    line: str,
+    target_subnet: Optional[ipaddress.IPv4Network],
+    replace_prefixlen: bool = False,
+    address_map: Optional[Dict[str, str]] = None,
+) -> str:
     """
     Replace every IPv4 token on a line with the target subnet equivalent.
     """
     def repl(match: re.Match[str]) -> str:
         token = match.group(0)
+        ip_part, separator, prefix = token.partition("/")
+        mapped = (address_map or {}).get(ip_part)
+        if mapped:
+            if separator:
+                mapped_prefix = target_subnet.prefixlen if replace_prefixlen and target_subnet else prefix
+                return f"{mapped}/{mapped_prefix}"
+            return mapped
+        if target_subnet is None:
+            return token
         return remap_ipv4_string(token, target_subnet, replace_prefixlen=replace_prefixlen)
 
     return _IP_TOKEN_RE.sub(repl, line)
 
 
-def transform_vrf_management_line(line: str, target_subnet: ipaddress.IPv4Network) -> str:
+def transform_vrf_management_line(
+    line: str,
+    target_subnet: Optional[ipaddress.IPv4Network],
+    address_map: Optional[Dict[str, str]] = None,
+) -> str:
     """
     Transform management VRF lines while preserving route prefixes.
     """
@@ -111,32 +136,74 @@ def transform_vrf_management_line(line: str, target_subnet: ipaddress.IPv4Networ
             return line
         prefix_tokens = parts[:3]
         next_hop_tokens = [
-            remap_ipv4_string(token, target_subnet, replace_prefixlen=False)
+            (address_map or {}).get(token)
+            or (
+                remap_ipv4_string(token, target_subnet, replace_prefixlen=False)
+                if target_subnet is not None
+                else token
+            )
             for token in parts[3:]
         ]
         return leading_ws + " ".join(prefix_tokens + next_hop_tokens)
-    return replace_ipv4_tokens(line, target_subnet, replace_prefixlen=True)
+    return replace_ipv4_tokens(
+        line,
+        target_subnet,
+        replace_prefixlen=True,
+        address_map=address_map,
+    )
 
 
-def transform_inventory_mgmt_subnet(inventory_data: Dict[str, Any], target_subnet: Optional[ipaddress.IPv4Network]) -> Dict[str, Any]:
+def transform_inventory_mgmt_subnet(
+    inventory_data: Dict[str, Any],
+    target_subnet: Optional[ipaddress.IPv4Network],
+    node_map_rows: Optional[Iterable[Dict[str, str]]] = None,
+) -> Dict[str, Any]:
     """
     Rewrite ansible_host values into the target mgmt subnet.
     """
     transformed = deepcopy(inventory_data)
-    if target_subnet is None:
-        return transformed
-
     hosts = transformed.get("all", {}).get("hosts", {})
     if not isinstance(hosts, dict):
         return transformed
 
-    for attrs in hosts.values():
+    rows_by_hostname = {
+        row["source_hostname"]: row
+        for row in (node_map_rows or [])
+    }
+    missing_source_hostnames = sorted(set(rows_by_hostname) - {str(name) for name in hosts})
+    if missing_source_hostnames:
+        raise ValueError(
+            "Node map source_hostname not found in inventory: "
+            + ", ".join(missing_source_hostnames)
+        )
+    transformed_hosts: Dict[str, Any] = {}
+    for hostname, attrs in hosts.items():
         if not isinstance(attrs, dict):
+            transformed_hosts[hostname] = attrs
             continue
+        row = rows_by_hostname.get(str(hostname))
         ansible_host = attrs.get("ansible_host")
-        if not ansible_host:
-            continue
-        attrs["ansible_host"] = remap_ipv4_string(str(ansible_host), target_subnet, replace_prefixlen=False)
+        if row:
+            if ansible_host and str(ansible_host) != row["source_mgmt_ip"]:
+                raise ValueError(
+                    f"Node map source_mgmt_ip mismatch for {hostname}: "
+                    f"inventory={ansible_host} csv={row['source_mgmt_ip']}"
+                )
+            attrs["ansible_host"] = row["target_mgmt_ip"]
+            target_hostname = row["target_hostname"]
+        else:
+            if ansible_host and target_subnet is not None:
+                attrs["ansible_host"] = remap_ipv4_string(
+                    str(ansible_host),
+                    target_subnet,
+                    replace_prefixlen=False,
+                )
+            target_hostname = str(hostname)
+        if target_hostname in transformed_hosts:
+            raise ValueError(f"Duplicate transformed hostname: {target_hostname}")
+        transformed_hosts[target_hostname] = attrs
+
+    transformed.setdefault("all", {})["hosts"] = transformed_hosts
 
     return transformed
 
@@ -229,28 +296,50 @@ def merge_section_body_lines(section: List[str], candidate_body_lines: Iterable[
     return merged
 
 
-def rewrite_management_sections(section: List[str], target_subnet: Optional[ipaddress.IPv4Network]) -> List[str]:
+def rewrite_management_sections(
+    section: List[str],
+    target_subnet: Optional[ipaddress.IPv4Network],
+    address_map: Optional[Dict[str, str]] = None,
+) -> List[str]:
     """
     Rewrite management-related section IPs.
     """
-    if target_subnet is None or not section:
+    if (target_subnet is None and not address_map) or not section:
         return list(section)
 
     header = section[0]
     updated = [header]
 
     if _VRF_MGMT_HEADER_RE.match(header):
-        updated.extend(transform_vrf_management_line(line, target_subnet) for line in section[1:])
+        updated.extend(
+            transform_vrf_management_line(line, target_subnet, address_map)
+            for line in section[1:]
+        )
         return updated
 
     if _MGMT0_HEADER_RE.match(header):
-        updated.extend(replace_ipv4_tokens(line, target_subnet, replace_prefixlen=True) for line in section[1:])
+        updated.extend(
+            replace_ipv4_tokens(
+                line,
+                target_subnet,
+                replace_prefixlen=True,
+                address_map=address_map,
+            )
+            for line in section[1:]
+        )
         return updated
 
     if _VPC_HEADER_RE.match(header):
         for line in section[1:]:
             if "peer-keepalive" in line.lower():
-                updated.append(replace_ipv4_tokens(line, target_subnet, replace_prefixlen=False))
+                updated.append(
+                    replace_ipv4_tokens(
+                        line,
+                        target_subnet,
+                        replace_prefixlen=False,
+                        address_map=address_map,
+                    )
+                )
             else:
                 updated.append(line)
         return updated
@@ -376,7 +465,46 @@ def build_subinterface_maps(
     return svi_lines_by_vlan, dict(parent_vlans)
 
 
-def transform_run_config_text(text: str, target_subnet: Optional[ipaddress.IPv4Network]) -> Tuple[str, Dict[str, int]]:
+def build_lab_username_section(username: str, password: str) -> List[str]:
+    """
+    Build one NX-OS plaintext lab username command.
+    """
+    if not _VALID_LAB_USERNAME_RE.fullmatch(username):
+        raise ValueError(
+            "Lab username may contain only letters, numbers, '.', '_', and '-'."
+        )
+    if not password or any(character.isspace() for character in password):
+        raise ValueError("Lab password must be non-empty and must not contain whitespace.")
+    return [f"username {username} password 0 {password} role network-admin"]
+
+
+def remove_line_vty_access_class(section: List[str]) -> Tuple[List[str], int]:
+    """
+    Remove access-class commands from one line vty section.
+    """
+    if not section or not _LINE_VTY_HEADER_RE.match(section[0].strip()):
+        return list(section), 0
+
+    updated = [section[0]]
+    removed = 0
+    for line in section[1:]:
+        if _ACCESS_CLASS_LINE_RE.match(line):
+            removed += 1
+            continue
+        updated.append(line)
+    return updated, removed
+
+
+def transform_run_config_text(
+    text: str,
+    target_subnet: Optional[ipaddress.IPv4Network],
+    lab_username: Optional[str] = None,
+    lab_password: Optional[str] = None,
+    delete_username: bool = False,
+    delete_access_class: bool = False,
+    hostname_map: Optional[Dict[str, str]] = None,
+    management_address_map: Optional[Dict[str, str]] = None,
+) -> Tuple[str, Dict[str, int]]:
     """
     Transform one NX-OS running-config for lab use.
     """
@@ -390,13 +518,65 @@ def transform_run_config_text(text: str, target_subnet: Optional[ipaddress.IPv4N
     processed_existing_svis: set[int] = set()
     processed_existing_parents: set[str] = set()
     inserted_no_switchport = 0
+    lab_username_section: Optional[List[str]] = None
+    lab_username_insert_at: Optional[int] = None
+    removed_username_lines = 0
+    removed_snmp_user_lines = 0
+    removed_access_class_lines = 0
+    renamed_hostname_lines = 0
+
+    if not delete_username and (lab_username is not None or lab_password is not None):
+        if lab_username is None or lab_password is None:
+            raise ValueError("Both lab_username and lab_password are required.")
+        lab_username_section = build_lab_username_section(lab_username, lab_password)
 
     for section in sections:
         if not section:
             continue
 
-        rewritten_section = rewrite_management_sections(section, target_subnet)
+        rewritten_section = rewrite_management_sections(
+            section,
+            target_subnet,
+            address_map=management_address_map,
+        )
         header = rewritten_section[0].strip()
+
+        hostname_match = _HOSTNAME_LINE_RE.match(header)
+        if hostname_match:
+            target_hostname = (hostname_map or {}).get(hostname_match.group(1))
+            if target_hostname:
+                rewritten_section[0] = f"hostname {target_hostname}"
+                header = rewritten_section[0]
+                renamed_hostname_lines += 1
+
+        vdc_match = _VDC_LINE_RE.match(header)
+        if vdc_match:
+            target_hostname = (hostname_map or {}).get(vdc_match.group(1))
+            if target_hostname:
+                rewritten_section[0] = (
+                    f"vdc {target_hostname}{vdc_match.group(2) or ''}"
+                )
+                header = rewritten_section[0]
+                renamed_hostname_lines += 1
+
+        username_match = _USERNAME_LINE_RE.match(header)
+        if delete_username and username_match:
+            removed_username_lines += 1
+            continue
+        if delete_username and _SNMP_SERVER_USER_LINE_RE.match(header):
+            removed_snmp_user_lines += 1
+            continue
+        if lab_username_section is not None and username_match:
+            if username_match.group(1).casefold() == str(lab_username).casefold():
+                if lab_username_insert_at is None:
+                    lab_username_insert_at = len(new_sections)
+                removed_username_lines += 1
+                continue
+
+        if delete_access_class:
+            rewritten_section, removed = remove_line_vty_access_class(rewritten_section)
+            removed_access_class_lines += removed
+            header = rewritten_section[0].strip()
 
         subif_match = _SUBINTERFACE_HEADER_RE.match(header)
         if subif_match:
@@ -462,6 +642,19 @@ def transform_run_config_text(text: str, target_subnet: Optional[ipaddress.IPv4N
 
         new_sections.append(rewritten_section)
 
+    if lab_username_section is not None:
+        insert_at = lab_username_insert_at
+        if insert_at is None:
+            insert_at = next(
+                (
+                    index
+                    for index, section in enumerate(new_sections)
+                    if section and _INTERFACE_HEADER_RE.match(section[0].strip())
+                ),
+                len(new_sections),
+            )
+        new_sections.insert(insert_at, lab_username_section)
+
     missing_parents = sorted(set(parent_vlans) - processed_existing_parents)
     for parent in missing_parents:
         new_sections.append(
@@ -481,10 +674,15 @@ def transform_run_config_text(text: str, target_subnet: Optional[ipaddress.IPv4N
                 or _MGMT0_HEADER_RE.match(section[0].strip())
                 or _VPC_HEADER_RE.match(section[0].strip())
             )
-        ) if target_subnet is not None else 0,
+        ) if target_subnet is not None or management_address_map else 0,
         "subinterface_conversions": len(conversions),
         "generated_parent_interfaces": len(missing_parents),
         "merged_existing_parent_interfaces": len(processed_existing_parents & existing_parents),
         "merged_existing_svis": len(processed_existing_svis & existing_svis),
         "inserted_no_switchport": inserted_no_switchport,
+        "removed_username_lines": removed_username_lines,
+        "removed_snmp_user_lines": removed_snmp_user_lines,
+        "removed_access_class_lines": removed_access_class_lines,
+        "inserted_lab_username": 1 if lab_username_section is not None else 0,
+        "renamed_hostname_lines": renamed_hostname_lines,
     }

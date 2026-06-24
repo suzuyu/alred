@@ -1,0 +1,3 @@
+source_hostname,source_mgmt_ip,target_hostname,target_mgmt_ip
+lfsw0101,192.168.129.81,lab-leaf01,172.20.20.11
+lfsw0102,192.168.129.82,lab-leaf02,172.20.20.12
