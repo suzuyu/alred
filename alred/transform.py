@@ -32,6 +32,7 @@ _LINE_VTY_HEADER_RE = re.compile(r"^line\s+vty(?:\s+\d+(?:\s+\d+)?)?\s*$", re.IG
 _ACCESS_CLASS_LINE_RE = re.compile(r"^\s*(?:ipv6\s+)?access-class\b", re.IGNORECASE)
 _HOSTNAME_LINE_RE = re.compile(r"^hostname\s+(\S+)\s*$", re.IGNORECASE)
 _VDC_LINE_RE = re.compile(r"^vdc\s+(\S+)(\s+.*)?$", re.IGNORECASE)
+_DESCRIPTION_LINE_RE = re.compile(r"^(\s*description\s+)(.*)$", re.IGNORECASE)
 _VALID_LAB_USERNAME_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
 _L3_SWITCHPORT_COMPATIBLE_INTERFACE_RE = re.compile(
     r"^interface\s+(?:Ethernet|port-channel)\S*\s*$",
@@ -380,6 +381,46 @@ def rewrite_management_sections(
     return list(section)
 
 
+def rewrite_description_hostnames(
+    section: List[str],
+    hostname_map: Optional[Dict[str, str]],
+) -> Tuple[List[str], int]:
+    """Rewrite mapped hostname tokens in interface description lines."""
+    if (
+        not hostname_map
+        or not section
+        or not _INTERFACE_HEADER_RE.match(section[0].strip())
+    ):
+        return list(section), 0
+
+    updated = list(section)
+    renamed_lines = 0
+    sources = sorted(hostname_map, key=len, reverse=True)
+    targets_by_source = {
+        source.lower(): hostname_map[source]
+        for source in sources
+    }
+    hostname_pattern = re.compile(
+        r"(?<![A-Za-z0-9.-])(?:"
+        + "|".join(re.escape(source) for source in sources)
+        + r")(?![A-Za-z0-9.-])",
+        re.IGNORECASE,
+    )
+    for index, line in enumerate(updated):
+        match = _DESCRIPTION_LINE_RE.match(line)
+        if not match:
+            continue
+        description = match.group(2)
+        rewritten = hostname_pattern.sub(
+            lambda hostname_match: targets_by_source[hostname_match.group(0).lower()],
+            description,
+        )
+        if rewritten != description:
+            updated[index] = match.group(1) + rewritten
+            renamed_lines += 1
+    return updated, renamed_lines
+
+
 def ensure_no_switchport_for_l3_interface(section: List[str]) -> List[str]:
     """
     Insert ``no switchport`` into routed-capable interface sections that have an IP address.
@@ -557,6 +598,7 @@ def transform_run_config_text(
     removed_snmp_user_lines = 0
     removed_access_class_lines = 0
     renamed_hostname_lines = 0
+    renamed_description_lines = 0
 
     if not delete_username and (lab_username is not None or lab_password is not None):
         if lab_username is None or lab_password is None:
@@ -572,6 +614,11 @@ def transform_run_config_text(
             target_subnet,
             address_map=management_address_map,
         )
+        rewritten_section, description_updates = rewrite_description_hostnames(
+            rewritten_section,
+            hostname_map,
+        )
+        renamed_description_lines += description_updates
         header = rewritten_section[0].strip()
 
         hostname_match = _HOSTNAME_LINE_RE.match(header)
@@ -718,4 +765,5 @@ def transform_run_config_text(
         "removed_access_class_lines": removed_access_class_lines,
         "inserted_lab_username": 1 if lab_username_section is not None else 0,
         "renamed_hostname_lines": renamed_hostname_lines,
+        "renamed_description_lines": renamed_description_lines,
     }

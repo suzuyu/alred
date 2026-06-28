@@ -462,13 +462,16 @@ lfsw0102,192.168.129.82,lab-leaf02,172.20.20.12
 変換対象:
 
 - startup-config の `hostname` と同名の `vdc`
+- `interface` セクションのdescriptionに含まれるsourceホスト名
 - `interface mgmt0` の管理IP
 - `vpc domain` 内の `peer-keepalive` source / destination IP
 - `hosts.lab.yaml` のホストキーと `ansible_host`
 - `raw/labconfig/<target_hostname><suffix>` の出力ファイル名
 - `clab-set-cmds` 後続処理のリンク、構成図、containerlabノード名
 
-管理IPは、まずCSVの `source_mgmt_ip` を `target_mgmt_ip` へ変換します。`mgmt.ipv4-subnet` も指定され、変換後のIPがそのサブネット外の場合は、`target_mgmt_ip` のホスト部を維持して指定サブネットへさらに変換します。対応表にない管理系IPは従来どおりサブネット変換されます。管理VRFの経路宛先プレフィックスやデータプレーンIP、description内の文字列は変更しません。inventoryは変換前の `source_hostname` と変換後の `target_hostname` のどちらをキーにしていても利用できます。sourceホストの場合はsource管理IP、targetホストの場合はsource、target、またはサブネット変換後の管理IPのいずれとも一致しない `ansible_host` を指定するとエラーになります。
+管理IPは、まずCSVの `source_mgmt_ip` を `target_mgmt_ip` へ変換します。`mgmt.ipv4-subnet` も指定され、変換後のIPがそのサブネット外の場合は、`target_mgmt_ip` のホスト部を維持して指定サブネットへさらに変換します。対応表にない管理系IPは従来どおりサブネット変換されます。管理VRFの経路宛先プレフィックス、データプレーンIP、description内のホスト名以外の文字列は変更しません。inventoryは変換前の `source_hostname` と変換後の `target_hostname` のどちらをキーにしていても利用できます。sourceホストの場合はsource管理IP、targetホストの場合はsource、target、またはサブネット変換後の管理IPのいずれとも一致しない `ansible_host` を指定するとエラーになります。
+
+`--cables clab_cables.csv` を指定すると、変換後のinterface descriptionをケーブル表と照合します。descriptionがない、既定または `--description-rules` のルールで解析できない、対向ノードまたは対向インターフェースが一致しない場合はwarningを出力します。`--mappings` を指定した場合は、ケーブル表とdescriptionの両方を同じルールで正規化して比較します。
 
 ### `clab-set-cmds`
 

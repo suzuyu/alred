@@ -20,7 +20,7 @@ from logging import Logger
 from pathlib import Path
 import re
 import shutil
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 import xml.etree.ElementTree as ET
 
 from dotenv import load_dotenv
@@ -121,6 +121,7 @@ from .logging_check import (
 )
 from .parsing import (
     build_description_records,
+    get_inventory_device_type,
     is_excluded_interface,
     load_description_rules,
     load_mappings,
@@ -133,6 +134,8 @@ from .parsing import (
     normalize_hostname,
     normalize_interface_name,
     normalize_link_records,
+    parse_interface_descriptions_from_run,
+    parse_remote_from_description,
     parse_lldp_file,
     read_links_csv,
     should_collect_running_config,
@@ -3988,6 +3991,67 @@ def cmd_prepare_hosts(args: argparse.Namespace) -> None:
     logger.info("Generated %s", args.output)
 
 
+def collect_cable_description_warnings(
+    local_hostname: str,
+    device_type: str,
+    transformed_text: str,
+    normalized_cables: Iterable[Dict[str, Any]],
+    inventory_map: Dict[str, Dict[str, Any]],
+    mappings: Dict[str, Any],
+    description_rules: List[Dict[str, str]],
+) -> List[str]:
+    """Compare one transformed config's interface descriptions with cable peers."""
+    local_node = normalize_hostname(local_hostname, mappings)
+    descriptions = {
+        normalize_interface_name(item["local_if"], mappings, device_type): item["description"]
+        for item in parse_interface_descriptions_from_run(transformed_text)
+    }
+    expected_peers: Dict[Tuple[str, str], Tuple[str, str]] = {}
+    for cable in normalized_cables:
+        if not cable.get("enabled"):
+            continue
+        src = (str(cable["src_node"]), str(cable["src_if"]))
+        dst = (str(cable["dst_node"]), str(cable["dst_if"]))
+        expected_peers[src] = dst
+        expected_peers[dst] = src
+
+    warnings: List[str] = []
+    for endpoint, expected in sorted(expected_peers.items()):
+        if endpoint[0] != local_node:
+            continue
+        description = descriptions.get(endpoint[1])
+        expected_text = f"{expected[0]}:{expected[1]}"
+        endpoint_text = f"{endpoint[0]}:{endpoint[1]}"
+        if description is None:
+            warnings.append(
+                f"Cable/description missing: {endpoint_text} expected={expected_text}"
+            )
+            continue
+        parsed = parse_remote_from_description(description, description_rules)
+        if not parsed:
+            warnings.append(
+                f"Cable/description unparseable: {endpoint_text} "
+                f"expected={expected_text} description={description}"
+            )
+            continue
+        remote_node = normalize_hostname(parsed["remote_host"], mappings)
+        remote_type = get_inventory_device_type(remote_node, inventory_map, mappings)
+        remote_if = (
+            normalize_interface_name(parsed["remote_if"], mappings, remote_type)
+            if parsed["remote_if"]
+            else ""
+        )
+        node_matches = remote_node == expected[0]
+        interface_matches = not remote_if or remote_if == expected[1]
+        if not node_matches or not interface_matches:
+            actual_text = f"{remote_node}:{remote_if or '(unspecified)'}"
+            warnings.append(
+                f"Cable/description mismatch: {endpoint_text} expected={expected_text} "
+                f"description={actual_text}"
+            )
+    return warnings
+
+
 def cmd_transform_config(args: argparse.Namespace) -> None:
     """
     Transform hosts.yaml and NX-OS running-config files for lab use.
@@ -4029,6 +4093,29 @@ def cmd_transform_config(args: argparse.Namespace) -> None:
         str(mgmt_subnet) if mgmt_subnet is not None else "disabled",
     )
 
+    normalized_cables: List[Dict[str, Any]] = []
+    cable_inventory_map: Dict[str, Dict[str, Any]] = {}
+    cable_mappings: Dict[str, Any] = {}
+    description_rules: List[Dict[str, str]] = []
+    cables_path = getattr(args, "cables", None)
+    if cables_path:
+        cable_mappings = load_effective_mappings(args)
+        description_rules = load_description_rules(
+            getattr(args, "description_rules", None)
+        )
+        cable_inventory_map = load_inventory_map_from_list(
+            load_inventory_data(transformed_inventory)
+        )
+        raw_cables, cable_issues = read_cable_table(cables_path)
+        normalized_cables, normalization_issues = normalize_and_validate_cables(
+            raw_cables,
+            cable_inventory_map,
+            cable_mappings,
+        )
+        for issue in cable_issues + normalization_issues:
+            location = f"row {issue.row}: " if issue.row is not None else ""
+            logger.warning("CABLE CHECK %s%s", location, issue.message)
+
     raw_dir = Path(args.input)
     run_dir = get_run_input_dir(raw_dir)
     output_dir = Path(args.output_dir)
@@ -4041,6 +4128,7 @@ def cmd_transform_config(args: argparse.Namespace) -> None:
 
     transformed_count = 0
     missing_files: List[str] = []
+    cable_description_warning_count = 0
 
     for hostname in sorted(hosts.keys()):
         host_attrs = hosts.get(hostname, {})
@@ -4074,11 +4162,24 @@ def cmd_transform_config(args: argparse.Namespace) -> None:
             hostname_map=hostname_map,
             management_address_map=management_address_map,
         )
+        if normalized_cables:
+            description_warnings = collect_cable_description_warnings(
+                target_hostname,
+                device_type,
+                transformed_text,
+                normalized_cables,
+                cable_inventory_map,
+                cable_mappings,
+                description_rules,
+            )
+            cable_description_warning_count += len(description_warnings)
+            for warning in description_warnings:
+                logger.warning("%s", warning)
         output_path = output_dir / f"{target_hostname}{suffix}"
         output_path.write_text(transformed_text, encoding="utf-8")
         transformed_count += 1
         logger.info(
-            "WROTE LAB CONFIG %s subif_conversions=%d mgmt_sections=%d parent_added=%d parent_merged=%d svi_merged=%d no_switchport_added=%d username_removed=%d snmp_user_removed=%d access_class_removed=%d hostname_renamed=%d lab_username_added=%d",
+            "WROTE LAB CONFIG %s subif_conversions=%d mgmt_sections=%d parent_added=%d parent_merged=%d svi_merged=%d no_switchport_added=%d username_removed=%d snmp_user_removed=%d access_class_removed=%d hostname_renamed=%d description_renamed=%d lab_username_added=%d",
             output_path,
             stats["subinterface_conversions"],
             stats["management_section_updates"],
@@ -4090,14 +4191,16 @@ def cmd_transform_config(args: argparse.Namespace) -> None:
             stats["removed_snmp_user_lines"],
             stats["removed_access_class_lines"],
             stats["renamed_hostname_lines"],
+            stats["renamed_description_lines"],
             stats["inserted_lab_username"],
         )
 
     logger.info(
-        "TRANSFORM COMPLETE hosts=%d configs=%d missing=%d",
+        "TRANSFORM COMPLETE hosts=%d configs=%d missing=%d cable_description_warnings=%d",
         len(hosts),
         transformed_count,
         len(missing_files),
+        cable_description_warning_count,
     )
 
 
@@ -7032,6 +7135,7 @@ def build_clab_set_step_args(
         "kind_cluster_csv": getattr(args, "kind_cluster_csv", None),
         "clab_env": getattr(args, "clab_env", None),
         "node_map": getattr(args, "node_map", None),
+        "cables": getattr(args, "cables", None),
         "file_suffix": getattr(args, "file_suffix", None),
         "delete_username": getattr(args, "delete_username", None),
         "delete_access_class": getattr(args, "delete_access_class", None),
@@ -7151,6 +7255,18 @@ def build_parser() -> argparse.ArgumentParser:
     p_transform.add_argument(
         "--node-map",
         help="CSV mapping source/production hostnames and management IPs to target/lab values",
+    )
+    p_transform.add_argument(
+        "--cables",
+        help="Cable CSV used to warn about transformed interface description mismatches",
+    )
+    p_transform.add_argument(
+        "--mappings",
+        help="Mappings YAML used to normalize cable and description endpoints",
+    )
+    p_transform.add_argument(
+        "--description-rules",
+        help=f"Description rules YAML used with --cables (default: ./{DEFAULT_DESCRIPTION_RULES_PATH} if exists)",
     )
     p_transform.add_argument("-u", "--user", "--username", dest="username", help="Lab username for NX-OS startup-config")
     p_transform.add_argument("--password", help="Lab password for NX-OS startup-config")
@@ -7736,6 +7852,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_clab_set.add_argument(
         "--node-map",
         help="CSV mapping source/production hostnames and management IPs to target/lab values",
+    )
+    p_clab_set.add_argument(
+        "--cables",
+        help="Cable CSV used to validate transformed interface descriptions",
     )
     p_clab_set.add_argument(
         "--delete-username",

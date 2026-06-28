@@ -9,7 +9,12 @@ from pathlib import Path
 
 import yaml
 
-from alred.cli import apply_n9kv_startup_delay, build_clab_set_step_args, build_parser
+from alred.cli import (
+    apply_n9kv_startup_delay,
+    build_clab_set_step_args,
+    build_parser,
+    collect_cable_description_warnings,
+)
 from alred.constants import DEFAULT_CLAB_SET_CMDS
 from alred.design import normalize_and_validate_cables
 from alred.parsing import load_node_map_csv, normalize_interface_name
@@ -133,6 +138,63 @@ interface mgmt0
 """,
         )
         self.assertEqual(stats["renamed_hostname_lines"], 2)
+
+    def test_node_map_transforms_interface_description_hostname(self) -> None:
+        source = """interface Ethernet1/1
+  description TO_prd-spine01_Ethernet1/2
+interface Ethernet1/10
+  description prd-spine010 Ethernet1/20
+"""
+
+        transformed, stats = transform_run_config_text(
+            source,
+            None,
+            hostname_map={"prd-spine01": "lab-spine01"},
+        )
+
+        self.assertIn("description TO_lab-spine01_Ethernet1/2", transformed)
+        self.assertIn("description prd-spine010 Ethernet1/20", transformed)
+        self.assertEqual(stats["renamed_description_lines"], 1)
+
+    def test_cable_description_mismatch_returns_warning(self) -> None:
+        cables = [{
+            "src_node": "lab-leaf01",
+            "src_if": "Ethernet1/1",
+            "dst_node": "lab-spine01",
+            "dst_if": "Ethernet1/2",
+            "enabled": True,
+        }]
+        inventory = {
+            "lab-leaf01": {"device_type": "nxos"},
+            "lab-spine01": {"device_type": "nxos"},
+        }
+        mappings = {
+            "node_name_map": {},
+            "interface_name_map": {},
+            "exclude_interfaces": [],
+        }
+        rules = [{
+            "name": "hostname_interface_space",
+            "regex": (
+                r"(?P<remote_host>[A-Za-z0-9._-]+)[ _:-]+"
+                r"(?P<remote_if>(?:Eth|Ethernet)\S*)"
+            ),
+        }]
+
+        warnings = collect_cable_description_warnings(
+            "lab-leaf01",
+            "nxos",
+            "interface Ethernet1/1\n  description lab-spine01 Ethernet1/9\n",
+            cables,
+            inventory,
+            mappings,
+            rules,
+        )
+
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("Cable/description mismatch", warnings[0])
+        self.assertIn("expected=lab-spine01:Ethernet1/2", warnings[0])
+        self.assertIn("description=lab-spine01:Ethernet1/9", warnings[0])
 
     def test_node_map_transforms_inventory_key_and_management_ip(self) -> None:
         inventory = {
@@ -456,7 +518,11 @@ class ClabSetCmdsTests(unittest.TestCase):
 
     def test_node_map_is_forwarded_and_lab_inventory_is_used_downstream(self) -> None:
         parser = build_parser()
-        args = parser.parse_args(["clab-set-cmds", "--node-map", "clab_node_map.csv"])
+        args = parser.parse_args([
+            "clab-set-cmds",
+            "--node-map", "clab_node_map.csv",
+            "--cables", "clab_cables.csv",
+        ])
         transform_step = next(
             step for step in DEFAULT_CLAB_SET_CMDS
             if step.get("command") == "clab-transform-config"
@@ -470,6 +536,7 @@ class ClabSetCmdsTests(unittest.TestCase):
         generate_args = build_clab_set_step_args(generate_step, args, verbose=False)
 
         self.assertEqual(transform_args.node_map, "clab_node_map.csv")
+        self.assertEqual(transform_args.cables, "clab_cables.csv")
         self.assertEqual(generate_args.node_map, "clab_node_map.csv")
         self.assertEqual(generate_args.hosts, "hosts.lab.yaml")
 
@@ -548,6 +615,7 @@ interface mgmt0
             raw_config.mkdir(parents=True)
             hosts = root / "hosts.lab.yaml"
             node_map = root / "clab_node_map.csv"
+            cables = root / "clab_cables.csv"
             clab_env = root / "clab_merge.yaml"
             output_hosts = root / "output-hosts.lab.yaml"
             output_dir = root / "raw" / "labconfig"
@@ -558,6 +626,10 @@ interface mgmt0
                             "lab-leaf01": {
                                 "ansible_host": "172.20.20.11",
                                 "device_type": "nxos",
+                            },
+                            "lab-spine01": {
+                                "ansible_host": "172.20.20.12",
+                                "device_type": "nxos",
                             }
                         }
                     }
@@ -566,7 +638,13 @@ interface mgmt0
             )
             node_map.write_text(
                 "source_hostname,source_mgmt_ip,target_hostname,target_mgmt_ip\n"
-                "prd-leaf01,192.0.2.11,lab-leaf01,172.20.20.11\n",
+                "prd-leaf01,192.0.2.11,lab-leaf01,172.20.20.11\n"
+                "prd-spine01,192.0.2.12,lab-spine01,172.20.20.12\n",
+                encoding="utf-8",
+            )
+            cables.write_text(
+                "src_node,src_if,dst_node,dst_if,enabled,description\n"
+                "lab-leaf01,Ethernet1/1,lab-spine01,Ethernet1/2,true,underlay\n",
                 encoding="utf-8",
             )
             clab_env.write_text(
@@ -576,7 +654,9 @@ interface mgmt0
             (raw_config / "prd-leaf01_run.txt").write_text(
                 "hostname prd-leaf01\n"
                 "interface mgmt0\n"
-                "  ip address 192.0.2.11/24\n",
+                "  ip address 192.0.2.11/24\n"
+                "interface Ethernet1/1\n"
+                "  description prd-spine01 Ethernet1/9\n",
                 encoding="utf-8",
             )
             parser = build_parser()
@@ -585,6 +665,7 @@ interface mgmt0
                 "--hosts", str(hosts),
                 "--clab-env", str(clab_env),
                 "--node-map", str(node_map),
+                "--cables", str(cables),
                 "--delete-username",
                 "--input", str(root / "raw"),
                 "--output-hosts", str(output_hosts),
@@ -601,6 +682,10 @@ interface mgmt0
                 "ip address 10.0.0.11/24",
                 generated.read_text(encoding="utf-8"),
             )
+            self.assertIn(
+                "description lab-spine01 Ethernet1/9",
+                generated.read_text(encoding="utf-8"),
+            )
             transformed_inventory = yaml.safe_load(
                 output_hosts.read_text(encoding="utf-8")
             )
@@ -608,6 +693,9 @@ interface mgmt0
                 transformed_inventory["all"]["hosts"]["lab-leaf01"]["ansible_host"],
                 "10.0.0.11",
             )
+            log_text = (root / "transform.log").read_text(encoding="utf-8")
+            self.assertIn("Cable/description mismatch", log_text)
+            self.assertIn("expected=lab-spine01:Ethernet1/2", log_text)
 
 
 class InitClabIntegrationTests(unittest.TestCase):
