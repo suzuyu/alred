@@ -153,6 +153,7 @@ from .templates import (
 )
 from .transform import (
     parse_mgmt_ipv4_subnet,
+    resolve_node_map_management_ip,
     transform_inventory_mgmt_subnet,
     transform_run_config_text,
 )
@@ -4008,7 +4009,11 @@ def cmd_transform_config(args: argparse.Namespace) -> None:
         for row in node_map_rows
     }
     management_address_map = {
-        row["source_mgmt_ip"]: row["target_mgmt_ip"]
+        row["source_mgmt_ip"]: resolve_node_map_management_ip(row, mgmt_subnet)
+        for row in node_map_rows
+    }
+    source_hostname_by_target = {
+        row["target_hostname"]: row["source_hostname"]
         for row in node_map_rows
     }
 
@@ -4049,14 +4054,15 @@ def cmd_transform_config(args: argparse.Namespace) -> None:
         if device_type == "nxos" and not delete_username:
             lab_credentials = get_optional_credentials_for_device(args, device_type, host)
 
-        source_path = run_dir / f"{hostname}{suffix}"
+        source_hostname = source_hostname_by_target.get(str(hostname), str(hostname))
+        source_path = run_dir / f"{source_hostname}{suffix}"
         if not source_path.exists():
             missing_files.append(str(source_path))
             logger.warning("SKIP MISSING RUN CONFIG %s", source_path)
             continue
 
         source_text = source_path.read_text(encoding="utf-8", errors="ignore")
-        target_hostname = hostname_map.get(hostname, hostname)
+        target_hostname = hostname_map.get(str(hostname), str(hostname))
         transformed_text, stats = transform_run_config_text(
             source_text,
             mgmt_subnet,

@@ -97,6 +97,7 @@ hosts.lab.yaml
 test*
 !tests/
 !tests/test_design.py
+!tests/test_transform.py
 
 # vscode 
 .vscode*

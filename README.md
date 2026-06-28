@@ -468,7 +468,7 @@ lfsw0102,192.168.129.82,lab-leaf02,172.20.20.12
 - `raw/labconfig/<target_hostname><suffix>` の出力ファイル名
 - `clab-set-cmds` 後続処理のリンク、構成図、containerlabノード名
 
-CSVの管理IP変換は `mgmt.ipv4-subnet` による自動変換より優先します。対応表にない管理系IPは従来どおりサブネット変換されます。管理VRFの経路宛先プレフィックスやデータプレーンIP、description内の文字列は変更しません。CSVのsource管理IPとinventoryの `ansible_host` が異なる場合はエラーになります。
+管理IPは、まずCSVの `source_mgmt_ip` を `target_mgmt_ip` へ変換します。`mgmt.ipv4-subnet` も指定され、変換後のIPがそのサブネット外の場合は、`target_mgmt_ip` のホスト部を維持して指定サブネットへさらに変換します。対応表にない管理系IPは従来どおりサブネット変換されます。管理VRFの経路宛先プレフィックスやデータプレーンIP、description内の文字列は変更しません。inventoryは変換前の `source_hostname` と変換後の `target_hostname` のどちらをキーにしていても利用できます。sourceホストの場合はsource管理IP、targetホストの場合はsource、target、またはサブネット変換後の管理IPのいずれとも一致しない `ansible_host` を指定するとエラーになります。
 
 ### `clab-set-cmds`
 

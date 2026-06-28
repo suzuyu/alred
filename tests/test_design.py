@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ipaddress
 import logging
 import tempfile
 import unittest
@@ -161,6 +162,57 @@ interface mgmt0
                     "device_type": "nxos",
                 }
             },
+        )
+
+    def test_node_map_accepts_lab_inventory_with_target_hostname(self) -> None:
+        inventory = {
+            "all": {
+                "hosts": {
+                    "lab-leaf01": {
+                        "ansible_host": "172.20.20.11",
+                        "device_type": "nxos",
+                    }
+                }
+            }
+        }
+        rows = [{
+            "source_hostname": "prd-leaf01",
+            "source_mgmt_ip": "192.0.2.11",
+            "target_hostname": "lab-leaf01",
+            "target_mgmt_ip": "172.20.20.11",
+        }]
+
+        transformed = transform_inventory_mgmt_subnet(inventory, None, rows)
+
+        self.assertEqual(transformed, inventory)
+
+    def test_node_map_target_management_ip_is_remapped_to_clab_subnet(self) -> None:
+        inventory = {
+            "all": {
+                "hosts": {
+                    "lab-leaf01": {
+                        "ansible_host": "172.20.20.11",
+                        "device_type": "nxos",
+                    }
+                }
+            }
+        }
+        rows = [{
+            "source_hostname": "prd-leaf01",
+            "source_mgmt_ip": "192.0.2.11",
+            "target_hostname": "lab-leaf01",
+            "target_mgmt_ip": "172.20.20.11",
+        }]
+
+        transformed = transform_inventory_mgmt_subnet(
+            inventory,
+            ipaddress.ip_network("10.0.0.0/24"),
+            rows,
+        )
+
+        self.assertEqual(
+            transformed["all"]["hosts"]["lab-leaf01"]["ansible_host"],
+            "10.0.0.11",
         )
 
     def test_load_node_map_accepts_source_target_and_prd_lab_headers(self) -> None:
@@ -451,7 +503,10 @@ class TransformConfigIntegrationTests(unittest.TestCase):
                 "prd-leaf01,192.0.2.11,lab-leaf01,172.20.20.11\n",
                 encoding="utf-8",
             )
-            clab_env.write_text("{}\n", encoding="utf-8")
+            clab_env.write_text(
+                "mgmt:\n  ipv4-subnet: 10.0.0.0/24\n",
+                encoding="utf-8",
+            )
             (raw_config / "prd-leaf01_run.txt").write_text(
                 """hostname prd-leaf01
 vdc prd-leaf01 id 1
@@ -479,10 +534,79 @@ interface mgmt0
             self.assertTrue(generated.exists())
             self.assertFalse((output_dir / "prd-leaf01_run.txt").exists())
             self.assertIn("hostname lab-leaf01", generated.read_text(encoding="utf-8"))
+            self.assertIn("ip address 10.0.0.11/24", generated.read_text(encoding="utf-8"))
             transformed_inventory = yaml.safe_load(output_hosts.read_text(encoding="utf-8"))
             self.assertEqual(
                 transformed_inventory["all"]["hosts"]["lab-leaf01"]["ansible_host"],
-                "172.20.20.11",
+                "10.0.0.11",
+            )
+
+    def test_node_map_uses_source_config_with_lab_inventory(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            raw_config = root / "raw" / "config"
+            raw_config.mkdir(parents=True)
+            hosts = root / "hosts.lab.yaml"
+            node_map = root / "clab_node_map.csv"
+            clab_env = root / "clab_merge.yaml"
+            output_hosts = root / "output-hosts.lab.yaml"
+            output_dir = root / "raw" / "labconfig"
+            hosts.write_text(
+                yaml.safe_dump({
+                    "all": {
+                        "hosts": {
+                            "lab-leaf01": {
+                                "ansible_host": "172.20.20.11",
+                                "device_type": "nxos",
+                            }
+                        }
+                    }
+                }, sort_keys=False),
+                encoding="utf-8",
+            )
+            node_map.write_text(
+                "source_hostname,source_mgmt_ip,target_hostname,target_mgmt_ip\n"
+                "prd-leaf01,192.0.2.11,lab-leaf01,172.20.20.11\n",
+                encoding="utf-8",
+            )
+            clab_env.write_text(
+                "mgmt:\n  ipv4-subnet: 10.0.0.0/24\n",
+                encoding="utf-8",
+            )
+            (raw_config / "prd-leaf01_run.txt").write_text(
+                "hostname prd-leaf01\n"
+                "interface mgmt0\n"
+                "  ip address 192.0.2.11/24\n",
+                encoding="utf-8",
+            )
+            parser = build_parser()
+            args = parser.parse_args([
+                "clab-transform-config",
+                "--hosts", str(hosts),
+                "--clab-env", str(clab_env),
+                "--node-map", str(node_map),
+                "--delete-username",
+                "--input", str(root / "raw"),
+                "--output-hosts", str(output_hosts),
+                "--output-dir", str(output_dir),
+                "--log-file", str(root / "transform.log"),
+            ])
+
+            args.func(args)
+
+            generated = output_dir / "lab-leaf01_run.txt"
+            self.assertTrue(generated.exists())
+            self.assertIn("hostname lab-leaf01", generated.read_text(encoding="utf-8"))
+            self.assertIn(
+                "ip address 10.0.0.11/24",
+                generated.read_text(encoding="utf-8"),
+            )
+            transformed_inventory = yaml.safe_load(
+                output_hosts.read_text(encoding="utf-8")
+            )
+            self.assertEqual(
+                transformed_inventory["all"]["hosts"]["lab-leaf01"]["ansible_host"],
+                "10.0.0.11",
             )
 
 

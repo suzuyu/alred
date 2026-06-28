@@ -439,7 +439,7 @@ topology:
 - `--delete-access-class` を指定すると、NX-OSの `line vty` セクション内にある `access-class` と `ipv6 access-class` 行を削除します。`line console` や、VTY内のその他の設定は変更しません
 - `--node-map` では `source_hostname,source_mgmt_ip,target_hostname,target_mgmt_ip` のCSVを指定できます。`prd_hostname,prd_mgmt_ip,lab_hostname,lab_mgmt_ip` も互換ヘッダーとして受け付けます
 - node mapは `hostname`、同名の `vdc`、`interface mgmt0`、`vpc domain` の `peer-keepalive`、`hosts.lab.yaml` のホストキーと `ansible_host`、labconfigの出力ファイル名へ適用されます
-- CSVの管理IP対応は `mgmt.ipv4-subnet` より優先します。source管理IPとinventoryが一致しない場合、重複したホスト名/IP、inventoryに存在しないsourceホストはエラーです
+- 管理IPはCSVの `source_mgmt_ip` → `target_mgmt_ip` を先に適用し、変換後のIPが `mgmt.ipv4-subnet` 外なら、そのホスト部を維持して指定サブネットへさらに変換します。inventoryにはsource / targetホスト名のどちらも利用でき、source、target、サブネット変換後の対応する管理IPと一致しない場合、重複したホスト名/IP、source / targetホストのどちらもinventoryに存在しない場合はエラーです
 
 ### cisco_n9kv startup-delay
 

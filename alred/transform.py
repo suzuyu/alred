@@ -95,6 +95,19 @@ def remap_ipv4_string(value: str, target_subnet: ipaddress.IPv4Network, replace_
     return f"{remapped}/{target_subnet.prefixlen if replace_prefixlen else prefix_part}"
 
 
+def resolve_node_map_management_ip(
+    row: Dict[str, str],
+    target_subnet: Optional[ipaddress.IPv4Network],
+) -> str:
+    """
+    Resolve a node-map target IP, then apply the lab subnet when necessary.
+    """
+    target_ip = ipaddress.IPv4Address(row["target_mgmt_ip"])
+    if target_subnet is None or target_ip in target_subnet:
+        return str(target_ip)
+    return str(remap_ipv4_address(target_ip, target_subnet))
+
+
 def replace_ipv4_tokens(
     line: str,
     target_subnet: Optional[ipaddress.IPv4Network],
@@ -170,10 +183,20 @@ def transform_inventory_mgmt_subnet(
         row["source_hostname"]: row
         for row in (node_map_rows or [])
     }
-    missing_source_hostnames = sorted(set(rows_by_hostname) - {str(name) for name in hosts})
+    rows_by_target_hostname = {
+        row["target_hostname"]: row
+        for row in rows_by_hostname.values()
+    }
+    inventory_hostnames = {str(name) for name in hosts}
+    missing_source_hostnames = sorted(
+        source_hostname
+        for source_hostname, row in rows_by_hostname.items()
+        if source_hostname not in inventory_hostnames
+        and row["target_hostname"] not in inventory_hostnames
+    )
     if missing_source_hostnames:
         raise ValueError(
-            "Node map source_hostname not found in inventory: "
+            "Node map source_hostname or target_hostname not found in inventory: "
             + ", ".join(missing_source_hostnames)
         )
     transformed_hosts: Dict[str, Any] = {}
@@ -181,15 +204,25 @@ def transform_inventory_mgmt_subnet(
         if not isinstance(attrs, dict):
             transformed_hosts[hostname] = attrs
             continue
-        row = rows_by_hostname.get(str(hostname))
+        inventory_hostname = str(hostname)
+        row = rows_by_hostname.get(inventory_hostname)
+        inventory_uses_target_hostname = row is None
+        if row is None:
+            row = rows_by_target_hostname.get(inventory_hostname)
         ansible_host = attrs.get("ansible_host")
         if row:
-            if ansible_host and str(ansible_host) != row["source_mgmt_ip"]:
+            resolved_target_mgmt_ip = resolve_node_map_management_ip(row, target_subnet)
+            expected_management_ips = {row["source_mgmt_ip"]}
+            if inventory_uses_target_hostname:
+                expected_management_ips.add(row["target_mgmt_ip"])
+                expected_management_ips.add(resolved_target_mgmt_ip)
+            if ansible_host and str(ansible_host) not in expected_management_ips:
                 raise ValueError(
-                    f"Node map source_mgmt_ip mismatch for {hostname}: "
-                    f"inventory={ansible_host} csv={row['source_mgmt_ip']}"
+                    f"Node map management IP mismatch for {hostname}: "
+                    f"inventory={ansible_host} csv="
+                    + "/".join(sorted(expected_management_ips))
                 )
-            attrs["ansible_host"] = row["target_mgmt_ip"]
+            attrs["ansible_host"] = resolved_target_mgmt_ip
             target_hostname = row["target_hostname"]
         else:
             if ansible_host and target_subnet is not None:
