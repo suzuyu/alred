@@ -8,22 +8,29 @@ GitHub Releases やエアギャップ環境向け配布用に、PyInstaller で�
 
 ## 前提
 
-- 開発用マシンで Python 3.11 以上が利用できること
+- 開発用マシンで Python 3.11 が利用できること
 - このリポジトリを checkout 済みであること
 - `uv` が利用できること
 
 ## セットアップ
 
-まず開発環境を用意します。
+通常の開発環境とbinary build用依存を、`uv.lock`から用意します。
 
 ```sh
-uv sync
+uv sync --frozen --group dev --group build --python 3.11
 ```
 
-PyInstaller が未導入の場合は、開発環境へ追加で導入します。
+PyInstallerは`build` dependency groupで固定する。個別の`uv pip install`は行わない。
+依存を更新した場合は、Docker buildでも使用する固定requirementsを再生成する。
 
 ```sh
-uv pip install pyinstaller
+uv export \
+  --frozen \
+  --no-default-groups \
+  --group build \
+  --no-emit-project \
+  --no-hashes \
+  --output-file packaging/linux/requirements-build.lock
 ```
 
 ## build
@@ -31,7 +38,7 @@ uv pip install pyinstaller
 単体 binary を `dist/` 配下へ出力する例です。
 
 ```sh
-uv run pyinstaller \
+uv run --python 3.11 --group build --frozen pyinstaller \
   --clean \
   --noconfirm \
   alred.spec
@@ -50,12 +57,16 @@ uv run pyinstaller \
 - `sample_configs/` や `j2/` などの package data は `alred.spec` で bundle しています
 - SSH 収集で使う `netmiko` は dynamic import を含むため、`alred.spec` で `collect_submodules("netmiko")` を指定しています
 - 直接コマンドライン引数で build する場合も、少なくとも `--collect-submodules netmiko` が必要です
+- Linux Docker buildは`packaging/linux/requirements-build.lock`を共用し、runtime依存とPyInstallerのversionを`uv.lock`と一致させます
 
 ## Docker build for glibc variants
 
 Linux binary を配布先の `glibc` に合わせて build したい場合は、対応する container で build します。
 
-このリポジトリでは次の 3 系統を用意しています。
+標準Releaseでは、互換範囲が最も広いglibc 2.17だけをbuildする。glibc 2.28／2.34の
+Dockerfileとscriptは、配布先を限定したbinaryが必要な場合の明示オプションとして維持する。
+
+このリポジトリでは次の3系統を用意している。
 
 - `packaging/linux/Dockerfile.glibc217`: `quay.io/pypa/manylinux2014_x86_64`
 - `packaging/linux/Dockerfile.glibc228`: `quay.io/pypa/manylinux_2_28_x86_64`
@@ -70,7 +81,7 @@ Linux binary を配布先の `glibc` に合わせて build したい場合は、
 - 生成物をホスト側の `dist/` と `build/` に書き戻す
 - 既存の `dist/alred-linux-x86_64-glibc217` など release 用 artifact は削除せず、`dist/alred` だけを更新する
 
-各 variant の build 実行例:
+各variantを個別にbuildする例:
 
 ```sh
 ./scripts/build_binary_glibc217.sh
@@ -198,6 +209,20 @@ release 用ファイル名に合わせた例:
 
 `dist/alred` から release 用ファイル名と checksum をまとめて用意する helper script です。
 
+標準Release用のglibc 2.17 binaryをbuildし、smoke test、release asset、checksumを作成する。
+
+```sh
+./scripts/build_release_artifacts_linux_x86_64.sh
+```
+
+glibc 2.28／2.34または全variantは明示指定する。
+
+```sh
+./scripts/build_release_artifacts_linux_x86_64.sh --variant glibc228
+./scripts/build_release_artifacts_linux_x86_64.sh --variant glibc234
+./scripts/build_release_artifacts_linux_x86_64.sh --all-variants
+```
+
 標準の `glibc 2.17` Linux x86_64 artifact を作る例:
 
 ```sh
@@ -228,15 +253,16 @@ GitHub Releases は Git tag と対応づけて管理する想定です。
 
 例:
 
-- `v0.1.0a1`
-- `v0.1.0a2`
-- `v0.1.0`
+- `0.2.0a1`
+- `0.2.0rc1`
+- `0.2.0`
 
 運用ルールの例:
 
-- 先頭は `v` を付ける
-- `major.minor.patch` 形式にする
+- `pyproject.toml`のPEP 440 versionと完全一致させ、先頭に`v`を付けない
+- alpha、beta、release candidateは`a`、`b`、`rc`で表す
 - binary 配布を伴う公開単位ごとに tag を切る
+- `a`、`b`、`rc`を含むGitHub ReleaseはPre-releaseにする
 
 tag 作成例:
 
@@ -300,7 +326,7 @@ release note には、利用者が見て判断しやすい内容を簡潔にま�
 
 GitHub Releases へ公開するまでの最小手順は次の通りです。
 
-1. 対象 OS / アーキテクチャごとに build する
+1. 標準のglibc 2.17 binaryをbuildする。追加variantは必要な場合だけ明示指定する
 2. 生成した binary の動作を確認する
 3. release 用のファイル名へ整形する
 4. checksum を生成する
@@ -310,26 +336,56 @@ GitHub Releases へ公開するまでの最小手順は次の通りです。
 8. binary と checksum を asset として添付する
 9. 公開後にダウンロードと checksum 検証を確認する
 
-Linux x86_64 向けの一連の例:
+Linux x86_64向けの標準Release例:
 
 ```sh
 ./scripts/build_release_artifacts_linux_x86_64.sh
 ./dist/alred --version
 ./dist/alred --help
+(cd dist && sha256sum --check alred-linux-x86_64-glibc217.sha256)
 git tag -a <tag> -m "Release <tag>"
 git push origin <tag>
 ```
 
-Releases に添付する最小構成の例:
+Releasesに添付する標準構成:
 
 - `dist/alred-linux-x86_64-glibc217`
 - `dist/alred-linux-x86_64-glibc217.sha256`
-- `dist/alred-linux-x86_64-glibc228`
-- `dist/alred-linux-x86_64-glibc228.sha256`
-- `dist/alred-linux-x86_64-glibc234`
-- `dist/alred-linux-x86_64-glibc234.sha256`
+
+glibc 2.28／2.34は`--variant`または`--all-variants`を指定したReleaseだけに添付する。
 
 ## GitHub Releases 作成例
+
+AgentまたはCLIで作成する場合は、tag push後にDraft Releaseを作成し、binaryとchecksumを
+同時にアップロードする。`<version>`は`pyproject.toml`と一致させる。
+
+```sh
+gh release create <version> \
+  --verify-tag \
+  --draft \
+  --title "<version>" \
+  --notes-file <release-notes.md> \
+  dist/alred-linux-x86_64-glibc217 \
+  dist/alred-linux-x86_64-glibc217.sha256
+```
+
+alpha、beta、release candidateでは`--prerelease`も指定する。Draftの内容、asset、checksumを
+確認し、人が明示的に承認した後だけ公開する。
+
+```sh
+gh release edit <version> --draft=false
+```
+
+既存Draftへassetを追加する場合は、既存asset名を確認してから`gh release upload`を使用する。
+
+```sh
+gh release view <version> --json assets,isDraft
+gh release upload <version> \
+  dist/alred-linux-x86_64-glibc217 \
+  dist/alred-linux-x86_64-glibc217.sha256
+```
+
+### Web UIを使用する場合
 
 GitHub Web UI を使う場合の流れです。
 
@@ -350,10 +406,6 @@ Title: <tag>
 Assets:
   - dist/alred-linux-x86_64-glibc217
   - dist/alred-linux-x86_64-glibc217.sha256
-  - dist/alred-linux-x86_64-glibc228
-  - dist/alred-linux-x86_64-glibc228.sha256
-  - dist/alred-linux-x86_64-glibc234
-  - dist/alred-linux-x86_64-glibc234.sha256
 ```
 
 複数 OS / アーキテクチャ向けに build している場合は、それぞれの binary と checksum も同様に添付します。
