@@ -1,0 +1,26 @@
+model: N9K-C93180YC-FX3
+release: "10.4(5)M"
+review_status: DOCUMENT_REVIEWED
+reviewed_at: "2026-08-03"
+apply_allowed: false
+evidence_scope: documentation_and_synthetic_golden_only
+capabilities:
+  exact_pid_and_image: {result: SUPPORTED, sources: [release-notes]}
+  vrf_l2vni_l3vni_vlan_svi: {result: SUPPORTED, sources: [vxlan-guide, command-reference]}
+  nve_member_and_associate_vrf: {result: SUPPORTED, sources: [vxlan-guide, command-reference]}
+  global_ingress_replication_bgp: {result: SUPPORTED, sources: [vxlan-guide, command-reference]}
+  evpn_rd_route_target: {result: SUPPORTED, sources: [vxlan-guide, command-reference]}
+  bgp_vrf_address_families: {result: SUPPORTED, sources: [vxlan-guide, command-reference]}
+  bgp_redistribute_and_maximum_paths: {result: SUPPORTED, sources: [vxlan-guide, command-reference]}
+  ipv4_ipv6_svi: {result: SUPPORTED, sources: [vxlan-guide, ipv6-guide]}
+  ipv6_link_local_and_suppress_ra: {result: SUPPORTED, sources: [ipv6-guide, command-reference]}
+  anycast_gateway: {result: SUPPORTED, sources: [vxlan-guide, command-reference]}
+  mtu_9216: {result: SUPPORTED_WITH_CONDITIONS, sources: [interface-guide], condition: underlay_and_attached_interfaces_must_support_the_selected_mtu}
+  vpc_vtep: {result: SUPPORTED_WITH_CONDITIONS, sources: [vxlan-guide], condition: existing_vpc_fabric_must_be_healthy_and_alred_does_not_generate_vpc_configuration}
+  scale: {result: SUPPORTED_WITH_CONDITIONS, sources: [scale-guide], condition: operator_must_verify_deployment_usage_against_model_and_feature_limits}
+  license: {result: SUPPORTED_WITH_CONDITIONS, sources: [license-guide], condition: operator_must_verify_installed_entitlement_before_apply}
+  release_caveats: {result: SUPPORTED_WITH_CONDITIONS, sources: [release-notes], condition: operator_must_review_deployment_specific_open_caveats}
+golden_manifest: tests/fixtures/nxos/hardware_document_review/models/n9k-c93180yc-fx3.yaml
+notes:
+  - No physical-device execution evidence exists.
+  - Runtime remains PLAN_ONLY because no exact Capability Registry entry exists.

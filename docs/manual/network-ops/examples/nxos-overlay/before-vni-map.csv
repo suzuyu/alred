@@ -1,0 +1,5 @@
+resource_type,l3vni,vrf,l2vni,gateway_ipv4,gateway_ipv6,device,vlan,vlan_name,ipv6_link_local,mtu,anycast_gateway,nve_member,operational_state,status
+L2VNI,50001,TENANT-A,10010,"[""192.0.2.1/24""]","[""2001:db8:10::1/64""]",leaf01,10,TENANT-A-WEB,fe80::1,9216,true,true,Up,DEVICE_VARIANT
+L2VNI,50001,TENANT-A,10010,"[""192.0.2.1/24""]","[""2001:db8:10::1/64""]",leaf02,110,TENANT-A-WEB,fe80::1,9216,true,true,Up,DEVICE_VARIANT
+L3VNI,50001,TENANT-A,,,,leaf01,,,,,,true,Up,CONSISTENT
+L3VNI,50001,TENANT-A,,,,leaf02,,,,,,true,Up,CONSISTENT
