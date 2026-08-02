@@ -1,0 +1,38 @@
+api_version: alred/v1
+kind: HealthCheckProfile
+metadata:
+  name: nxos-overlay
+  version: "1.0"
+  description: Initial NX-OS EVPN and VXLAN observation profile
+spec:
+  platforms:
+    - nxos
+  collectors:
+    nxos:
+      commands:
+        - id: running_config
+          command: show running-config
+          required: true
+        - id: nve_interface
+          command: show nve interface
+          required: false
+        - id: nve_vni
+          command: show nve vni
+          required: false
+        - id: nve_vni_ingress_replication
+          command: show nve vni ingress-replication
+          required: false
+        - id: bgp_l2vpn_evpn_summary
+          command: show bgp l2vpn evpn summary
+          required: false
+  checks:
+    - id: nve_interface_health
+      evaluator: nve_interface_health
+      severity: fail
+    - id: evpn_bgp_health
+      evaluator: evpn_bgp_health
+      severity: fail
+  convergence:
+    interval_seconds: 15
+    timeout_seconds: 300
+    consecutive_passes: 2

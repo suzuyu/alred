@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://alred.local/schemas/v1/overlay-resolved-targets.schema.json",
+  "title": "OverlayResolvedTargets",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["api_version", "kind", "metadata", "spec"],
+  "properties": {
+    "api_version": {"const": "alred/v1"},
+    "kind": {"const": "OverlayResolvedTargets"},
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["change_id", "source_mode"],
+      "properties": {
+        "change_id": {"type": "string", "minLength": 1},
+        "source_mode": {"enum": ["inline", "external"]}
+      }
+    },
+    "spec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["groups", "resources"],
+      "properties": {
+        "groups": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["devices", "chains"],
+            "properties": {
+              "devices": {
+                "type": "array",
+                "uniqueItems": true,
+                "items": {"type": "string", "minLength": 1}
+              },
+              "chains": {"type": "object"}
+            }
+          }
+        },
+        "resources": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["type", "vni", "devices"],
+            "properties": {
+              "type": {"enum": ["l2vni", "l3vni"]},
+              "vni": {"type": "integer", "minimum": 1, "maximum": 16777215},
+              "devices": {"type": "object"}
+            }
+          }
+        }
+      }
+    }
+  }
+}

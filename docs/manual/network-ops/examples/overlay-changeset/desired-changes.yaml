@@ -1,0 +1,55 @@
+api_version: alred/v1
+kind: OverlayChangeSet
+metadata:
+  change_id: CHG-2026-00123
+  source: declared
+spec:
+  device_groups_ref:
+    path: ./device-groups.fabric.yaml
+  l2vnis:
+    - vni: 10020
+      default_vlan: 20
+      vlan_name: TENANT-A-APP
+      vrf: TENANT-A
+      l3vni: 50001
+      svi:
+        mtu: 9216
+        ipv4_addresses:
+          - 198.51.100.1/24
+        ipv6_addresses:
+          - 2001:db8:20::1/64
+        ipv6_link_local: fe80::1
+        ipv6_nd_suppress_ra: true
+        gateway_mode: anycast
+      targets:
+        groups:
+          server-leafs: {}
+          storage-leafs:
+            vlan: 120
+  l3vnis:
+    - vni: 50001
+      vrf: TENANT-A
+      mode: new_l3vni
+      address_families:
+        ipv4:
+          advertise_l2vpn_evpn: true
+          redistribute_direct:
+            enabled: true
+            route_map: IPv4_REDISTRIBUTE_ALL
+          redistribute_static:
+            enabled: true
+            route_map: IPv4_REDISTRIBUTE_ALL
+          maximum_paths_ibgp: 4
+        ipv6:
+          advertise_l2vpn_evpn: true
+          redistribute_direct:
+            enabled: true
+            route_map: IPv6_REDISTRIBUTE_ALL
+          redistribute_static:
+            enabled: true
+            route_map: IPv6_REDISTRIBUTE_ALL
+          maximum_paths_ibgp: 4
+      targets:
+        groups:
+          server-leafs: {}
+          storage-leafs: {}

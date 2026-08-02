@@ -1,0 +1,514 @@
+from datetime import datetime
+import json
+import os
+from pathlib import Path
+import stat
+import socket
+
+import pytest
+import yaml
+
+from alred.operation import (
+    OperationLock,
+    OperationInterruptGuard,
+    OperationLockedError,
+    OperationPathError,
+    OperationStateError,
+    assess_operation_lock,
+    atomic_write_bytes,
+    create_operation_workspace,
+    generate_attempt_id,
+    generate_change_id,
+    load_active_change,
+    load_operation_execution,
+    load_operation_metadata,
+    open_operation_workspace,
+    preflight_operation_workspace,
+    read_operation_lock,
+    resolve_active_change_for_after,
+    resolve_timezone_name,
+    save_active_change,
+    transition_operation,
+    transition_phase,
+    transition_workflow,
+    validate_change_id,
+)
+
+
+JST_NOW = datetime.fromisoformat("2026-08-01T10:02:03+09:00")
+
+
+@pytest.mark.parametrize(
+    "change_id",
+    [
+        "CHG-2026-00123",
+        "a",
+        "A_1.2-3",
+    ],
+)
+def test_validate_change_id_accepts_safe_values(change_id):
+    assert validate_change_id(change_id) == change_id
+
+
+@pytest.mark.parametrize(
+    "change_id",
+    [
+        "",
+        ".starts-with-dot",
+        "has space",
+        "path/value",
+        r"path\\value",
+        "a..b",
+        "a" * 129,
+        "あ",
+    ],
+)
+def test_validate_change_id_rejects_unsafe_values(change_id):
+    with pytest.raises(ValueError):
+        validate_change_id(change_id)
+
+
+def test_timezone_resolution_precedence_and_invalid_values(monkeypatch):
+    monkeypatch.setenv("ALRED_TIMEZONE", "Europe/London")
+    assert resolve_timezone_name("Asia/Tokyo") == "Asia/Tokyo"
+    assert resolve_timezone_name() == "Europe/London"
+
+    monkeypatch.delenv("ALRED_TIMEZONE")
+    assert resolve_timezone_name() == "Asia/Tokyo"
+    with pytest.raises(ValueError):
+        resolve_timezone_name("JST")
+    with pytest.raises(ValueError):
+        resolve_timezone_name("+09:00")
+    with pytest.raises(ValueError):
+        resolve_timezone_name("Not/A_Timezone")
+
+
+def test_generated_ids_use_jst_offset_and_deterministic_token():
+    assert generate_change_id(
+        "Asia/Tokyo",
+        now=JST_NOW,
+        random_hex="a1b2c3",
+    ) == "HC-20260801T100203-p0900-a1b2c3"
+    assert generate_attempt_id(
+        "before",
+        "Asia/Tokyo",
+        now=JST_NOW,
+        random_hex="d4e5f6",
+    ) == "before-20260801T100203-p0900-d4e5f6"
+
+
+def test_create_workspace_is_secure_valid_and_not_overwritten(tmp_path):
+    workspace = create_operation_workspace(
+        tmp_path / "operations",
+        change_id="CHG-2026-00123",
+        timezone_name="Asia/Tokyo",
+        now=JST_NOW,
+    )
+
+    assert stat.S_IMODE(workspace.operation_root.stat().st_mode) == 0o700
+    assert stat.S_IMODE(workspace.metadata_path.stat().st_mode) == 0o600
+    assert stat.S_IMODE(workspace.execution_path.stat().st_mode) == 0o600
+    metadata = load_operation_metadata(workspace.operation_root)
+    execution = load_operation_execution(workspace.operation_root)
+    assert metadata["kind"] == "OperationMetadata"
+    assert metadata["metadata"]["change_id_source"] == "specified"
+    assert metadata["metadata"]["timezone"] == "Asia/Tokyo"
+    assert metadata["metadata"]["utc_offset"] == "+09:00"
+    assert metadata["spec"]["lifecycle"] == "created"
+    assert execution["transitions"][0]["to"] == "created"
+
+    with pytest.raises(OperationPathError, match="already exists"):
+        create_operation_workspace(
+            tmp_path / "operations",
+            change_id="CHG-2026-00123",
+            timezone_name="Asia/Tokyo",
+            now=JST_NOW,
+        )
+
+
+def test_generated_workspace_retries_directory_collision(tmp_path):
+    first = create_operation_workspace(
+        tmp_path / "operations",
+        timezone_name="Asia/Tokyo",
+        now=JST_NOW,
+        random_token_factory=lambda: "a1b2c3",
+    )
+    retry_tokens = iter(["a1b2c3", "d4e5f6"])
+    second = create_operation_workspace(
+        tmp_path / "operations",
+        timezone_name="Asia/Tokyo",
+        now=JST_NOW,
+        random_token_factory=lambda: next(retry_tokens),
+    )
+
+    assert first.change_id.endswith("a1b2c3")
+    assert second.change_id.endswith("d4e5f6")
+
+
+def test_atomic_write_rejects_path_escape_and_symlink(tmp_path):
+    workspace = create_operation_workspace(
+        tmp_path / "operations",
+        change_id="CHG-1",
+        now=JST_NOW,
+    )
+    with pytest.raises(OperationPathError, match="escapes"):
+        atomic_write_bytes(
+            workspace.operation_root,
+            workspace.operation_root / ".." / "outside.txt",
+            b"unsafe",
+        )
+
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    link = workspace.operation_root / "linked"
+    link.symlink_to(outside, target_is_directory=True)
+    with pytest.raises(OperationPathError, match="symlink"):
+        atomic_write_bytes(
+            workspace.operation_root,
+            link / "file.txt",
+            b"unsafe",
+        )
+
+
+def test_lock_is_exclusive_and_never_auto_removes_conflict(tmp_path):
+    workspace = create_operation_workspace(
+        tmp_path / "operations",
+        change_id="CHG-1",
+        now=JST_NOW,
+    )
+    first = OperationLock(workspace, "plan", now=JST_NOW).acquire()
+    try:
+        lock_document, warning = read_operation_lock(workspace.operation_root)
+        assert warning is None
+        assert lock_document["operation"] == "plan"
+        with pytest.raises(OperationLockedError):
+            OperationLock(workspace, "apply", now=JST_NOW).acquire()
+        assert workspace.lock_path.exists()
+    finally:
+        first.release()
+
+    assert not workspace.lock_path.exists()
+
+
+def test_corrupt_lock_is_reported_without_removal(tmp_path):
+    workspace = create_operation_workspace(
+        tmp_path / "operations",
+        change_id="CHG-1",
+        now=JST_NOW,
+    )
+    workspace.lock_path.write_text("{not-json", encoding="utf-8")
+    workspace.lock_path.chmod(0o600)
+
+    lock_document, warning = read_operation_lock(workspace.operation_root)
+
+    assert lock_document is None
+    assert "invalid" in warning
+    assert workspace.lock_path.exists()
+
+
+def test_lock_assessment_marks_missing_pid_without_removal(monkeypatch):
+    document = {
+        "hostname": socket.gethostname(),
+        "pid": 999999,
+    }
+
+    def missing_pid(_pid, _signal):
+        raise ProcessLookupError
+
+    monkeypatch.setattr(os, "kill", missing_pid)
+
+    assert "stale candidate" in assess_operation_lock(document)[0]
+
+
+def test_operation_phase_and_workflow_transitions_require_lock(tmp_path):
+    workspace = create_operation_workspace(
+        tmp_path / "operations",
+        change_id="CHG-1",
+        now=JST_NOW,
+    )
+    unlocked = OperationLock(workspace, "plan", now=JST_NOW)
+    with pytest.raises(OperationLockedError):
+        transition_operation(workspace, "running", lock=unlocked)
+
+    with OperationLock(workspace, "plan", now=JST_NOW) as lock:
+        transition_operation(
+            workspace,
+            "running",
+            lock=lock,
+            reason="test_start",
+            now=JST_NOW,
+        )
+        transition_phase(
+            workspace,
+            "before",
+            "running",
+            lock=lock,
+            attempt_id="before-attempt-001",
+            now=JST_NOW,
+        )
+        transition_phase(
+            workspace,
+            "before",
+            "completed",
+            lock=lock,
+            now=JST_NOW,
+        )
+        for state in (
+            "planned",
+            "before_running",
+            "before_completed",
+            "plan_ready",
+        ):
+            transition_workflow(
+                workspace,
+                state,
+                lock=lock,
+                now=JST_NOW,
+            )
+        with pytest.raises(OperationStateError):
+            transition_phase(
+                workspace,
+                "before",
+                "running",
+                lock=lock,
+                now=JST_NOW,
+            )
+
+    metadata = load_operation_metadata(workspace.operation_root)
+    execution = load_operation_execution(workspace.operation_root)
+    assert metadata["spec"]["lifecycle"] == "running"
+    assert metadata["spec"]["phases"]["before"] == {
+        "current_attempt": "before-attempt-001",
+        "status": "completed",
+    }
+    assert metadata["spec"]["workflow_state"] == "plan_ready"
+    assert len(execution["transitions"]) == 8
+
+
+def test_interrupt_before_device_commands_records_cancelled(tmp_path):
+    workspace = create_operation_workspace(
+        tmp_path / "operations",
+        change_id="CHG-1",
+        now=JST_NOW,
+    )
+    with OperationLock(workspace, "before", now=JST_NOW) as lock:
+        transition_operation(workspace, "running", lock=lock, now=JST_NOW)
+        transition_phase(
+            workspace,
+            "before",
+            "running",
+            lock=lock,
+            attempt_id="before-attempt-001",
+            now=JST_NOW,
+        )
+        guard = OperationInterruptGuard(workspace, lock, phase="before")
+        with pytest.raises(KeyboardInterrupt):
+            guard._handle(2, None)
+
+    metadata = load_operation_metadata(workspace.operation_root)
+    execution = load_operation_execution(workspace.operation_root)
+    assert metadata["spec"]["lifecycle"] == "cancelled"
+    assert metadata["spec"]["phases"]["before"]["status"] == "cancelled"
+    assert execution["errors"][-1]["code"] == "CANCELLED_BEFORE_APPLY"
+
+
+def test_interrupt_during_apply_records_unknown_device_state(tmp_path):
+    workspace = create_operation_workspace(
+        tmp_path / "operations",
+        change_id="CHG-1",
+        now=JST_NOW,
+    )
+    with OperationLock(workspace, "apply", now=JST_NOW) as lock:
+        transition_operation(workspace, "running", lock=lock, now=JST_NOW)
+        for state in (
+            "planned",
+            "before_running",
+            "before_completed",
+            "plan_ready",
+            "approved",
+            "apply_running",
+        ):
+            transition_workflow(workspace, state, lock=lock, now=JST_NOW)
+        guard = OperationInterruptGuard(workspace, lock, phase="apply")
+        guard.mark_device_commands_started()
+        with pytest.raises(KeyboardInterrupt):
+            guard._handle(15, None)
+
+    metadata = load_operation_metadata(workspace.operation_root)
+    execution = load_operation_execution(workspace.operation_root)
+    assert metadata["spec"]["lifecycle"] == "state_unknown"
+    assert metadata["spec"]["workflow_state"] == "device_state_unknown"
+    assert execution["errors"][-1]["code"] == "DEVICE_STATE_UNKNOWN"
+
+
+def test_rollback_health_failed_can_be_reverified_without_reapplying(tmp_path):
+    workspace = create_operation_workspace(
+        tmp_path / "operations",
+        change_id="CHG-1",
+        now=JST_NOW,
+    )
+    with OperationLock(workspace, "rollback-health", now=JST_NOW) as lock:
+        for state in (
+            "planned",
+            "before_running",
+            "before_completed",
+            "plan_ready",
+            "approved",
+            "apply_running",
+            "apply_completed",
+            "after_running",
+            "after_completed",
+            "rollback_required",
+            "rollback_running",
+            "rolled_back",
+            "rollback_health_failed",
+            "rollback_health_failed",
+            "rolled_back_and_verified",
+        ):
+            transition_workflow(workspace, state, lock=lock, now=JST_NOW)
+
+    assert load_operation_metadata(workspace.operation_root)["spec"][
+        "workflow_state"
+    ] == "rolled_back_and_verified"
+
+
+def test_preflight_reports_device_limit(tmp_path):
+    workspace = create_operation_workspace(
+        tmp_path / "operations",
+        change_id="CHG-1",
+        now=JST_NOW,
+    )
+
+    result = preflight_operation_workspace(
+        workspace,
+        device_count=51,
+        for_apply=True,
+    )
+
+    assert result.ok is False
+    assert any(
+        issue.code == "PLAN_CONFLICT" and "51" in issue.message
+        for issue in result.issues
+    )
+
+
+def test_active_change_is_atomic_and_schema_validated(tmp_path):
+    operations_root = tmp_path / "operations"
+    document = {
+        "api_version": "alred/v1",
+        "kind": "ActiveHealthCheckChange",
+        "metadata": {
+            "updated_at": "2026-08-01T10:05:31+09:00",
+            "timezone": "Asia/Tokyo",
+        },
+        "spec": {
+            "change_id": "HC-20260801T100203-p0900-a1b2c3",
+            "change_id_source": "generated",
+            "state": "before_completed",
+            "output_root": "operations/HC-20260801T100203-p0900-a1b2c3",
+            "before": {
+                "completed_at": "2026-08-01T10:05:31+09:00",
+                "metadata_path": "operations/example/metadata.yaml",
+                "snapshot_path": "operations/example/health/before/snapshot.json",
+                "inventory_sha256": "a" * 64,
+                "profile_sha256": "b" * 64,
+            },
+            "after": {
+                "status": "not_started",
+            },
+        },
+    }
+
+    output_path = save_active_change(operations_root, document)
+
+    assert output_path == operations_root / ".state" / "active-change.yaml"
+    assert stat.S_IMODE(output_path.stat().st_mode) == 0o600
+    assert load_active_change(operations_root) == document
+
+
+def test_after_resolves_only_valid_recorded_active_change(tmp_path):
+    operations_root = tmp_path / "operations"
+    workspace = create_operation_workspace(
+        operations_root,
+        timezone_name="Asia/Tokyo",
+        now=JST_NOW,
+        random_token_factory=lambda: "a1b2c3",
+    )
+    snapshot_path = workspace.operation_root / "health" / "before" / "snapshot.json"
+    atomic_write_bytes(
+        workspace.operation_root,
+        snapshot_path,
+        b'{"schema_version":1}\n',
+    )
+    with OperationLock(workspace, "before", now=JST_NOW) as lock:
+        transition_phase(
+            workspace,
+            "before",
+            "running",
+            lock=lock,
+            attempt_id="before-attempt-001",
+            now=JST_NOW,
+        )
+        transition_phase(
+            workspace,
+            "before",
+            "completed",
+            lock=lock,
+            now=JST_NOW,
+        )
+    state = {
+        "api_version": "alred/v1",
+        "kind": "ActiveHealthCheckChange",
+        "metadata": {
+            "updated_at": "2026-08-01T10:05:31+09:00",
+            "timezone": "Asia/Tokyo",
+        },
+        "spec": {
+            "change_id": workspace.change_id,
+            "change_id_source": "generated",
+            "state": "before_completed",
+            "output_root": str(workspace.operation_root),
+            "before": {
+                "completed_at": "2026-08-01T10:05:31+09:00",
+                "metadata_path": str(workspace.metadata_path),
+                "snapshot_path": str(snapshot_path),
+                "inventory_sha256": "a" * 64,
+                "profile_sha256": "b" * 64,
+            },
+            "after": {"status": "not_started"},
+        },
+    }
+    save_active_change(operations_root, state)
+
+    resolved = resolve_active_change_for_after(
+        operations_root,
+        inventory_sha256="a" * 64,
+        profile_sha256="b" * 64,
+    )
+
+    assert resolved.change_id == workspace.change_id
+    with pytest.raises(OperationStateError, match="inventory hash"):
+        resolve_active_change_for_after(
+            operations_root,
+            inventory_sha256="c" * 64,
+            profile_sha256="b" * 64,
+        )
+
+
+def test_open_workspace_rejects_metadata_change_id_conflict(tmp_path):
+    operations_root = tmp_path / "operations"
+    workspace = create_operation_workspace(
+        operations_root,
+        change_id="CHG-1",
+        now=JST_NOW,
+    )
+    metadata = yaml.safe_load(workspace.metadata_path.read_text(encoding="utf-8"))
+    metadata["metadata"]["change_id"] = "CHG-2"
+    workspace.metadata_path.write_text(
+        yaml.safe_dump(metadata, sort_keys=False),
+        encoding="utf-8",
+    )
+    workspace.metadata_path.chmod(0o600)
+
+    with pytest.raises(OperationPathError, match="does not match"):
+        open_operation_workspace(operations_root, "CHG-1")

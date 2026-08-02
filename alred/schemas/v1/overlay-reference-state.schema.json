@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://alred.local/schemas/v1/overlay-reference-state.schema.json",
+  "title": "OverlayReferenceState",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "change_id", "selection", "source", "age", "targets"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "change_id": {"type": "string", "minLength": 1},
+    "selection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "max_age_days"],
+      "properties": {
+        "mode": {"enum": ["latest-known-good", "explicit"]},
+        "max_age_days": {"type": "integer", "minimum": 1}
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["operation_id", "phase", "source_type", "workflow_state", "snapshot_path", "snapshot_sha256", "snapshot_created_at", "health_result_path", "health_result_sha256"],
+      "properties": {
+        "operation_id": {"type": "string", "minLength": 1},
+        "phase": {"enum": ["after", "rollback"]},
+        "source_type": {"enum": ["overlay_terminal", "standalone_health_after"]},
+        "workflow_state": {
+          "type": ["string", "null"],
+          "enum": ["completed", "rolled_back_and_verified", null]
+        },
+        "snapshot_path": {"type": "string", "minLength": 1},
+        "snapshot_sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "snapshot_created_at": {"type": "string", "format": "date-time"},
+        "health_result_path": {"type": "string", "minLength": 1},
+        "health_result_sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "comparison": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["path", "sha256", "result"],
+          "properties": {
+            "path": {"type": "string", "minLength": 1},
+            "sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+            "result": {"const": "PASS"}
+          }
+        }
+      }
+    },
+    "age": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["evaluated_at", "seconds", "days"],
+      "properties": {
+        "evaluated_at": {"type": "string", "format": "date-time"},
+        "seconds": {"type": "integer", "minimum": 0},
+        "days": {"type": "number", "minimum": 0}
+      }
+    },
+    "targets": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    }
+  }
+}

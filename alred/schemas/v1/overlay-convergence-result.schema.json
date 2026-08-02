@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://alred.local/schemas/v1/overlay-convergence-result.schema.json",
+  "title": "OverlayConvergenceResult",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "change_id", "required_consecutive_passes", "converged", "converged_at_attempt", "attempts"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "change_id": {"type": "string", "minLength": 1},
+    "required_consecutive_passes": {"type": "integer", "minimum": 1},
+    "converged": {"type": "boolean"},
+    "converged_at_attempt": {"type": ["integer", "null"], "minimum": 1},
+    "attempts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["attempt", "result", "consecutive_passes", "source_file"],
+        "properties": {
+          "attempt": {"type": "integer", "minimum": 1},
+          "result": {"enum": ["VERIFIED", "OBSERVED_HEALTHY", "WARN", "FAIL", "UNKNOWN", "PLAN_ERROR"]},
+          "consecutive_passes": {"type": "integer", "minimum": 0},
+          "source_file": {"type": "string", "minLength": 1}
+        }
+      }
+    }
+  }
+}

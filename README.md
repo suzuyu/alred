@@ -5,6 +5,11 @@
 個人ラボ向けに作成しているため、動作保証はしていません。
 現時点では alpha 版として公開しており、機能や仕様は今後変更される可能性があります。
 
+開発中機能の設計資料は[設計書一覧](./docs/design/README.md)を参照してください。
+health checkの利用手順は[User Manual](./docs/manual/README.md)を参照してください。
+開発・Pull Requestは[CONTRIBUTING.md](./CONTRIBUTING.md)、脆弱性報告は
+[SECURITY.md](./SECURITY.md)を参照してください。
+
 ## できること
 
 - ネットワーク機器から LLDP と `running-config` を収集する
@@ -39,38 +44,31 @@ Python 環境や追加パッケージのインストールができない環境�
 
 配布ファイル名の例:
 
-- `alred-linux-x86_64`
 - `alred-linux-x86_64-glibc217`
-- `alred-linux-x86_64-glibc228`
-- `alred-linux-x86_64-glibc234`
-- `alred-linux-aarch64`
-- `alred-windows-x86_64.exe`
 
 checksum ファイル名の例:
 
-- `alred-linux-x86_64.sha256`
 - `alred-linux-x86_64-glibc217.sha256`
-- `alred-linux-x86_64-glibc228.sha256`
-- `alred-linux-x86_64-glibc234.sha256`
-- `alred-linux-aarch64.sha256`
-- `alred-windows-x86_64.exe.sha256`
+
+標準ReleaseはLinux x86_64向けglibc 2.17 binaryとchecksumを配布する。glibc 2.28／2.34は
+配布先を限定したbinaryが必要なReleaseでだけ追加する。
 
 `curl` で取得する例:
 
 ```sh
-curl -fL -o alred-linux-x86_64 \
+curl -fL -o alred-linux-x86_64-glibc217 \
   https://github.com/suzuyu/alred/releases/latest/download/alred-linux-x86_64-glibc217
-curl -fL -o alred-linux-x86_64.sha256 \
+curl -fL -o alred-linux-x86_64-glibc217.sha256 \
   https://github.com/suzuyu/alred/releases/latest/download/alred-linux-x86_64-glibc217.sha256
 ```
 
 特定 version を指定する場合の例:
 
 ```sh
-curl -fL -o alred-linux-x86_64 \
-  https://github.com/suzuyu/alred/releases/download/<tag>/alred-linux-x86_64
-curl -fL -o alred-linux-x86_64.sha256 \
-  https://github.com/suzuyu/alred/releases/download/<tag>/alred-linux-x86_64.sha256
+curl -fL -o alred-linux-x86_64-glibc217 \
+  https://github.com/suzuyu/alred/releases/download/<tag>/alred-linux-x86_64-glibc217
+curl -fL -o alred-linux-x86_64-glibc217.sha256 \
+  https://github.com/suzuyu/alred/releases/download/<tag>/alred-linux-x86_64-glibc217.sha256
 ```
 
 例:
@@ -95,7 +93,7 @@ sha256sum -c alred-linux-x86_64-glibc217.sha256
 
 - エアギャップ環境へ持ち込む場合は、接続可能な環境で事前に binary と checksum を取得しておく運用を想定します
 - OS やアーキテクチャに合った binary を選んでください
-- Linux x86_64 では `glibc217` / `glibc228` / `glibc234` の variant を配布対象に合わせて選べます
+- Linux x86_64では標準の`glibc217`を使用する。Releaseに追加variantがある場合だけ配布先に合わせて選択する
 - 配布者向けの build 手順は [BUILD.md](./BUILD.md) を参照してください
 
 Linux x86_64 向け variant の選び方の目安:
@@ -106,7 +104,7 @@ Linux x86_64 向け variant の選び方の目安:
 | `alred-linux-x86_64-glibc228` | 2.28 以上 | RHEL 8 / 9、Rocky Linux 8 / 9、AlmaLinux 8 / 9、Ubuntu 20.04 / 22.04 / 24.04 |
 | `alred-linux-x86_64-glibc234` | 2.34 以上 | RHEL 9、Rocky Linux 9、AlmaLinux 9、Ubuntu 22.04 / 24.04 |
 
-使い分けの目安:
+追加variantが提供されている場合の使い分け:
 
 - 配布先が混在していて迷う場合は、もっとも互換性が広い `glibc217` を選ぶのが無難です
 - RHEL 8 系、Rocky 8 系、AlmaLinux 8 系が中心なら `glibc228` が選びやすいです
@@ -264,6 +262,8 @@ uv run python alred.py generate-sample-config
 - `samples/description_rules.example.yaml`
 - `samples/underlay_render.example.yaml`
 - `samples/show_commands.example.txt`
+- `samples/health-check-profile.logging-excludes.example.yaml`
+- `samples/health-check-profile.network-baseline-logging-3days.example.yaml`
 
 最小構成で始める場合の目安:
 
@@ -285,7 +285,34 @@ cp -p samples/sites.example.yaml sites.yaml
 cp -p samples/description_rules.example.yaml description_rules.yaml
 cp -p samples/underlay_render.example.yaml underlay_render.yaml
 cp -p samples/show_commands.example.txt show_commands.txt
+cp -p samples/health-check-profile.logging-excludes.example.yaml logging-excludes.yaml
 ```
+
+`logging-excludes.yaml`の`exclude_patterns`を編集し、共通baselineの後へ指定します。
+profileは実行ディレクトリ直下に配置でき、`profiles/`ディレクトリは必須ではありません。
+
+```sh
+alred health-check before \
+  --collect \
+  --hosts ./hosts.lab.yaml \
+  --profile network-baseline-nxos \
+  --profile ./logging-excludes.yaml
+```
+
+beforeが直接収集で完了した後は、収集条件をoperationから継承してchange-idだけでafterを
+実行できます。
+
+```sh
+alred health-check after --change-id <beforeで使用したchange-id>
+```
+
+beforeを自動採番し、activeな作業が一意に検証できる場合は`--change-id`も省略できます。
+beforeが`--input`によるoffline解析だった場合は、新しいログを`--input`で指定します。
+passwordとenable secretはoperationへ保存されません。
+
+`exclude_patterns`は大文字小文字を区別しない部分文字列照合です。後段profileの配列が
+前段profileの配列を置換するため、除外したい文字列をすべて記載します。after・rollbackでは
+beforeのresolved profileを継承するため、通常は再指定しません。
 
 `clab-set-cmds` だけを最短で試すなら、必須なのは通常 `.env` と `hosts.txt` です。  
 ただし、実際には `mappings.yaml`、`roles.yaml`、`sites.yaml`、`description_rules.yaml`、`underlay_render.yaml`、`show_commands.txt` を実施環境のルールに合わせて記載変更する必要があります。
@@ -506,6 +533,11 @@ alred clab-set-cmds --hosts hosts.yaml --without-collect
 ```sh
 alred generate-sample-config
 ```
+
+logging除外条件だけを変更する差分profileも
+`samples/health-check-profile.logging-excludes.example.yaml`として生成します。利用手順は
+[Health Check Profile設計](./docs/design/HEALTH_CHECK_FRAMEWORK_DESIGN.md#42-profile-yamlのパラメータ)
+を参照してください。
 
 詳細なファイル一覧は [CONFIG.md](./CONFIG.md) を参照してください。
 
@@ -1032,6 +1064,7 @@ alred write-memory \
 - 利用手順と主要コマンド: この README
 - 設定値、入力ファイル、補助ファイルの詳細: [CONFIG.md](./CONFIG.md)
 - 配布 binary の build / release 手順: [BUILD.md](./BUILD.md)
+- バージョンごとの変更点と制約: [Release Notes](./docs/releases/README.md)
 - ライセンス: [LICENSE](./LICENSE)
 
 ## Notes

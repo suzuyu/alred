@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://alred.local/schemas/v1/support-bundle-index.schema.json",
+  "title": "SupportBundleIndex",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["api_version", "kind", "metadata", "spec"],
+  "properties": {
+    "api_version": {"const": "alred/v1"},
+    "kind": {"const": "SupportBundleIndex"},
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["change_id", "phase", "created_at", "timezone"],
+      "properties": {
+        "change_id": {"type": "string", "minLength": 1},
+        "phase": {"enum": ["before", "after", "rollback", "all"]},
+        "created_at": {"type": "string", "format": "date-time"},
+        "timezone": {"type": "string", "minLength": 1}
+      }
+    },
+    "spec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["split", "parts"],
+      "properties": {
+        "split": {"enum": ["phase", "device"]},
+        "parts": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["part_id", "phase", "archive_name", "manifest_name", "archive_sha256", "devices"],
+            "properties": {
+              "part_id": {"type": "string", "minLength": 1},
+              "phase": {"enum": ["before", "after", "rollback", "all"]},
+              "archive_name": {"type": "string", "minLength": 1},
+              "manifest_name": {"type": "string", "minLength": 1},
+              "archive_sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+              "devices": {
+                "type": "array",
+                "uniqueItems": true,
+                "items": {"type": "string", "minLength": 1}
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

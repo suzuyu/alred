@@ -1,0 +1,19 @@
+IP Route Table for VRF "default"
+Total number of routes: 36
+Total number of paths:  51
+
+Unicast paths:
+Best paths per protocol:      Backup paths per protocol:
+  local          : 5            None
+  direct         : 5
+  ospf-UNDERLAY  : 36
+
+IP Route Table for VRF "TENANT-A"
+Total number of routes: 16
+Total number of paths:  16
+
+Unicast paths:
+Best paths per protocol:      Backup paths per protocol:
+  local          : 2            None
+  direct         : 2
+  bgp-65000      : 5

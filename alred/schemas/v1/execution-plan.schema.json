@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://alred.local/schemas/v1/execution-plan.schema.json",
+  "title": "ExecutionPlan",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "change_id", "capability_level", "devices"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "change_id": {"type": "string", "minLength": 1},
+    "preparation_only": {"type": "boolean"},
+    "capability_level": {
+      "enum": ["OBSERVE_ONLY", "PLAN_ONLY", "APPLY_VERIFIED"]
+    },
+    "devices": {
+      "oneOf": [
+        {
+          "type": "array",
+          "maxItems": 50,
+          "items": {"type": "string", "minLength": 1}
+        },
+        {
+          "type": "object",
+          "maxProperties": 50,
+          "additionalProperties": {"type": "object"}
+        }
+      ]
+    },
+    "warnings": {
+      "type": "array",
+      "items": {"type": "object"}
+    },
+    "artifacts": {"type": "object"},
+    "constraints": {"type": "object"}
+  }
+}

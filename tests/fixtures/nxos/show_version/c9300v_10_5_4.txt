@@ -1,0 +1,28 @@
+Cisco Nexus Operating System (NX-OS) Software
+
+Nexus 9000v is a demo version of the Nexus Operating System
+
+Software
+  BIOS: version
+  NXOS: version 10.5(4) [Maintenance Release]
+  NXOS image file is: bootflash:///nxos64-cs-lite.10.5.4.M.bin
+  NXOS compile time:  10/10/2025 31:00:00 [10/17/2025 06:02:21]
+
+Hardware
+  cisco Nexus9000 C9300v Chassis
+  Intel(R) Core(TM) CPU with 6081292 kB of memory.
+  Processor Board ID REDACTED-SERIAL
+  Device name: leaf-fixture-01
+  bootflash:    8598528 kB
+
+Kernel uptime is 2 day(s), 19 hour(s), 54 minute(s), 31 second(s)
+
+Last reset
+  Reason: Unknown
+  System version:
+  Service:
+
+plugin
+  Core Plugin, Ethernet Plugin
+
+Active Package(s):

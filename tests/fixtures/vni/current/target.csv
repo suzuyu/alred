@@ -1,0 +1,2 @@
+l3vni,vrf,l2vni,gateway_ipv4,gateway_ipv6,device,vlan,vlan_name
+50001,TENANT-A,10010,192.0.2.1/24,2001:db8:10::1/64,leaf01,10,SERVERS

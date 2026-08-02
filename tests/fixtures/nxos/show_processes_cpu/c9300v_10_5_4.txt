@@ -1,0 +1,12 @@
+PID    Runtime(ms)  Invoked   uSecs  1Sec    Process
+-----  -----------  --------  -----  ------  -----------
+    1        11695     49423    236   0.00%  init
+ 7288          404       110   3672   2.07%  ecp
+ 7477     24772201  331930742     74   4.17%  mfdm
+12893          889       117   7598   2.07%  ospf
+12912         1533       167   9179   0.00%  bgp
+
+CPU util  :   26.59% user,   26.59% kernel,   46.80% idle
+
+CPU utilization for five seconds: 75%/2%; one minute: 50%; five minutes: 40%
+ Please note that only processes from the requested vdc are shown above

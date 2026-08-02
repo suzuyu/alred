@@ -1,0 +1,35 @@
+vrf context TENANT-A
+  vni 50001 l3
+  rd auto
+  address-family ipv4 unicast
+    route-target both auto
+    route-target both auto evpn
+  address-family ipv6 unicast
+    route-target both auto
+    route-target both auto evpn
+!
+vlan 10
+  name SERVERS
+  vn-segment 10010
+!
+interface Vlan10
+  description SERVERS
+  no shutdown
+  vrf member TENANT-A
+  no ip redirects
+  ip address 192.0.2.1/24
+  ipv6 address 2001:db8:10::1/64
+  ipv6 nd suppress-ra
+  no ipv6 redirects
+  fabric forwarding mode anycast-gateway
+!
+interface nve1
+  member vni 10010
+  member vni 50001 associate-vrf
+!
+evpn
+  vni 10010 l2
+    rd auto
+    route-target import auto
+    route-target export auto
+!

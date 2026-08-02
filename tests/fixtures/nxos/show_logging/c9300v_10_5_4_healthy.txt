@@ -1,0 +1,1 @@
+2026 Aug 01 09:45:00 leaf-fixture-01 %SYSLOG-5-SYSTEM_MSG: healthy fixture event

@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://alred.local/schemas/v1/rollback-plan.schema.json",
+  "title": "RollbackPlan",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "change_id", "policy", "devices"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "change_id": {"type": "string", "minLength": 1},
+    "policy": {"const": "manual"},
+    "devices": {
+      "oneOf": [
+        {
+          "type": "array",
+          "maxItems": 50,
+          "items": {"type": "string", "minLength": 1}
+        },
+        {
+          "type": "object",
+          "maxProperties": 50,
+          "additionalProperties": {"type": "object"}
+        }
+      ]
+    },
+    "ownership": {"type": "object"},
+    "artifacts": {"type": "object"},
+    "verification": {"type": "object"}
+  }
+}

@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://alred.local/schemas/v1/support-bundle-redaction-policy.schema.json",
+  "title": "SupportBundleRedactionPolicy",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["api_version", "kind", "metadata", "spec"],
+  "properties": {
+    "api_version": {"const": "alred/v1"},
+    "kind": {"const": "SupportBundleRedactionPolicy"},
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1}
+      }
+    },
+    "spec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mask_keys", "pseudonymize", "preserve"],
+      "properties": {
+        "mask_keys": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z_][A-Za-z0-9_-]{0,63}$"
+          }
+        },
+        "mask_patterns": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "pattern"],
+            "properties": {
+              "id": {"type": "string", "pattern": "^[A-Za-z0-9_.-]{1,64}$"},
+              "pattern": {"type": "string", "minLength": 1, "maxLength": 512},
+              "replacement": {"type": "string", "maxLength": 128}
+            }
+          }
+        },
+        "pseudonymize": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["hostnames", "ip_addresses", "vrf_names"],
+          "properties": {
+            "hostnames": {"type": "boolean"},
+            "ip_addresses": {"type": "boolean"},
+            "vrf_names": {"type": "boolean"}
+          }
+        },
+        "preserve": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": ["vni", "vlan", "interface_name", "command_name"]
+          }
+        }
+      }
+    }
+  }
+}

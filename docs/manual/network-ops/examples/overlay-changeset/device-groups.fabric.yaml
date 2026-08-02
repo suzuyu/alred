@@ -1,0 +1,24 @@
+api_version: alred/v1
+kind: OverlayDeviceGroups
+metadata:
+  name: fabric-a
+spec:
+  device_groups:
+    vpc-leaf-pair-01:
+      devices:
+        - leaf01
+        - leaf02
+    vpc-leaf-pair-02:
+      devices:
+        - leaf03
+        - leaf04
+    server-leafs:
+      groups:
+        - vpc-leaf-pair-01
+    storage-leafs:
+      groups:
+        - vpc-leaf-pair-02
+    all-vtep-leafs:
+      groups:
+        - server-leafs
+        - storage-leafs

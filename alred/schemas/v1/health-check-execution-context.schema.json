@@ -1,0 +1,145 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://alred.local/schemas/v1/health-check-execution-context.schema.json",
+  "title": "HealthCheckExecutionContext",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["api_version", "kind", "metadata", "spec"],
+  "properties": {
+    "api_version": {"const": "alred/v1"},
+    "kind": {"const": "HealthCheckExecutionContext"},
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["change_id", "recorded_at", "timezone"],
+      "properties": {
+        "change_id": {"type": "string", "minLength": 1},
+        "recorded_at": {"type": "string", "format": "date-time"},
+        "timezone": {"type": "string", "minLength": 1}
+      }
+    },
+    "spec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "input_mode",
+        "inventory",
+        "policy",
+        "input_format",
+        "collection",
+        "authentication"
+      ],
+      "properties": {
+        "input_mode": {"enum": ["collect", "input"]},
+        "inventory": {
+          "oneOf": [
+            {"type": "null"},
+            {"$ref": "#/$defs/sourceFile"}
+          ]
+        },
+        "policy": {
+          "oneOf": [
+            {"type": "null"},
+            {"$ref": "#/$defs/sourceFile"}
+          ]
+        },
+        "input_format": {
+          "oneOf": [
+            {"type": "null"},
+            {"enum": ["alred-collect", "nxos-transcript"]}
+          ]
+        },
+        "collection": {
+          "oneOf": [
+            {"type": "null"},
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "transport",
+                "target_hosts",
+                "workers",
+                "show_read_timeout",
+                "skip_connect_check",
+                "connect_check_timeout"
+              ],
+              "properties": {
+                "transport": {"enum": ["auto", "nxapi", "ssh"]},
+                "target_hosts": {
+                  "type": "array",
+                  "items": {"type": "string", "minLength": 1},
+                  "uniqueItems": true
+                },
+                "workers": {"type": "integer", "minimum": 1},
+                "show_read_timeout": {"type": "integer", "minimum": 1},
+                "skip_connect_check": {"type": "boolean"},
+                "connect_check_timeout": {
+                  "type": "number",
+                  "exclusiveMinimum": 0
+                }
+              }
+            }
+          ]
+        },
+        "authentication": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "username",
+            "credentials_file",
+            "ask_pass",
+            "ask_become_pass",
+            "password_was_cli",
+            "enable_secret_was_cli"
+          ],
+          "properties": {
+            "username": {"type": ["string", "null"]},
+            "credentials_file": {"type": ["string", "null"]},
+            "ask_pass": {"type": "boolean"},
+            "ask_become_pass": {"type": "boolean"},
+            "password_was_cli": {"type": "boolean"},
+            "enable_secret_was_cli": {"type": "boolean"}
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {"input_mode": {"const": "collect"}}
+          },
+          "then": {
+            "properties": {
+              "inventory": {"$ref": "#/$defs/sourceFile"},
+              "input_format": {"type": "null"},
+              "collection": {"type": "object"}
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {"input_mode": {"const": "input"}}
+          },
+          "then": {
+            "properties": {
+              "input_format": {
+                "enum": ["alred-collect", "nxos-transcript"]
+              },
+              "collection": {"type": "null"}
+            }
+          }
+        }
+      ]
+    }
+  },
+  "$defs": {
+    "sourceFile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+      }
+    }
+  }
+}

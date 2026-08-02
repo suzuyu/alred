@@ -1,0 +1,4 @@
+interface:
+  display_name: "Release alred"
+  short_description: "Build and draft a verified alred GitHub release"
+  default_prompt: "Use $release-alred to build glibc 2.17 assets and prepare a draft release."

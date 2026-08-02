@@ -1,0 +1,25 @@
+api_version: alred/v1
+kind: NxosCapabilityRegistry
+metadata:
+  version: 1
+  updated_at: "2026-08-02T16:20:28+09:00"
+entries:
+  - model: N9K-C9300V
+    release: "10.5(4)"
+    role: vpc_vtep_leaf
+    level: APPLY_VERIFIED
+    capabilities:
+      - baseline_commands
+      - reload_pending
+      - new_l3vni
+      - bgp_vrf_af
+      - ipv6_link_local
+      - svi_mtu
+      - global_ir_bgp
+      - evpn_vni
+      - config_save
+      - rollback_diff
+    evidence:
+      change_id: HC-20260730T122608-p0900-bc53b8
+      workflow: qualification_completed
+      reviewed_at: "2026-08-02T16:20:28+09:00"

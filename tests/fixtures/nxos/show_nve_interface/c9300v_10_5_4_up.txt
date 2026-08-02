@@ -1,0 +1,5 @@
+Interface: nve1, State: Up, encapsulation: VXLAN
+ VPC Capability: VPC-VIP-Only [notified]
+ Local Router MAC: 0200.0000.0001
+ Host Learning Mode: Control-Plane
+ Source-Interface: loopback1 (primary: 192.0.2.11, secondary: 192.0.2.12)

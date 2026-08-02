@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://alred.local/schemas/v1/overlay-health-result.schema.json",
+  "title": "OverlayHealthResult",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "change_id", "source", "started_at", "completed_at", "result", "sections", "counts", "checks", "warnings", "conflicts", "convergence"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "change_id": {"type": "string", "minLength": 1},
+    "source": {"enum": ["discovered", "declared", "generated", "imported"]},
+    "started_at": {"type": "string", "format": "date-time"},
+    "completed_at": {"type": "string", "format": "date-time"},
+    "result": {"enum": ["VERIFIED", "OBSERVED_HEALTHY", "WARN", "FAIL", "UNKNOWN", "PLAN_ERROR"]},
+    "sections": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["configuration", "operational", "impact"],
+      "properties": {
+        "configuration": {"$ref": "#/$defs/check_result"},
+        "operational": {"$ref": "#/$defs/check_result"},
+        "impact": {"$ref": "#/$defs/check_result"}
+      }
+    },
+    "counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pass", "warn", "fail", "unknown", "not_applicable", "plan_error"],
+      "properties": {
+        "pass": {"type": "integer", "minimum": 0},
+        "warn": {"type": "integer", "minimum": 0},
+        "fail": {"type": "integer", "minimum": 0},
+        "unknown": {"type": "integer", "minimum": 0},
+        "not_applicable": {"type": "integer", "minimum": 0},
+        "plan_error": {"type": "integer", "minimum": 0}
+      }
+    },
+    "checks": {"type": "array", "items": {"$ref": "#/$defs/check"}},
+    "warnings": {"type": "array", "items": {"type": "object"}},
+    "conflicts": {"type": "array", "items": {"type": "object"}},
+    "convergence": {"type": ["object", "null"]}
+  },
+  "$defs": {
+    "check_result": {"enum": ["PASS", "WARN", "FAIL", "UNKNOWN", "NOT_APPLICABLE", "PLAN_ERROR"]},
+    "check": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["check_id", "section", "host", "resource", "result", "message", "evidence"],
+      "properties": {
+        "check_id": {"type": "string", "minLength": 1},
+        "section": {"enum": ["configuration", "operational", "impact"]},
+        "host": {"type": "string", "minLength": 1},
+        "resource": {"type": "string", "minLength": 1},
+        "result": {"$ref": "#/$defs/check_result"},
+        "message": {"type": "string"},
+        "evidence": {"type": "array", "items": {"type": "object"}}
+      }
+    }
+  }
+}

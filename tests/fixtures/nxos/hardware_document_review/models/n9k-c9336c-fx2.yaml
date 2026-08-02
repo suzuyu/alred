@@ -1,0 +1,16 @@
+model: N9K-C9336C-FX2
+release: "10.4(5)M"
+source_type: synthetic_document_review
+review_status: DOCUMENT_REVIEWED
+apply_allowed: false
+scenarios:
+  minimal:
+    forward: ../minimal_forward.cfg
+    rollback: ../minimal_rollback.cfg
+    forward_sha256: sha256:14ce7e94d16ae8ffebcd795e1e62bcddd83558e9733b995b049d98e0b100722d
+    rollback_sha256: sha256:4852c96d98a4e4c940048765a2d57bafe487dec656d6e008f175736b27b6d65e
+  dual_stack:
+    forward: ../dual_stack_forward.cfg
+    rollback: ../dual_stack_rollback.cfg
+    forward_sha256: sha256:26c12d4bed5a30bf5b5fe4d0b242899a4b65dca967180f6eca92395261bfbc68
+    rollback_sha256: sha256:423f0908f436dede6cc7f31a9c681c2da942186a2de36a73a7b7628896d0b79f

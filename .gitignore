@@ -1,8 +1,11 @@
 # Emacs
 \#*#
 
-# Credential
-*credential.json
+# Credentials and local secrets
+/*credential.json
+/*credentials*.json
+/clab_credentials.yaml
+/.secrets/
 
 # Local .terraform directories
 **/.terraform/*
@@ -36,13 +39,13 @@ override.tf.json
 # example: *tfplan*
 
 # ssh
-id_rsa*
+/id_rsa*
+/id_ed25519*
 
 # bak
 *.bak
 *.old
-old/*
-*bak*/*
+/old/
 
 # Cred
 *.cred
@@ -54,60 +57,75 @@ old/*
 # # tfvars
 # *.tfvars
 
-test/*
-
 # Local clab directories
-**/clab*/*
+/clab-*/
 
 # log file
-logs/*
+/logs/
 
-# copy file
-*copy*
-
-# env 
+# env
 .env
+.env.local
+.env.*.local
 
 # venv
-.venv/*
+/.venv/
 
 # build artifacts
-build/*
-dist/*
+/build/
+/dist/
 *.spec
 !alred.spec
 
-# uv lock file
-uv.lock
-
 # raw dir
-raw/*
+/raw/
 
 # output dir
-output/*
+/output/
 
 # generated local helper files
-.alred/*
+/.alred/
 
 # gen file
 hosts.yaml
 hosts.lab.yaml
 
 # test code
-test*
-!tests/
-!tests/test_design.py
-!tests/test_transform.py
+/test/
+test_dev.md
+test_line.cfg
+# !tests/
+# !tests/test_design.py
+# !tests/test_transform.py
 
-# vscode 
-.vscode*
+# Editor / OS
+/.vscode/
+/.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
 
 # sample
-samples/*
+/samples/
 
-# pycash
-*/__pycache__/*
-/__pycache__/*
+# Python cache / test / coverage
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.pyright/
+.hypothesis/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+.tox/
+.nox/
+*.egg-info/
+.eggs/
 
 # dev config
 main.tf
@@ -131,6 +149,8 @@ hosts.txt
 description_rules.yaml
 exclude-logging-string.txt
 logging-error-string.txt
+logging-excludes.yaml
+/desired-changes.yaml
 
 # codex
 .codex
@@ -142,3 +162,9 @@ logging-error-string.txt
 init_clab_hosts.txt
 clab_cables.csv
 sites.yaml
+
+# operation target, logs
+/operations/
+
+# support bundle output
+/support-bundles/

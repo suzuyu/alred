@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://alred.local/schemas/v1/health-profile-revision.schema.json",
+  "title": "HealthProfileRevision",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "change_id", "attempt_id", "revised_at", "reason", "previous", "revised", "changes"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "change_id": {"type": "string", "minLength": 1},
+    "attempt_id": {"type": "string", "minLength": 1},
+    "revised_at": {"type": "string", "format": "date-time"},
+    "reason": {"type": "string", "minLength": 1},
+    "previous": {"$ref": "#/$defs/profile"},
+    "revised": {"$ref": "#/$defs/profile"},
+    "changes": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "before", "after"],
+        "properties": {
+          "path": {"type": "string", "minLength": 1},
+          "before": {},
+          "after": {}
+        }
+      }
+    }
+  },
+  "$defs": {
+    "profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "effective_sha256", "profile_names"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "effective_sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "profile_names": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1}
+        }
+      }
+    }
+  }
+}

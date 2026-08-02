@@ -14,13 +14,14 @@ from getpass import getpass
 import json
 import math
 import os
+import sys
 import tarfile
 import time
 from logging import Logger
 from pathlib import Path
 import re
 import shutil
-from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Set, Tuple
 import xml.etree.ElementTree as ET
 
 from dotenv import load_dotenv
@@ -119,6 +120,70 @@ from .logging_check import (
     parse_last_window,
     render_check_logging_report,
 )
+from .managed_config import (
+    execute_config_session,
+    execute_save_session,
+)
+from .capability import (
+    CapabilityError,
+    evaluate_capability,
+    load_capability_registry,
+    required_overlay_capabilities,
+)
+from .qualification import (
+    QualificationError,
+    QualificationRequiredError,
+    build_qualification_summary,
+    create_qualification_record,
+    execute_qualification_apply,
+    execute_qualification_baseline_save,
+    execute_qualification_rollback,
+    load_qualification_record,
+    qualification_confirmation_phrase,
+    verify_qualification_rollback,
+)
+from .approval import (
+    ApprovalError,
+    ApprovalRequiredError,
+    build_approval_summary,
+    create_approval_record,
+    load_approval_record,
+)
+from .managed_operation import (
+    execute_approved_apply,
+    execute_approved_rollback,
+    execute_approved_rollback_save,
+    execute_approved_save,
+    verify_approved_rollback,
+)
+from .operation import (
+    DEFAULT_OPERATIONS_ROOT,
+    OperationError,
+    OperationInterruptGuard,
+    OperationLock,
+    OperationPathError,
+    OperationStateError,
+    atomic_write_bytes,
+    atomic_write_json,
+    atomic_write_yaml,
+    create_operation_workspace,
+    generate_attempt_id,
+    load_operation_execution,
+    load_operation_metadata,
+    now_in_timezone,
+    open_operation_workspace,
+    preflight_operation_workspace,
+    record_operation_error,
+    resolve_timezone_name,
+    assess_operation_lock,
+    transition_operation,
+    transition_phase,
+    transition_workflow,
+    read_operation_lock,
+    load_active_change,
+    resolve_active_change_for_after,
+    save_active_change,
+)
 from .parsing import (
     build_description_records,
     get_inventory_device_type,
@@ -151,14 +216,97 @@ from .render import (
 from .resources import (
     get_resource_dir,
 )
-from .templates import (
-    render_named_template_lines,
+from .schema import source_sha256, validate_document
+from .health.manifest import (
+    CollectionAdapterError,
+    build_collect_manifest,
+)
+from .health.snapshot import (
+    SnapshotBuildError,
+    build_health_snapshot,
+)
+from .health.evaluator import (
+    HealthEvaluationError,
+    compare_snapshots,
+    evaluate_snapshot,
+)
+from .health.profile import (
+    DEFAULT_HEALTH_PROFILE,
+    apply_logging_time_range_override,
+    ProfileResolutionError,
+    load_resolved_profiles,
+    resolve_profiles,
+)
+from .health.execution_context import (
+    CONTEXT_RELATIVE_PATH,
+    HealthExecutionContextError,
+    build_health_execution_context,
+    load_health_execution_context,
+    verify_source_file,
+)
+from .health.report import (
+    render_health_checklist,
+    render_health_summary,
+    render_overlay_summary,
+    terminal_result_lines,
+)
+from .health.vni_map import (
+    build_overlay_state,
+    compare_overlay_states,
+    overlay_diff_csv,
+    overlay_profile_enabled,
+    overlay_state_csv,
+    render_overlay_diff_markdown,
+    render_overlay_state_markdown,
+)
+from .health.overlay import (
+    OverlayDiscoveryError,
+    discover_overlay_changes,
+)
+from .health.overlay_evaluator import (
+    OverlayEvaluationError,
+    assess_overlay_convergence,
+    evaluate_overlay_change,
+)
+from .overlay_render import (
+    OverlayRenderError,
+    adapt_legacy_vni_add_records,
+    adapt_legacy_vni_delete_records,
+    render_changeset,
+    render_canonical_overlay_model,
+    resolve_changeset,
+    write_rendered_configs,
+)
+from .overlay_conflict import (
+    OverlayConflictError,
+    assess_overlay_conflicts,
+    render_conflict_report_markdown,
+    require_conflict_free,
+)
+from .preparation import (
+    ReferenceStateError,
+    select_reference_state,
+)
+from .device_groups import (
+    load_device_groups_file,
+    load_overlay_change_set,
+    write_overlay_plan_inputs,
+)
+from .health.transcript import (
+    TranscriptImportError,
+    import_nxos_transcripts,
 )
 from .transform import (
     parse_mgmt_ipv4_subnet,
     resolve_node_map_management_ip,
     transform_inventory_mgmt_subnet,
     transform_run_config_text,
+)
+from .support_bundle import (
+    SupportBundleError,
+    create_support_bundle,
+    inspect_support_bundle,
+    verify_support_bundle_manifest,
 )
 from .topology import (
     build_node_definitions_from_links,
@@ -822,37 +970,21 @@ def push_config_to_host(
             return
 
         logger.info("PUSH CONFIG %s: lines=%d", hostname, len(filtered_lines))
-        outputs: List[str] = []
-        applied_count = 0
-        for idx, line in enumerate(filtered_lines, start=1):
-            try:
-                out = conn.send_config_set(
-                    [line],
-                    read_timeout=120,
-                    enter_config_mode=(idx == 1),
-                    exit_config_mode=False,
-                )
-                outputs.append(out.rstrip())
-                applied_count = idx
-            except Exception as exc:
-                logger.info(
-                    "PUSH ERROR %s: applied_lines=%d/%d failed_line=%d command=%s error=%s",
-                    hostname,
-                    applied_count,
-                    len(filtered_lines),
-                    idx,
-                    line,
-                    exc,
-                )
-                raise
-
-        try:
-            conn.exit_config_mode()
-        except Exception:
-            # Best effort: disconnect in finally will close the session.
-            pass
-
-        logger.debug("PUSH RESULT %s:\n%s", hostname, "\n".join(outputs).rstrip())
+        result = execute_config_session(
+            conn,
+            filtered_lines,
+            now=lambda: datetime.now().astimezone(),
+            detect_cli_errors=False,
+            raise_transport_errors=True,
+        )
+        logger.debug(
+            "PUSH RESULT %s:\n%s",
+            hostname,
+            "\n".join(
+                item["response"] for item in result["commands"]
+                if item["response"]
+            ).rstrip(),
+        )
     finally:
         conn.disconnect()
         logger.info("DISCONNECT %s", hostname)
@@ -875,20 +1007,16 @@ def save_config_on_host(
     conn = connect_to_host(host, username, password, enable_secret, logger)
     try:
         logger.info("SAVE CONFIG %s: %s", hostname, save_cmd)
-        prompt = conn.find_prompt()
-        save_out = conn.send_command(
-            save_cmd,
-            expect_string=re.escape(prompt),
-            read_timeout=180,
-            auto_find_prompt=False,
-            strip_prompt=False,
-            strip_command=False,
-            cmd_verify=False,
+        result = execute_save_session(
+            conn,
+            command=save_cmd,
+            success_marker=success_marker,
+            now=lambda: datetime.now().astimezone(),
         )
-        logger.debug("SAVE RESULT %s:\n%s", hostname, save_out.rstrip())
-        if success_marker and success_marker not in save_out:
+        logger.debug("SAVE RESULT %s:\n%s", hostname, result["response"])
+        if result["status"] != "SUCCESS":
             raise RuntimeError(
-                f"save command did not return success marker {success_marker!r}: {save_out.strip()!r}"
+                result["error"] or "save command failed"
             )
     finally:
         conn.disconnect()
@@ -6053,47 +6181,10 @@ def build_vni_add_render_context(
     """
     Build Jinja2 render context for add config.
     """
-    sorted_records = sort_device_vni_records(records)
-    existing_before_records = existing_before_records or []
-    existing_l3_keys = {
-        (record.get("vrf", ""), record.get("l3vni", ""))
-        for record in existing_before_records
-        if record.get("vrf", "") and record.get("l3vni", "")
-    }
-    existing_l2vnis = {
-        record.get("l2vni", "")
-        for record in existing_before_records
-        if record.get("l2vni", "")
-    }
-    emitted_l3: Set[tuple[str, str]] = set()
-    emitted_l2: Set[str] = set()
-    l3vnis: List[Dict[str, str]] = []
-    evpn_l2vnis: List[str] = []
-    nve_l3vnis: List[str] = []
-
-    for record in sorted_records:
-        vrf = record.get("vrf", "")
-        l3vni = record.get("l3vni", "")
-        key = (vrf, l3vni)
-        if vrf and l3vni and key not in emitted_l3 and key not in existing_l3_keys:
-            l3vnis.append({"vrf": vrf, "l3vni": l3vni})
-            nve_l3vnis.append(l3vni)
-            emitted_l3.add(key)
-
-    for record in sorted_records:
-        l2vni = record.get("l2vni", "")
-        if l2vni and l2vni not in emitted_l2 and l2vni not in existing_l2vnis:
-            evpn_l2vnis.append(l2vni)
-            emitted_l2.add(l2vni)
-
-    return {
-        "l3vnis": l3vnis,
-        "evpn_l2vnis": evpn_l2vnis,
-        "vlans": sorted_records,
-        "svis": sorted_records,
-        "nve_members": [record.get("l2vni", "") for record in sorted_records if record.get("l2vni", "")],
-        "nve_l3vnis": nve_l3vnis,
-    }
+    return adapt_legacy_vni_add_records(
+        records,
+        existing_before_records,
+    )["context"]
 
 
 def render_vni_add_config_lines(
@@ -6103,9 +6194,8 @@ def render_vni_add_config_lines(
     """
     Render NX-OS add config lines for VNI gateway records.
     """
-    return render_named_template_lines(
-        "vni_add_config.j2",
-        build_vni_add_render_context(records, existing_before_records=existing_before_records),
+    return render_canonical_overlay_model(
+        adapt_legacy_vni_add_records(records, existing_before_records)
     )
 
 
@@ -6116,32 +6206,10 @@ def build_vni_delete_render_context(
     """
     Build Jinja2 render context for delete config.
     """
-    sorted_delete_records = sort_device_vni_records(records_to_delete)
-    remaining_l3 = {(r.get("vrf", ""), r.get("l3vni", "")) for r in remaining_after_records}
-    remaining_l2 = {r.get("l2vni", "") for r in remaining_after_records if r.get("l2vni", "")}
-    removed_l3_done: Set[tuple[str, str]] = set()
-    removed_l2_done: Set[str] = set()
-    l3vnis: List[Dict[str, str]] = []
-    evpn_l2vnis: List[str] = []
-
-    for record in sorted_delete_records:
-        l2vni = record.get("l2vni", "")
-        if l2vni and l2vni not in remaining_l2 and l2vni not in removed_l2_done:
-            evpn_l2vnis.append(l2vni)
-            removed_l2_done.add(l2vni)
-
-    for record in sorted_delete_records:
-        l3_key = (record.get("vrf", ""), record.get("l3vni", ""))
-        if l3_key[0] and l3_key[1] and l3_key not in remaining_l3 and l3_key not in removed_l3_done:
-            l3vnis.append({"vrf": l3_key[0], "l3vni": l3_key[1]})
-            removed_l3_done.add(l3_key)
-
-    return {
-        "nve_members": [record.get("l2vni", "") for record in sorted_delete_records if record.get("l2vni", "")],
-        "evpn_l2vnis": evpn_l2vnis,
-        "vlans": [record.get("vlan", "") for record in sorted_delete_records if record.get("vlan", "")],
-        "l3vnis": l3vnis,
-    }
+    return adapt_legacy_vni_delete_records(
+        records_to_delete,
+        remaining_after_records,
+    )["context"]
 
 
 def render_vni_delete_config_lines(
@@ -6151,9 +6219,11 @@ def render_vni_delete_config_lines(
     """
     Render NX-OS delete config lines for VNI gateway records.
     """
-    return render_named_template_lines(
-        "vni_delete_config.j2",
-        build_vni_delete_render_context(records_to_delete, remaining_after_records),
+    return render_canonical_overlay_model(
+        adapt_legacy_vni_delete_records(
+            records_to_delete,
+            remaining_after_records,
+        )
     )
 
 
@@ -7212,6 +7282,4539 @@ def cmd_clab_set_cmds(args: argparse.Namespace) -> None:
         handler(step_args)
 
 
+def _operation_cli_error(exc: Exception) -> None:
+    code = getattr(exc, "code", "VALIDATION_ERROR")
+    print(f"{code}: {exc}", file=sys.stderr)
+    raise SystemExit(2)
+
+
+def _operation_recommended_action(
+    lifecycle: str,
+    workflow_state: str | None,
+    lock_present: bool,
+) -> str:
+    if lock_present:
+        return "Inspect the lock owner and wait; do not remove the lock automatically."
+    if lifecycle == "created":
+        return "Start the next planned phase."
+    if lifecycle == "running":
+        return "Inspect execution history before resuming."
+    if lifecycle == "waiting_for_user":
+        return "Review the pending decision or approval."
+    if lifecycle in {"failed", "state_unknown"}:
+        return "Reconcile actual state and create a new plan before apply."
+    if workflow_state == "rollback_required":
+        return "Review the approved rollback plan."
+    return "No mutating action is recommended."
+
+
+def cmd_operation_status(args: argparse.Namespace) -> None:
+    """Print concise common operation state without modifying the workspace."""
+    try:
+        workspace = open_operation_workspace(
+            args.operations_root,
+            args.change_id,
+        )
+        metadata = load_operation_metadata(workspace.operation_root)
+        execution = load_operation_execution(workspace.operation_root)
+        lock_data, lock_warning = read_operation_lock(workspace.operation_root)
+        preflight = preflight_operation_workspace(workspace)
+    except Exception as exc:
+        _operation_cli_error(exc)
+        return
+
+    last_transition = metadata["spec"]["last_transition"]
+    print("=== OPERATION STATUS ===")
+    print(f"Change ID      : {workspace.change_id}")
+    print(f"Lifecycle      : {metadata['spec']['lifecycle']}")
+    print(f"Workflow       : {metadata['spec']['workflow_state'] or '-'}")
+    print(f"Timezone       : {metadata['metadata']['timezone']}")
+    print(f"Output         : {workspace.operation_root}")
+    if lock_data:
+        lock_findings = assess_operation_lock(lock_data)
+        print(
+            "Lock           : "
+            f"held operation={lock_data['operation']} "
+            f"pid={lock_data['pid']} host={lock_data['hostname']}"
+        )
+        for finding in lock_findings:
+            print(f"Lock note      : {finding}")
+    elif lock_warning:
+        print(f"Lock           : invalid ({lock_warning})")
+    else:
+        print("Lock           : not held")
+    print(
+        "Last transition: "
+        f"{last_transition['scope']} "
+        f"{last_transition['from'] or '-'} -> {last_transition['to']} "
+        f"at {last_transition['at']}"
+    )
+    print(f"Transitions    : {len(execution['transitions'])}")
+    print(
+        "Preflight      : "
+        f"{'PASS' if preflight.ok else 'WARN/FAIL'} "
+        f"filesystem={preflight.filesystem_type or 'unknown'}"
+    )
+    print(
+        "Recommended    : "
+        + _operation_recommended_action(
+            metadata["spec"]["lifecycle"],
+            metadata["spec"]["workflow_state"],
+            lock_data is not None or lock_warning is not None,
+        )
+    )
+
+
+def cmd_operation_inspect(args: argparse.Namespace) -> None:
+    """Print operation artifacts and transition history read-only."""
+    try:
+        workspace = open_operation_workspace(
+            args.operations_root,
+            args.change_id,
+        )
+        metadata = load_operation_metadata(workspace.operation_root)
+        execution = load_operation_execution(workspace.operation_root)
+        lock_data, lock_warning = read_operation_lock(workspace.operation_root)
+    except Exception as exc:
+        _operation_cli_error(exc)
+        return
+
+    approval_files = sorted(
+        (workspace.operation_root / "approval").glob("approval-record*.json")
+    ) if (workspace.operation_root / "approval").is_dir() else []
+    print("=== OPERATION INSPECT ===")
+    print(f"Change ID       : {workspace.change_id}")
+    print(f"Metadata SHA-256: {source_sha256(workspace.metadata_path)}")
+    print(f"Execution SHA-256: {source_sha256(workspace.execution_path)}")
+    print(f"Approvals       : {len(approval_files)}")
+    for approval_path in approval_files:
+        print(f"  - {approval_path}")
+    if lock_data:
+        print("Lock:")
+        print(json.dumps(lock_data, ensure_ascii=False, indent=2, sort_keys=True))
+    elif lock_warning:
+        print(f"Lock warning: {lock_warning}")
+    else:
+        print("Lock: not held")
+    print("Phases:")
+    if metadata["spec"]["phases"]:
+        for phase, phase_data in sorted(metadata["spec"]["phases"].items()):
+            print(
+                f"  - {phase}: {phase_data['status']} "
+                f"attempt={phase_data['current_attempt'] or '-'}"
+            )
+    else:
+        print("  - none")
+    print("Transitions:")
+    for transition in execution["transitions"]:
+        print(
+            f"  - {transition['at']} {transition['scope']}: "
+            f"{transition['from'] or '-'} -> {transition['to']} "
+            f"({transition['reason'] or '-'})"
+        )
+    print(f"Errors: {len(execution['errors'])}")
+
+
+def _parse_named_artifacts(values: List[str] | None) -> Dict[str, str]:
+    artifacts: Dict[str, str] = {}
+    for raw in values or []:
+        name, separator, path = raw.partition("=")
+        if not separator or not name or not path:
+            raise ApprovalError(
+                "--artifact must use NAME=PATH"
+            )
+        if not re.fullmatch(r"[a-z][a-z0-9_]*", name):
+            raise ApprovalError(
+                "artifact NAME must use lowercase letters, digits, and '_'"
+            )
+        if name in artifacts:
+            raise ApprovalError(f"duplicate artifact name: {name}")
+        artifacts[name] = path
+    return artifacts
+
+
+def cmd_overlay_change_approve(args: argparse.Namespace) -> None:
+    """Create an interactive approval record for exact plan hashes."""
+    try:
+        workspace = open_operation_workspace(
+            args.operations_root,
+            args.change_id,
+        )
+        plan_path = args.plan or (
+            workspace.operation_root / "plan" / "execution-plan.json"
+        )
+        rollback_plan_path = args.rollback_plan or (
+            workspace.operation_root / "plan" / "rollback-plan.json"
+        )
+        artifacts = _parse_named_artifacts(args.artifact)
+        summary = build_approval_summary(
+            workspace,
+            plan_path=plan_path,
+            rollback_plan_path=rollback_plan_path,
+            artifacts=artifacts,
+            max_devices=args.max_devices,
+            save_on_success=args.save_on_success,
+            rollback_policy=args.rollback_policy,
+        )
+        preflight = preflight_operation_workspace(
+            workspace,
+            device_count=summary["device_count"],
+            for_apply=True,
+        )
+        if not preflight.ok:
+            details = "; ".join(
+                f"{issue.code}: {issue.message}"
+                for issue in preflight.issues
+                if issue.severity == "ERROR"
+            )
+            raise ApprovalError(f"operation preflight failed: {details}")
+        if not sys.stdin.isatty() or not sys.stdout.isatty():
+            raise ApprovalRequiredError(
+                "approval requires an interactive TTY; pipes and --yes are unsupported"
+            )
+
+        print("=== OVERLAY CHANGE APPROVAL ===")
+        print(f"Change ID: {workspace.change_id}")
+        print("Artifacts:")
+        for name, digest in sorted(summary["artifacts"].items()):
+            print(f"  - {name}: {summary['paths'][name]}")
+            print(f"    {digest}")
+        print("Constraints:")
+        for name, value in sorted(summary["constraints"].items()):
+            print(f"  - {name}: {value}")
+
+        def confirm(_summary: Dict[str, Any]) -> bool:
+            return input("Type 'yes' to approve: ").strip().lower() == "yes"
+
+        with OperationLock(workspace, "approve") as lock:
+            output_path = create_approval_record(
+                workspace,
+                summary,
+                lock=lock,
+                confirm=confirm,
+                approval_hours=args.approval_hours,
+            )
+        print(f"Approval: {output_path}")
+    except (ApprovalError, OperationError, ValueError, OSError) as exc:
+        _operation_cli_error(exc)
+
+
+def cmd_overlay_change_qualify_approve(args: argparse.Namespace) -> None:
+    """Approve an exact PLAN_ONLY candidate for initial 9000v qualification."""
+    try:
+        workspace = open_operation_workspace(
+            args.operations_root,
+            args.change_id,
+        )
+        root = workspace.operation_root
+        qualification_plan_path = Path(
+            args.plan or root / "plan/execution-plan.json"
+        )
+        qualification_plan = json.loads(
+            qualification_plan_path.read_text(encoding="utf-8")
+        )
+        default_change_set = qualification_plan.get("artifacts", {}).get(
+            "change_set",
+            root / "desired-changes.yaml",
+        )
+        summary = build_qualification_summary(
+            workspace,
+            plan_path=qualification_plan_path,
+            rollback_plan_path=(
+                args.rollback_plan or root / "plan/rollback-plan.json"
+            ),
+            before_snapshot_path=(
+                args.before_snapshot or root / "health/before/snapshot.json"
+            ),
+            before_health_result_path=(
+                args.before_health_result
+                or root / "health/before/health-result.json"
+            ),
+            change_set_path=args.change_set or default_change_set,
+            render_manifest_path=(
+                args.render_manifest or root / "plan/render-manifest.json"
+            ),
+            inventory_path=args.hosts,
+        )
+        preflight = preflight_operation_workspace(
+            workspace,
+            device_count=len(summary["target"]["devices"]),
+            for_apply=True,
+        )
+        if not preflight.ok:
+            details = "; ".join(
+                f"{issue.code}: {issue.message}"
+                for issue in preflight.issues
+                if issue.severity == "ERROR"
+            )
+            raise QualificationError(
+                f"operation preflight failed: {details}"
+            )
+        if not sys.stdin.isatty() or not sys.stdout.isatty():
+            raise QualificationRequiredError(
+                "qualification approval requires an interactive TTY"
+            )
+
+        phrase = qualification_confirmation_phrase(summary)
+        print("=== INITIAL LAB QUALIFICATION APPROVAL ===")
+        print(f"Change ID : {workspace.change_id}")
+        print(f"Target    : {summary['target']['model']} "
+              f"{summary['target']['release']}")
+        print("Devices   : " + ", ".join(summary["target"]["devices"]))
+        print("Save      : disabled for initial apply")
+        print("Rollback  : manual")
+        print("Pinned artifacts:")
+        for name, artifact in sorted(summary["artifacts"].items()):
+            print(f"  - {name}: {artifact['path']}")
+            print(f"    {artifact['sha256']}")
+
+        def confirm(expected: str) -> str:
+            print("Type the exact qualification phrase:")
+            print(expected)
+            return input("> ").strip()
+
+        with OperationLock(workspace, "qualify-approve") as lock:
+            output_path = create_qualification_record(
+                workspace,
+                summary,
+                lock=lock,
+                confirm=confirm,
+                approval_hours=args.approval_hours,
+            )
+        print(f"Qualification record: {output_path}")
+        print("Device configuration has not been sent.")
+    except (
+        QualificationError,
+        OperationError,
+        ValueError,
+        OSError,
+    ) as exc:
+        _operation_cli_error(exc)
+
+
+def cmd_overlay_change_apply(args: argparse.Namespace) -> int:
+    """Execute an interactively approved APPLY_VERIFIED plan."""
+    try:
+        workspace = open_operation_workspace(
+            args.operations_root,
+            args.change_id,
+        )
+        root = workspace.operation_root
+        plan_path = Path(args.approved_plan or root / "plan/execution-plan.json")
+        rollback_path = Path(
+            args.approved_rollback_plan or root / "plan/rollback-plan.json"
+        )
+        plan = json.loads(plan_path.read_text(encoding="utf-8"))
+        inventory_path = Path(plan["artifacts"]["inventory"])
+        inventory = load_inventory_data(load_yaml(str(inventory_path)))
+        inventory_hosts = {
+            str(host["hostname"]): host for host in inventory
+        }
+        approval = load_approval_record(
+            args.approval_record or root / "approval/approval-record.json"
+        )
+        if not sys.stdin.isatty() or not sys.stdout.isatty():
+            raise ApprovalRequiredError("apply requires an interactive TTY")
+        phrase = f"APPLY {workspace.change_id}"
+        print("=== APPROVED OVERLAY APPLY ===")
+        print(f"Change ID : {workspace.change_id}")
+        print("Devices   : " + ", ".join(plan["devices"]))
+        print("Serial    : 1")
+        print("Save      : after health only")
+        print("Type the exact apply phrase:")
+        print(phrase)
+        if input("> ").strip() != phrase:
+            raise ApprovalRequiredError("exact apply phrase was not provided")
+        logger = setup_logging(
+            args.log_file or str(root / "apply/apply.log"),
+            args.verbose,
+        )
+
+        def connect(hostname: str) -> Any:
+            host = inventory_hosts[hostname]
+            username, password, enable_secret = get_credentials_for_device(
+                args,
+                str(host.get("device_type", "")),
+                host,
+            )
+            return connect_to_host(
+                host, username, password, enable_secret, logger
+            )
+
+        with OperationLock(workspace, "overlay-change-apply") as lock:
+            with OperationInterruptGuard(
+                workspace, lock, phase="approved_apply"
+            ) as guard:
+                execution = execute_approved_apply(
+                    workspace,
+                    approval,
+                    plan_path=plan_path,
+                    rollback_plan_path=rollback_path,
+                    inventory_hosts=inventory_hosts,
+                    connect=connect,
+                    disconnect=lambda connection: connection.disconnect(),
+                    lock=lock,
+                    now=lambda: now_in_timezone(workspace.timezone),
+                    interrupt_guard=guard,
+                )
+        print(f"Execution : {root / 'apply/execution.json'}")
+        for host, result in execution["status"]["devices"].items():
+            print(f"- {host}: {result['status']}")
+        print(f"Result    : {execution['status']['result']}")
+        return 0 if execution["status"]["result"] == "APPLIED_PENDING_HEALTH" else 4
+    except (
+        ApprovalError,
+        QualificationError,
+        OperationError,
+        ValueError,
+        OSError,
+    ) as exc:
+        _operation_cli_error(exc)
+        return 2
+
+
+def cmd_overlay_change_rollback(args: argparse.Namespace) -> int:
+    """Execute an approved manual rollback without saving."""
+    try:
+        workspace = open_operation_workspace(
+            args.operations_root, args.change_id
+        )
+        root = workspace.operation_root
+        plan_path = Path(args.approved_plan or root / "plan/execution-plan.json")
+        rollback_path = Path(
+            args.approved_rollback_plan or root / "plan/rollback-plan.json"
+        )
+        plan = json.loads(plan_path.read_text(encoding="utf-8"))
+        inventory_path = Path(plan["artifacts"]["inventory"])
+        inventory = load_inventory_data(load_yaml(str(inventory_path)))
+        inventory_hosts = {
+            str(host["hostname"]): host for host in inventory
+        }
+        approval = load_approval_record(
+            args.approval_record or root / "approval/approval-record.json"
+        )
+        current_snapshot = Path(
+            args.current_snapshot or root / "health/after/snapshot.json"
+        )
+        if not sys.stdin.isatty() or not sys.stdout.isatty():
+            raise ApprovalRequiredError("rollback requires an interactive TTY")
+        phrase = f"ROLLBACK {workspace.change_id}"
+        print("=== APPROVED OVERLAY ROLLBACK ===")
+        print(f"Change ID : {workspace.change_id}")
+        print(f"Snapshot  : {current_snapshot}")
+        print("Serial    : 1 (reverse order)")
+        print("Save      : disabled")
+        print("Type the exact rollback phrase:")
+        print(phrase)
+        if input("> ").strip() != phrase:
+            raise ApprovalRequiredError(
+                "exact rollback phrase was not provided"
+            )
+        logger = setup_logging(
+            args.log_file or str(root / "rollback/rollback.log"),
+            args.verbose,
+        )
+
+        def connect(hostname: str) -> Any:
+            host = inventory_hosts[hostname]
+            username, password, enable_secret = get_credentials_for_device(
+                args,
+                str(host.get("device_type", "")),
+                host,
+            )
+            return connect_to_host(
+                host, username, password, enable_secret, logger
+            )
+
+        with OperationLock(workspace, "overlay-change-rollback") as lock:
+            with OperationInterruptGuard(
+                workspace, lock, phase="approved_rollback"
+            ) as guard:
+                execution = execute_approved_rollback(
+                    workspace,
+                    approval,
+                    plan_path=plan_path,
+                    rollback_plan_path=rollback_path,
+                    current_snapshot_path=current_snapshot,
+                    inventory_hosts=inventory_hosts,
+                    connect=connect,
+                    disconnect=lambda connection: connection.disconnect(),
+                    lock=lock,
+                    now=lambda: now_in_timezone(workspace.timezone),
+                    interrupt_guard=guard,
+                )
+        print(f"Execution : {root / 'rollback/execution.json'}")
+        for host, result in execution["status"]["devices"].items():
+            print(f"- {host}: {result['status']}")
+        print(f"Result    : {execution['status']['result']}")
+        print("Next      : run health-check rollback")
+        return (
+            0
+            if execution["status"]["result"]
+            == "ROLLED_BACK_PENDING_HEALTH"
+            else 4
+        )
+    except (
+        ApprovalError,
+        QualificationError,
+        OperationError,
+        ValueError,
+        OSError,
+    ) as exc:
+        _operation_cli_error(exc)
+        return 2
+
+
+def cmd_overlay_change_save(args: argparse.Namespace) -> int:
+    """Save an approved, health-verified Overlay apply."""
+    try:
+        save_mode = getattr(args, "save_mode", "apply")
+        workspace = open_operation_workspace(
+            args.operations_root, args.change_id
+        )
+        root = workspace.operation_root
+        plan_path = Path(args.approved_plan or root / "plan/execution-plan.json")
+        rollback_path = Path(
+            args.approved_rollback_plan or root / "plan/rollback-plan.json"
+        )
+        plan = json.loads(plan_path.read_text(encoding="utf-8"))
+        inventory_path = Path(plan["artifacts"]["inventory"])
+        inventory = load_inventory_data(load_yaml(str(inventory_path)))
+        inventory_hosts = {
+            str(host["hostname"]): host for host in inventory
+        }
+        approval = load_approval_record(
+            args.approval_record or root / "approval/approval-record.json"
+        )
+        snapshot = Path(
+            args.after_snapshot
+            or root
+            / "health"
+            / ("after" if save_mode == "apply" else "rollback")
+            / "snapshot.json"
+        )
+        targets = [
+            host
+            for host, item in plan["devices"].items()
+            if item["status"] == "PLANNED"
+        ]
+        preflight = preflight_operation_workspace(
+            workspace,
+            device_count=len(targets),
+            for_apply=True,
+        )
+        if not preflight.ok:
+            details = "; ".join(
+                f"{issue.code}: {issue.message}"
+                for issue in preflight.issues
+                if issue.severity == "ERROR"
+            )
+            raise QualificationError(
+                f"operation preflight failed: {details}"
+            )
+        logger = setup_logging(
+            args.log_file
+            or str(root / save_mode / "save.log"),
+            args.verbose,
+        )
+
+        def connect(hostname: str) -> Any:
+            host = inventory_hosts[hostname]
+            username, password, enable_secret = get_credentials_for_device(
+                args,
+                str(host.get("device_type", "")),
+                host,
+            )
+            return connect_to_host(
+                host, username, password, enable_secret, logger
+            )
+
+        print(
+            "=== APPROVED OVERLAY "
+            + ("SAVE" if save_mode == "apply" else "ROLLBACK SAVE")
+            + " ==="
+        )
+        print(f"Change ID : {workspace.change_id}")
+        print("Devices   : " + ", ".join(targets))
+        print(f"Snapshot  : {snapshot}")
+        print("Approval  : save_on_success=true")
+        print("Serial    : 1")
+        print("Retry     : disabled")
+        with OperationLock(workspace, "overlay-change-save") as lock:
+            with OperationInterruptGuard(
+                workspace, lock, phase="approved_save"
+            ) as guard:
+                save_executor = (
+                    execute_approved_save
+                    if save_mode == "apply"
+                    else execute_approved_rollback_save
+                )
+                execution = save_executor(
+                    workspace,
+                    approval,
+                    plan_path=plan_path,
+                    rollback_plan_path=rollback_path,
+                    after_snapshot_path=snapshot,
+                    inventory_hosts=inventory_hosts,
+                    connect=connect,
+                    disconnect=lambda connection: connection.disconnect(),
+                    save_command=get_save_config_command("nxos"),
+                    success_marker=get_save_config_success_marker("nxos"),
+                    lock=lock,
+                    now=lambda: now_in_timezone(workspace.timezone),
+                    interrupt_guard=guard,
+                )
+        print(
+            f"Execution : "
+            f"{root / save_mode / 'save-execution.json'}"
+        )
+        for host, result in execution["status"]["devices"].items():
+            print(f"- {host}: {result['status']}")
+            print(
+                f"  log={root / save_mode / 'devices' / host / 'save.log'}"
+            )
+        print(f"Result    : {execution['status']['result']}")
+        return (
+            0
+            if execution["status"]["result"]
+            in {"APPLIED_AND_VERIFIED", "ROLLED_BACK_AND_SAVED"}
+            else 5
+        )
+    except (
+        ApprovalError,
+        QualificationError,
+        OperationError,
+        ValueError,
+        OSError,
+    ) as exc:
+        _operation_cli_error(exc)
+        return 2
+
+
+def cmd_overlay_change_qualify(args: argparse.Namespace) -> int:
+    """Execute an approved initial 9000v qualification without saving."""
+    try:
+        workspace = open_operation_workspace(
+            args.operations_root,
+            args.change_id,
+        )
+        record_path = (
+            Path(args.qualification_record)
+            if args.qualification_record
+            else workspace.operation_root
+            / "qualification"
+            / "qualification-record.json"
+        )
+        record = load_qualification_record(record_path)
+        pinned_inventory = Path(
+            record["artifacts"]["inventory"]["path"]
+        ).resolve()
+        requested_inventory = Path(args.hosts).resolve()
+        if requested_inventory != pinned_inventory:
+            raise QualificationError(
+                "--hosts must match the inventory pinned by qualification"
+            )
+        inventory_data = load_yaml(str(requested_inventory))
+        inventory_list = load_inventory_data(inventory_data)
+        inventory_hosts = {
+            str(host["hostname"]): host for host in inventory_list
+        }
+        target_devices = list(record["target"]["devices"])
+        preflight = preflight_operation_workspace(
+            workspace,
+            device_count=len(target_devices),
+            for_apply=True,
+        )
+        if not preflight.ok:
+            details = "; ".join(
+                f"{issue.code}: {issue.message}"
+                for issue in preflight.issues
+                if issue.severity == "ERROR"
+            )
+            raise QualificationError(
+                f"operation preflight failed: {details}"
+            )
+        if not sys.stdin.isatty() or not sys.stdout.isatty():
+            raise QualificationRequiredError(
+                "qualification apply requires an interactive TTY"
+            )
+
+        print("=== INITIAL LAB QUALIFICATION APPLY ===")
+        print(f"Change ID : {workspace.change_id}")
+        print(f"Target    : {record['target']['model']} "
+              f"{record['target']['release']}")
+        print("Devices   : " + ", ".join(target_devices))
+        print("Serial    : 1")
+        print("Save      : disabled")
+        print("Retry     : disabled")
+        print("Rollback  : manual")
+        phrase = f"APPLY-QUALIFICATION {workspace.change_id}"
+        print("Type the exact execution phrase:")
+        print(phrase)
+        if input("> ").strip() != phrase:
+            raise QualificationRequiredError(
+                "exact qualification execution phrase was not provided"
+            )
+
+        logger = setup_logging(
+            args.log_file
+            or str(
+                workspace.operation_root
+                / "qualification"
+                / "apply"
+                / "apply.log"
+            ),
+            args.verbose,
+        )
+
+        def connect(hostname: str) -> Any:
+            host = inventory_hosts[hostname]
+            username, password, enable_secret = get_credentials_for_device(
+                args,
+                str(host.get("device_type", "")),
+                host,
+            )
+            return connect_to_host(
+                host,
+                username,
+                password,
+                enable_secret,
+                logger,
+            )
+
+        with OperationLock(workspace, "qualify") as lock:
+            with OperationInterruptGuard(
+                workspace,
+                lock,
+                phase="qualification_apply",
+            ) as interrupt_guard:
+                execution = execute_qualification_apply(
+                    workspace,
+                    record,
+                    inventory_hosts=inventory_hosts,
+                    connect=connect,
+                    disconnect=lambda connection: connection.disconnect(),
+                    lock=lock,
+                    now=lambda: now_in_timezone(workspace.timezone),
+                    interrupt_guard=interrupt_guard,
+                )
+        print("Qualification execution:")
+        print(
+            workspace.operation_root
+            / "qualification"
+            / "apply"
+            / "execution.json"
+        )
+        for host, result in execution["status"]["devices"].items():
+            print(
+                f"- {host}: {result['status']} "
+                f"commands={len(result['commands'])}"
+            )
+        print(f"Result: {execution['status']['result']}")
+        print("Configuration save: SKIPPED")
+        print("Next: run after Health Check before any save decision.")
+        return (
+            0
+            if execution["status"]["result"] == "APPLIED_PENDING_HEALTH"
+            else 4
+        )
+    except (
+        QualificationError,
+        OperationError,
+        ValueError,
+        OSError,
+    ) as exc:
+        _operation_cli_error(exc)
+        return 2
+
+
+def cmd_overlay_change_qualify_rollback(args: argparse.Namespace) -> int:
+    """Execute the pinned qualification rollback without saving."""
+    try:
+        workspace = open_operation_workspace(
+            args.operations_root,
+            args.change_id,
+        )
+        record_path = (
+            Path(args.qualification_record)
+            if args.qualification_record
+            else workspace.operation_root
+            / "qualification"
+            / "qualification-record.json"
+        )
+        record = load_qualification_record(record_path)
+        pinned_inventory = Path(
+            record["artifacts"]["inventory"]["path"]
+        ).resolve()
+        requested_inventory = Path(args.hosts).resolve()
+        if requested_inventory != pinned_inventory:
+            raise QualificationError(
+                "--hosts must match the inventory pinned by qualification"
+            )
+        current_snapshot = (
+            Path(args.current_snapshot)
+            if args.current_snapshot
+            else workspace.operation_root / "health" / "after" / "snapshot.json"
+        )
+        inventory_data = load_yaml(str(requested_inventory))
+        inventory_list = load_inventory_data(inventory_data)
+        inventory_hosts = {
+            str(host["hostname"]): host for host in inventory_list
+        }
+        target_devices = list(reversed(record["target"]["devices"]))
+        preflight = preflight_operation_workspace(
+            workspace,
+            device_count=len(target_devices),
+            for_apply=True,
+        )
+        if not preflight.ok:
+            details = "; ".join(
+                f"{issue.code}: {issue.message}"
+                for issue in preflight.issues
+                if issue.severity == "ERROR"
+            )
+            raise QualificationError(
+                f"operation preflight failed: {details}"
+            )
+        if not sys.stdin.isatty() or not sys.stdout.isatty():
+            raise QualificationRequiredError(
+                "qualification rollback requires an interactive TTY"
+            )
+
+        print("=== INITIAL LAB QUALIFICATION ROLLBACK ===")
+        print(f"Change ID : {workspace.change_id}")
+        print("Devices   : " + ", ".join(target_devices))
+        print(f"Snapshot  : {current_snapshot}")
+        print("Serial    : 1 (reverse device order)")
+        print("Save      : disabled")
+        print("Retry     : disabled")
+        phrase = f"ROLLBACK-QUALIFICATION {workspace.change_id}"
+        print("Type the exact rollback phrase:")
+        print(phrase)
+        if input("> ").strip() != phrase:
+            raise QualificationRequiredError(
+                "exact qualification rollback phrase was not provided"
+            )
+
+        logger = setup_logging(
+            args.log_file
+            or str(
+                workspace.operation_root
+                / "qualification"
+                / "rollback"
+                / "rollback.log"
+            ),
+            args.verbose,
+        )
+
+        def connect(hostname: str) -> Any:
+            host = inventory_hosts[hostname]
+            username, password, enable_secret = get_credentials_for_device(
+                args,
+                str(host.get("device_type", "")),
+                host,
+            )
+            return connect_to_host(
+                host,
+                username,
+                password,
+                enable_secret,
+                logger,
+            )
+
+        with OperationLock(workspace, "qualify-rollback") as lock:
+            with OperationInterruptGuard(
+                workspace,
+                lock,
+                phase="qualification_rollback",
+            ) as interrupt_guard:
+                execution = execute_qualification_rollback(
+                    workspace,
+                    record,
+                    current_snapshot_path=current_snapshot,
+                    inventory_hosts=inventory_hosts,
+                    connect=connect,
+                    disconnect=lambda connection: connection.disconnect(),
+                    lock=lock,
+                    now=lambda: now_in_timezone(workspace.timezone),
+                    interrupt_guard=interrupt_guard,
+                )
+        print("Qualification rollback execution:")
+        print(
+            workspace.operation_root
+            / "qualification"
+            / "rollback"
+            / "execution.json"
+        )
+        for host, result in execution["status"]["devices"].items():
+            print(
+                f"- {host}: {result['status']} "
+                f"commands={len(result['commands'])}"
+            )
+        print(f"Result: {execution['status']['result']}")
+        print("Configuration save: SKIPPED")
+        print("Next: collect rollback health and verify raw/semantic diff.")
+        return (
+            0
+            if execution["status"]["result"]
+            == "ROLLED_BACK_PENDING_HEALTH"
+            else 4
+        )
+    except (
+        QualificationError,
+        OperationError,
+        ValueError,
+        OSError,
+    ) as exc:
+        _operation_cli_error(exc)
+        return 2
+
+
+def cmd_overlay_change_qualify_save_baseline(
+    args: argparse.Namespace,
+) -> int:
+    """Qualify NX-OS save only after verified baseline restoration."""
+    try:
+        workspace = open_operation_workspace(
+            args.operations_root,
+            args.change_id,
+        )
+        record_path = (
+            Path(args.qualification_record)
+            if args.qualification_record
+            else workspace.operation_root
+            / "qualification"
+            / "qualification-record.json"
+        )
+        record = load_qualification_record(record_path)
+        pinned_inventory = Path(
+            record["artifacts"]["inventory"]["path"]
+        ).resolve()
+        requested_inventory = Path(args.hosts).resolve()
+        if requested_inventory != pinned_inventory:
+            raise QualificationError(
+                "--hosts must match the inventory pinned by qualification"
+            )
+        inventory_data = load_yaml(str(requested_inventory))
+        inventory_list = load_inventory_data(inventory_data)
+        inventory_hosts = {
+            str(host["hostname"]): host for host in inventory_list
+        }
+        target_devices = list(record["target"]["devices"])
+        preflight = preflight_operation_workspace(
+            workspace,
+            device_count=len(target_devices),
+            for_apply=True,
+        )
+        if not preflight.ok:
+            details = "; ".join(
+                f"{issue.code}: {issue.message}"
+                for issue in preflight.issues
+                if issue.severity == "ERROR"
+            )
+            raise QualificationError(
+                f"operation preflight failed: {details}"
+            )
+        if not sys.stdin.isatty() or not sys.stdout.isatty():
+            raise QualificationRequiredError(
+                "qualification baseline save requires an interactive TTY"
+            )
+
+        print("=== INITIAL LAB QUALIFICATION BASELINE SAVE ===")
+        print(f"Change ID : {workspace.change_id}")
+        print("Devices   : " + ", ".join(target_devices))
+        print("Precheck  : before running-config and startup diff")
+        print("Serial    : 1")
+        print("Retry     : disabled")
+        phrase = f"SAVE-QUALIFICATION-BASELINE {workspace.change_id}"
+        print("Type the exact baseline save phrase:")
+        print(phrase)
+        if input("> ").strip() != phrase:
+            raise QualificationRequiredError(
+                "exact qualification baseline save phrase was not provided"
+            )
+
+        logger = setup_logging(
+            args.log_file
+            or str(
+                workspace.operation_root
+                / "qualification"
+                / "save"
+                / "save.log"
+            ),
+            args.verbose,
+        )
+
+        def connect(hostname: str) -> Any:
+            host = inventory_hosts[hostname]
+            username, password, enable_secret = get_credentials_for_device(
+                args,
+                str(host.get("device_type", "")),
+                host,
+            )
+            return connect_to_host(
+                host,
+                username,
+                password,
+                enable_secret,
+                logger,
+            )
+
+        with OperationLock(workspace, "qualify-save-baseline") as lock:
+            with OperationInterruptGuard(
+                workspace,
+                lock,
+                phase="qualification_save",
+            ) as interrupt_guard:
+                execution = execute_qualification_baseline_save(
+                    workspace,
+                    record,
+                    inventory_hosts=inventory_hosts,
+                    connect=connect,
+                    disconnect=lambda connection: connection.disconnect(),
+                    save_command=get_save_config_command("nxos"),
+                    success_marker=get_save_config_success_marker("nxos"),
+                    lock=lock,
+                    now=lambda: now_in_timezone(workspace.timezone),
+                    interrupt_guard=interrupt_guard,
+                )
+        print("Qualification baseline save execution:")
+        print(
+            workspace.operation_root
+            / "qualification"
+            / "save"
+            / "execution.json"
+        )
+        for host, result in execution["status"]["devices"].items():
+            print(f"- {host}: {result['status']}")
+        print(f"Result: {execution['status']['result']}")
+        return (
+            0
+            if execution["status"]["result"]
+            == "QUALIFICATION_SAVE_SUCCEEDED"
+            else 4
+        )
+    except (
+        QualificationError,
+        OperationError,
+        ValueError,
+        OSError,
+    ) as exc:
+        _operation_cli_error(exc)
+        return 2
+
+
+def _write_overlay_conflict_report(
+    operation_root: Path,
+    artifact_dir: Path,
+    report: Mapping[str, Any],
+) -> tuple[Path, Path]:
+    json_path = artifact_dir / "conflict-report.json"
+    markdown_path = artifact_dir / "conflict-report.md"
+    atomic_write_json(
+        operation_root,
+        json_path,
+        report,
+        kind="OverlayConflictReport",
+    )
+    atomic_write_bytes(
+        operation_root,
+        markdown_path,
+        render_conflict_report_markdown(report).encode("utf-8"),
+    )
+    return json_path, markdown_path
+
+
+def cmd_overlay_change_prepare_plan(args: argparse.Namespace) -> None:
+    """Build a preparation-only plan from one prior healthy terminal state."""
+    workspace = None
+    try:
+        loaded_change_set = load_overlay_change_set(Path(args.change_set))
+        change_set = loaded_change_set.document
+        change_id = change_set["metadata"]["change_id"]
+        operation_root = Path(args.operations_root) / change_id
+        workspace = (
+            open_operation_workspace(args.operations_root, change_id)
+            if operation_root.exists()
+            else create_operation_workspace(
+                args.operations_root,
+                change_id=change_id,
+            )
+        )
+        metadata = load_operation_metadata(workspace.operation_root)
+        if metadata["spec"]["workflow_state"] is not None:
+            raise OperationStateError(
+                "prepare-plan requires an operation before the normal plan workflow"
+            )
+        previous_phase = metadata["spec"]["phases"].get("prepare_plan")
+        current_path = workspace.operation_root / "preparation" / "current.json"
+        if current_path.exists() or (
+            previous_phase
+            and previous_phase["status"] in {"completed", "completed_with_warnings"}
+        ):
+            raise OperationStateError(
+                "a completed prepare-plan already exists and will not be overwritten"
+            )
+        if previous_phase and previous_phase["status"] in {
+            "running",
+            "waiting_for_user",
+        }:
+            raise OperationStateError("a prepare-plan attempt is already in progress")
+        evaluated_at = now_in_timezone(workspace.timezone)
+        attempt_id = generate_attempt_id(
+            "prepare-plan",
+            workspace.timezone,
+            now=evaluated_at,
+        )
+        preparation_dir = (
+            workspace.operation_root
+            / "preparation"
+            / "attempts"
+            / attempt_id
+        )
+        preparation_artifact_dir = f"preparation/attempts/{attempt_id}"
+        target_hosts = sorted(resolve_changeset(change_set))
+
+        with OperationLock(workspace, "overlay-change-prepare-plan") as lock:
+            transition_phase(
+                workspace,
+                "prepare_plan",
+                "running",
+                lock=lock,
+                attempt_id=attempt_id,
+                reason="offline_reference_selection_started",
+                now=evaluated_at,
+                allow_retry=previous_phase is not None,
+            )
+            attempt_result = {
+                "schema_version": 1,
+                "change_id": change_id,
+                "attempt_id": attempt_id,
+                "status": "RUNNING",
+                "started_at": evaluated_at.isoformat(timespec="seconds"),
+                "artifact_dir": str(preparation_dir),
+            }
+            atomic_write_json(
+                workspace.operation_root,
+                preparation_dir / "result.json",
+                attempt_result,
+                kind="OverlayPreparationAttempt",
+            )
+            try:
+                selected = select_reference_state(
+                    args.operations_root,
+                    current_change_id=change_id,
+                    target_hosts=target_hosts,
+                    evaluated_at=evaluated_at,
+                    max_age_days=args.reference_max_age_days,
+                    reference_state=args.reference_state,
+                    reference_operation_id=args.reference_operation_id,
+                    reference_phase=args.reference_phase,
+                )
+                atomic_write_json(
+                    workspace.operation_root,
+                    preparation_dir / "reference-state.json",
+                    selected.document,
+                    kind="OverlayReferenceState",
+                )
+                conflict_report = assess_overlay_conflicts(
+                    change_set,
+                    selected.snapshot,
+                )
+                conflict_path, _conflict_markdown = (
+                    _write_overlay_conflict_report(
+                        workspace.operation_root,
+                        preparation_dir,
+                        conflict_report,
+                    )
+                )
+                require_conflict_free(conflict_report)
+
+                render_snapshot = deepcopy(selected.snapshot)
+                render_snapshot["change_id"] = change_id
+                rendered = render_changeset(change_set, render_snapshot)
+                input_manifest, _resolved_targets = write_overlay_plan_inputs(
+                    workspace.operation_root,
+                    loaded_change_set,
+                    artifact_dir=preparation_artifact_dir,
+                    inputs_dir=f"{preparation_artifact_dir}/inputs",
+                )
+                manifest = write_rendered_configs(
+                    workspace.operation_root,
+                    change_id,
+                    rendered,
+                    artifact_dir=preparation_artifact_dir,
+                    config_dir=f"{preparation_artifact_dir}/generated-config",
+                    rollback_dir=f"{preparation_artifact_dir}/rollback-config",
+                    input_hashes={
+                        "change_set": input_manifest["change_set"][
+                            "resolved_canonical_sha256"
+                        ],
+                        "device_groups": input_manifest["device_groups"][
+                            "resolved_canonical_sha256"
+                        ],
+                        "reference_state": selected.document["source"][
+                            "snapshot_sha256"
+                        ],
+                        "conflict_report": source_sha256(conflict_path),
+                    },
+                )
+                devices = {
+                    host: {
+                        "status": (
+                            "NO_CHANGE"
+                            if not result.forward_config
+                            else "PLANNED"
+                        ),
+                        "forward_config": manifest["devices"][host][
+                            "forward_config"
+                        ],
+                        "forward_sha256": result.forward_sha256,
+                        "model_sha256": result.model_sha256,
+                        "actions": list(result.actions),
+                    }
+                    for host, result in sorted(rendered.items())
+                }
+                rollback_devices = {
+                    host: {
+                        "status": (
+                            "NO_CHANGE"
+                            if not result.rollback_config
+                            else "PLANNED"
+                        ),
+                        "rollback_config": manifest["devices"][host][
+                            "rollback_config"
+                        ],
+                        "rollback_sha256": result.rollback_sha256,
+                        "actions": list(result.actions),
+                    }
+                    for host, result in sorted(rendered.items())
+                }
+                execution = {
+                    "schema_version": 1,
+                    "change_id": change_id,
+                    "preparation_only": True,
+                    "capability_level": "PLAN_ONLY",
+                    "devices": devices,
+                    "warnings": [
+                        {
+                            "code": "PREPARATION_ONLY",
+                            "message": (
+                                "Collect a fresh before Snapshot and run normal "
+                                "overlay-change plan before approval or apply"
+                            ),
+                        }
+                    ],
+                    "artifacts": {
+                        "reference_state": str(
+                            preparation_dir / "reference-state.json"
+                        ),
+                        "conflict_report": str(conflict_path),
+                        "input_manifest": str(
+                            preparation_dir / "input-manifest.json"
+                        ),
+                        "resolved_targets": str(
+                            preparation_dir / "resolved-targets.yaml"
+                        ),
+                        "render_manifest": str(
+                            preparation_dir / "render-manifest.json"
+                        ),
+                    },
+                    "constraints": {
+                        "preparation_only": True,
+                        "approval_allowed": False,
+                        "fresh_before_required": True,
+                    },
+                }
+                rollback = {
+                    "schema_version": 1,
+                    "change_id": change_id,
+                    "policy": "manual",
+                    "devices": rollback_devices,
+                    "ownership": {
+                        "scope": "preparation_reference_only",
+                        "source": "render-manifest.json",
+                    },
+                    "artifacts": {
+                        "reference_state": str(
+                            preparation_dir / "reference-state.json"
+                        ),
+                        "render_manifest": str(
+                            preparation_dir / "render-manifest.json"
+                        ),
+                    },
+                    "verification": {
+                        "fresh_before_required": True,
+                        "approval_allowed": False,
+                    },
+                }
+                atomic_write_json(
+                    workspace.operation_root,
+                    preparation_dir / "execution-plan.json",
+                    execution,
+                    kind="ExecutionPlan",
+                )
+                atomic_write_json(
+                    workspace.operation_root,
+                    preparation_dir / "rollback-plan.json",
+                    rollback,
+                    kind="RollbackPlan",
+                )
+                completed_at = now_in_timezone(workspace.timezone)
+                attempt_result.update(
+                    {
+                        "status": "PASS",
+                        "completed_at": completed_at.isoformat(timespec="seconds"),
+                    }
+                )
+                atomic_write_json(
+                    workspace.operation_root,
+                    preparation_dir / "result.json",
+                    attempt_result,
+                    kind="OverlayPreparationAttempt",
+                )
+                atomic_write_json(
+                    workspace.operation_root,
+                    workspace.operation_root / "preparation" / "current.json",
+                    {
+                        "schema_version": 1,
+                        "change_id": change_id,
+                        "attempt_id": attempt_id,
+                        "artifact_dir": str(preparation_dir),
+                        "completed_at": completed_at.isoformat(timespec="seconds"),
+                    },
+                    kind="OverlayPreparationCurrent",
+                )
+                transition_phase(
+                    workspace,
+                    "prepare_plan",
+                    "completed",
+                    lock=lock,
+                    reason="preparation_only_plan_completed",
+                    now=completed_at,
+                )
+            except Exception as exc:
+                failed_at = now_in_timezone(workspace.timezone)
+                error = {
+                    "code": getattr(exc, "code", "VALIDATION_ERROR"),
+                    "message": str(exc),
+                    "phase": "prepare_plan",
+                    "attempt_id": attempt_id,
+                    "at": failed_at.isoformat(timespec="seconds"),
+                }
+                record_operation_error(workspace, error, lock=lock)
+                attempt_result.update(
+                    {
+                        "status": "FAILED",
+                        "completed_at": failed_at.isoformat(timespec="seconds"),
+                        "error": {
+                            "code": error["code"],
+                            "message": error["message"],
+                        },
+                    }
+                )
+                atomic_write_json(
+                    workspace.operation_root,
+                    preparation_dir / "result.json",
+                    attempt_result,
+                    kind="OverlayPreparationAttempt",
+                )
+                transition_phase(
+                    workspace,
+                    "prepare_plan",
+                    "failed",
+                    lock=lock,
+                    reason="preparation_only_plan_failed",
+                    now=failed_at,
+                )
+                raise
+
+        print("=== OVERLAY PREPARATION PLAN ===")
+        print(f"Change ID       : {change_id}")
+        print(
+            "Reference       : "
+            f"{selected.document['source']['operation_id']} "
+            f"({selected.document['source']['phase']})"
+        )
+        print(f"Reference age   : {selected.document['age']['days']} days")
+        print(f"Conflict check  : {conflict_report['result']}")
+        print(f"Devices         : {len(devices)}")
+        print(f"Execution plan  : {preparation_dir / 'execution-plan.json'}")
+        print(f"Generated config: {preparation_dir / 'generated-config'}")
+        print("Apply            : BLOCKED (fresh before and normal plan required)")
+    except (
+        OverlayConflictError,
+        ReferenceStateError,
+        OverlayRenderError,
+        OperationError,
+        ValueError,
+        OSError,
+    ) as exc:
+        _operation_cli_error(exc)
+
+
+def _read_overlay_plan_artifact(path: Path, kind: str) -> dict[str, Any]:
+    if not path.is_file() or path.is_symlink():
+        raise OperationStateError(
+            f"required {kind} artifact is missing or unsafe: {path}"
+        )
+    document = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(document, dict):
+        raise OperationStateError(f"{kind} artifact must be an object: {path}")
+    validate_document(document, kind=kind)
+    return document
+
+
+def _current_path_has_expected_suffix(
+    raw_path: str,
+    expected_relative: Path,
+) -> bool:
+    raw_parts = Path(raw_path).parts
+    suffix = expected_relative.parts
+    return len(raw_parts) >= len(suffix) and raw_parts[-len(suffix) :] == suffix
+
+
+def _validate_overlay_plan_health_result(
+    health: Mapping[str, Any],
+    *,
+    change_id: str,
+    require_gate_decision: bool = True,
+) -> None:
+    if health.get("change_id") != change_id or health.get("phase") != "before":
+        raise OperationStateError("before HealthResult operation identity mismatch")
+    result = health.get("result")
+    if result not in {"PASS", "WARN"}:
+        raise OperationStateError(
+            f"before HealthResult {result!r} is not eligible for plan"
+        )
+    gate = health.get("operation_gate", {})
+    if (
+        require_gate_decision
+        and isinstance(gate, Mapping)
+        and gate.get("required")
+    ):
+        decision = gate.get("decision")
+        if not isinstance(decision, Mapping) or decision.get("action") != "continue":
+            raise OperationStateError(
+                "before operation gate requires a recorded continue decision"
+            )
+
+
+def _resolve_overlay_plan_before(
+    args: argparse.Namespace,
+    change_id: str,
+) -> tuple[Any, dict[str, Any], Path, dict[str, str]]:
+    workspace = open_operation_workspace(args.operations_root, change_id)
+    phase_root = workspace.operation_root / "health" / "before"
+    expected_before = phase_root / "snapshot.json"
+    explicit_before = getattr(args, "before", None)
+    if (
+        explicit_before is not None
+        and Path(explicit_before).resolve() != expected_before.resolve()
+    ):
+        raise OperationPathError(
+            f"--before must be the current operation Snapshot: {expected_before}"
+        )
+
+    metadata = load_operation_metadata(workspace.operation_root)
+    phase = metadata["spec"].get("phases", {}).get("before")
+    if not isinstance(phase, Mapping) or phase.get("status") not in {
+        "completed",
+        "completed_with_warnings",
+    }:
+        status = phase.get("status") if isinstance(phase, Mapping) else "not_started"
+        raise OperationStateError(
+            f"latest before phase is not completed: {status}"
+        )
+
+    current_path = phase_root / "current.json"
+    if current_path.exists() or current_path.is_symlink():
+        current = _read_overlay_plan_artifact(current_path, "HealthPhaseCurrent")
+        attempt_id = current["attempt_id"]
+        if current["change_id"] != change_id or current["phase"] != "before":
+            raise OperationStateError("before current pointer identity mismatch")
+        if phase.get("current_attempt") != attempt_id:
+            raise OperationStateError(
+                "latest before attempt does not match the successful current pointer"
+            )
+        attempt_relative = Path("health/before/attempts") / attempt_id
+        attempt_dir = workspace.operation_root / attempt_relative
+        attempt_snapshot = attempt_dir / "snapshot.json"
+        attempt_health_path = attempt_dir / "health-result.json"
+        attempt_result_path = attempt_dir / "result.json"
+        if not _current_path_has_expected_suffix(
+            current["artifact_dir"], attempt_relative
+        ) or not _current_path_has_expected_suffix(
+            current["snapshot_path"], attempt_relative / "snapshot.json"
+        ):
+            raise OperationStateError(
+                "before current pointer contains an unexpected artifact path"
+            )
+        attempt_result = _read_overlay_plan_artifact(
+            attempt_result_path, "HealthPhaseAttempt"
+        )
+        if (
+            attempt_result.get("change_id") != change_id
+            or attempt_result.get("attempt_id") != attempt_id
+            or attempt_result.get("status") != "COMPLETED"
+        ):
+            raise OperationStateError("before attempt result is not completed")
+        attempt_before = _read_overlay_plan_artifact(
+            attempt_snapshot, "HealthSnapshot"
+        )
+        before = _read_overlay_plan_artifact(expected_before, "HealthSnapshot")
+        expected_hash = current["snapshot_sha256"]
+        if (
+            source_sha256(attempt_snapshot) != expected_hash
+            or source_sha256(expected_before) != expected_hash
+        ):
+            raise OperationStateError(
+                "before Snapshot hash does not match the current pointer"
+            )
+        if attempt_before != before:
+            raise OperationStateError(
+                "published before Snapshot differs from the current attempt"
+            )
+        attempt_health = _read_overlay_plan_artifact(
+            attempt_health_path, "HealthResult"
+        )
+        health = _read_overlay_plan_artifact(
+            phase_root / "health-result.json", "HealthResult"
+        )
+        _validate_overlay_plan_health_result(
+            attempt_health,
+            change_id=change_id,
+            require_gate_decision=False,
+        )
+        _validate_overlay_plan_health_result(health, change_id=change_id)
+        if (
+            attempt_health.get("result") != current["health_result"]
+            or health.get("result") != current["health_result"]
+            or attempt_result.get("health_result") != current["health_result"]
+        ):
+            raise OperationStateError(
+                "before HealthResult does not match the current pointer"
+            )
+        if (
+            before.get("change_id") != change_id
+            or before.get("phase") != "before"
+            or before.get("profile_sha256") != current["profile_sha256"]
+            or attempt_result.get("profile_sha256") != current["profile_sha256"]
+        ):
+            raise OperationStateError(
+                "before Snapshot profile or operation identity mismatch"
+            )
+        result = current["health_result"]
+    else:
+        before = _read_overlay_plan_artifact(expected_before, "HealthSnapshot")
+        health = _read_overlay_plan_artifact(
+            phase_root / "health-result.json", "HealthResult"
+        )
+        _validate_overlay_plan_health_result(health, change_id=change_id)
+        if before.get("change_id") != change_id or before.get("phase") != "before":
+            raise OperationStateError("before Snapshot operation identity mismatch")
+        attempt_id = str(phase.get("current_attempt") or "legacy")
+        result = str(health["result"])
+
+    return workspace, before, expected_before, {
+        "source": (
+            "explicit --before"
+            if explicit_before is not None
+            else "inferred from ChangeSet change_id"
+        ),
+        "attempt_id": attempt_id,
+        "health_result": result,
+    }
+
+
+def cmd_overlay_change_plan(args: argparse.Namespace) -> None:
+    """Build a PLAN_ONLY execution/rollback plan from a declared ChangeSet."""
+    try:
+        change_set_path = Path(args.change_set)
+        loaded_change_set = load_overlay_change_set(change_set_path)
+        change_set = loaded_change_set.document
+        change_id = change_set.get("metadata", {}).get("change_id")
+        if not isinstance(change_id, str) or not change_id:
+            raise OverlayRenderError("ChangeSet metadata.change_id is required")
+        workspace, before, expected_before, before_selection = (
+            _resolve_overlay_plan_before(args, change_id)
+        )
+        plan_dir = workspace.operation_root / "plan"
+        execution_path = plan_dir / "execution-plan.json"
+        rollback_path = plan_dir / "rollback-plan.json"
+        if (
+            execution_path.exists()
+            or rollback_path.exists()
+            or (plan_dir / "input-manifest.json").exists()
+            or (plan_dir / "resolved-targets.yaml").exists()
+        ):
+            raise OperationStateError("plan artifacts already exist")
+        conflict_report = assess_overlay_conflicts(change_set, before)
+        conflict_path, _conflict_markdown = _write_overlay_conflict_report(
+            workspace.operation_root,
+            plan_dir,
+            conflict_report,
+        )
+        require_conflict_free(conflict_report)
+        rendered = render_changeset(change_set, before)
+        input_manifest, _resolved_targets = write_overlay_plan_inputs(
+            workspace.operation_root,
+            loaded_change_set,
+        )
+        manifest = write_rendered_configs(
+            workspace.operation_root,
+            workspace.change_id,
+            rendered,
+            input_hashes={
+                "change_set": input_manifest["change_set"][
+                    "resolved_canonical_sha256"
+                ],
+                "device_groups": input_manifest["device_groups"][
+                    "resolved_canonical_sha256"
+                ],
+                "input_manifest": source_sha256(
+                    plan_dir / "input-manifest.json"
+                ),
+                "resolved_targets": input_manifest["resolved_targets"][
+                    "canonical_sha256"
+                ],
+                "conflict_report": source_sha256(conflict_path),
+            },
+        )
+        devices = {
+            host: {
+                "status": (
+                    "NO_CHANGE"
+                    if not result.forward_config
+                    else "PLANNED"
+                ),
+                "forward_config": manifest["devices"][host][
+                    "forward_config"
+                ],
+                "forward_sha256": result.forward_sha256,
+                "model_sha256": result.model_sha256,
+                "actions": list(result.actions),
+            }
+            for host, result in sorted(rendered.items())
+        }
+        rollback_devices = {
+            host: {
+                "status": (
+                    "NO_CHANGE"
+                    if not result.rollback_config
+                    else "PLANNED"
+                ),
+                "rollback_config": manifest["devices"][host][
+                    "rollback_config"
+                ],
+                "rollback_sha256": result.rollback_sha256,
+                "actions": list(result.actions),
+            }
+            for host, result in sorted(rendered.items())
+        }
+        registry = load_capability_registry(args.capability_registry)
+        capability = evaluate_capability(
+            registry,
+            before,
+            sorted(rendered),
+            required_overlay_capabilities(change_set),
+        )
+        capability_path = plan_dir / "capability-evaluation.json"
+        atomic_write_bytes(
+            workspace.operation_root,
+            capability_path,
+            (
+                json.dumps(
+                    capability,
+                    ensure_ascii=False,
+                    indent=2,
+                    sort_keys=True,
+                )
+                + "\n"
+            ).encode("utf-8"),
+        )
+        capability_level = capability["level"]
+        inventory_path = None
+        inventory_sha256 = None
+        if capability_level == "APPLY_VERIFIED":
+            if not args.hosts:
+                raise CapabilityError(
+                    "APPLY_VERIFIED plan requires --hosts to pin inventory"
+                )
+            inventory_document = load_yaml(args.hosts)
+            inventory_path = plan_dir / "inventory.yaml"
+            atomic_write_bytes(
+                workspace.operation_root,
+                inventory_path,
+                yaml.safe_dump(
+                    inventory_document,
+                    sort_keys=False,
+                    allow_unicode=True,
+                ).encode("utf-8"),
+            )
+            inventory_sha256 = source_sha256(inventory_path)
+        warnings = []
+        if capability_level != "APPLY_VERIFIED":
+            warnings.append(
+                {
+                    "code": "APPLY_CAPABILITY_UNVERIFIED",
+                    "message": (
+                        "One or more exact model/release/role capability "
+                        "sets are not APPLY_VERIFIED"
+                    ),
+                }
+            )
+        approval_artifacts = {
+            "change_set": str(
+                workspace.operation_root
+                / input_manifest["change_set"]["pinned_path"]
+            ),
+            "input_manifest": str(plan_dir / "input-manifest.json"),
+            "resolved_targets": str(plan_dir / "resolved-targets.yaml"),
+            "conflict_report": str(conflict_path),
+        }
+        pinned_groups = input_manifest["device_groups"].get("pinned_path")
+        if pinned_groups:
+            approval_artifacts["device_groups"] = str(
+                workspace.operation_root / pinned_groups
+            )
+        execution_plan = {
+            "schema_version": 1,
+            "change_id": workspace.change_id,
+            "capability_level": capability_level,
+            "devices": devices,
+            "warnings": warnings,
+            "artifacts": {
+                "change_set": approval_artifacts["change_set"],
+                "before_snapshot": str(expected_before),
+                "input_manifest": str(plan_dir / "input-manifest.json"),
+                "resolved_targets": str(plan_dir / "resolved-targets.yaml"),
+                "conflict_report": str(conflict_path),
+                "device_groups": approval_artifacts.get("device_groups"),
+                "approval_artifacts": approval_artifacts,
+                "render_manifest": str(
+                    plan_dir / "render-manifest.json"
+                ),
+                "capability_evaluation": str(capability_path),
+                "inventory": str(inventory_path) if inventory_path else None,
+                "inventory_sha256": inventory_sha256,
+            },
+            "constraints": {
+                "serial": 1,
+                "max_devices": 50,
+                "requires_interactive_approval": True,
+                "save_after_health_check_only": True,
+            },
+        }
+        rollback_plan = {
+            "schema_version": 1,
+            "change_id": workspace.change_id,
+            "policy": "manual",
+            "devices": rollback_devices,
+            "ownership": {
+                "scope": "operation_owned_resources_only",
+                "source": "render-manifest.json",
+            },
+            "artifacts": {
+                "before_snapshot": str(expected_before),
+                "render_manifest": str(
+                    plan_dir / "render-manifest.json"
+                ),
+            },
+            "verification": {
+                "running_config_diff": "required",
+                "health_check": "required",
+                "expected_difference": "none",
+            },
+        }
+        started_at = now_in_timezone(workspace.timezone)
+        with OperationLock(workspace, "overlay-change-plan") as lock:
+            metadata = load_operation_metadata(workspace.operation_root)
+            if metadata["spec"]["workflow_state"] is None:
+                transition_workflow(
+                    workspace,
+                    "planned",
+                    lock=lock,
+                    reason="overlay_plan_started",
+                    now=started_at,
+                )
+                transition_workflow(
+                    workspace,
+                    "before_running",
+                    lock=lock,
+                    reason="existing_before_snapshot_selected",
+                    now=started_at,
+                )
+                transition_workflow(
+                    workspace,
+                    "before_completed",
+                    lock=lock,
+                    reason="existing_before_snapshot_validated",
+                    now=started_at,
+                )
+            atomic_write_json(
+                workspace.operation_root,
+                execution_path,
+                execution_plan,
+                kind="ExecutionPlan",
+            )
+            atomic_write_json(
+                workspace.operation_root,
+                rollback_path,
+                rollback_plan,
+                kind="RollbackPlan",
+            )
+            transition_workflow(
+                workspace,
+                "plan_ready",
+                lock=lock,
+                reason="execution_and_rollback_plans_created",
+                now=now_in_timezone(workspace.timezone),
+            )
+        print("=== OVERLAY CHANGE PLAN ===")
+        print(f"Change ID       : {workspace.change_id}")
+        print(f"Before source   : {before_selection['source']}")
+        print(f"Before attempt  : {before_selection['attempt_id']}")
+        print(f"Before snapshot : {expected_before}")
+        print(f"Before result   : {before_selection['health_result']}")
+        print(f"Capability      : {capability_level}")
+        print(f"Devices         : {len(devices)}")
+        for host, device in devices.items():
+            config_path = (
+                workspace.operation_root / device["forward_config"]
+                if device["forward_config"]
+                else "-"
+            )
+            print(
+                f"- {host}: {device['status']} "
+                f"config={config_path}"
+            )
+        print(f"Execution plan  : {execution_path}")
+        print(f"Rollback plan   : {rollback_path}")
+        print(f"Render manifest : {plan_dir / 'render-manifest.json'}")
+        print(f"Input manifest  : {plan_dir / 'input-manifest.json'}")
+        print(f"Resolved targets: {plan_dir / 'resolved-targets.yaml'}")
+        print(f"Conflict report : {conflict_path}")
+        print(f"Capability proof : {capability_path}")
+        print(
+            "Apply            : "
+            + (
+                "ELIGIBLE FOR APPROVAL"
+                if capability_level == "APPLY_VERIFIED"
+                else "BLOCKED (APPLY_VERIFIED evidence required)"
+            )
+        )
+    except (
+        CapabilityError,
+        OverlayConflictError,
+        OverlayRenderError,
+        OperationError,
+        ValueError,
+        OSError,
+    ) as exc:
+        _operation_cli_error(exc)
+
+
+def _snapshot_workspace(args: argparse.Namespace):
+    operations_root = Path(args.operations_root)
+    if args.phase != "before" and not args.change_id:
+        raise OperationStateError(
+            f"health-check snapshot --phase {args.phase} requires --change-id"
+        )
+    if args.change_id:
+        operation_root = operations_root / args.change_id
+        if operation_root.exists():
+            workspace = open_operation_workspace(
+                operations_root,
+                args.change_id,
+            )
+        elif args.phase == "before":
+            workspace = create_operation_workspace(
+                operations_root,
+                change_id=args.change_id,
+                timezone_name=args.timezone,
+            )
+        else:
+            raise OperationPathError(
+                f"operation does not exist: {operation_root}"
+            )
+    else:
+        workspace = create_operation_workspace(
+            operations_root,
+            timezone_name=args.timezone,
+        )
+    phase_directory = (
+        f"{args.phase}-recheck"
+        if bool(getattr(args, "recheck", False))
+        else args.phase
+    )
+    attempt_id = getattr(args, "_health_attempt_id", None)
+    if args.phase in {"before", "rollback"} and attempt_id:
+        expected_output = (
+            workspace.operation_root
+            / "health"
+            / args.phase
+            / "attempts"
+            / attempt_id
+        )
+    else:
+        expected_output = workspace.operation_root / "health" / phase_directory
+    if args.output and Path(args.output).resolve() != expected_output.resolve():
+        raise OperationPathError(
+            f"--output must match the operation phase path: {expected_output}"
+        )
+    return workspace, expected_output
+
+
+def _logging_time_range_from_args(
+    args: argparse.Namespace,
+) -> dict[str, Any] | None:
+    if bool(getattr(args, "logging_all", False)):
+        return {"mode": "all"}
+    days = getattr(args, "logging_days", None)
+    if days is not None:
+        if days < 1:
+            raise ProfileResolutionError("--logging-days must be at least 1")
+        return {"mode": "days", "days": days}
+    start_text = getattr(args, "logging_start_time", None)
+    if start_text is None:
+        return None
+    try:
+        start_time = datetime.fromisoformat(start_text)
+    except ValueError as exc:
+        raise ProfileResolutionError(
+            "--logging-start-time must be an ISO 8601 datetime"
+        ) from exc
+    if start_time.tzinfo is None:
+        raise ProfileResolutionError(
+            "--logging-start-time must include a timezone offset"
+        )
+    return {
+        "mode": "start-time",
+        "start_time": start_time.isoformat(timespec="seconds"),
+    }
+
+
+def _add_logging_time_range_arguments(
+    parser: argparse.ArgumentParser,
+) -> None:
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument(
+        "--logging-all",
+        action="store_true",
+        help=(
+            "Check all timestamped show logging records "
+            "(initial before or explicit profile revision)"
+        ),
+    )
+    group.add_argument(
+        "--logging-days",
+        type=int,
+        metavar="DAYS",
+        help=(
+            "Check records from DAYS before Snapshot time "
+            "(initial before or explicit profile revision)"
+        ),
+    )
+    group.add_argument(
+        "--logging-start-time",
+        metavar="ISO8601",
+        help=(
+            "Check records since a timezone-aware ISO 8601 time "
+            "(initial before or explicit profile revision)"
+        ),
+    )
+
+
+def _inherit_fixed_logging_time_range(
+    requested: dict[str, Any],
+    fixed: Mapping[str, Any],
+) -> dict[str, Any]:
+    fixed_logging = fixed["spec"]["resolved"]["effective"]["spec"].get(
+        "thresholds",
+        {},
+    ).get("logging", {})
+    time_range = fixed_logging.get("time_range")
+    if time_range is None:
+        return requested
+    return apply_logging_time_range_override(requested, time_range)
+
+
+def cmd_health_check_snapshot(args: argparse.Namespace) -> int:
+    """Build a Snapshot from existing files without device access."""
+    try:
+        workspace, output_dir = _snapshot_workspace(args)
+        args.change_id = workspace.change_id
+        if (
+            args.timezone is not None
+            and workspace.timezone != resolve_timezone_name(args.timezone)
+        ):
+            raise OperationStateError(
+                "requested timezone does not match operation metadata"
+            )
+        metadata = load_operation_metadata(workspace.operation_root)
+        phase_state = (
+            f"{args.phase}_recheck"
+            if bool(getattr(args, "recheck", False))
+            else args.phase
+        )
+        retrying_phase = bool(
+            args.phase in {"before", "rollback"}
+            and getattr(args, "_health_attempt_id", None)
+            and phase_state in metadata["spec"]["phases"]
+        )
+        retrying_before = bool(args.phase == "before" and retrying_phase)
+        if phase_state in metadata["spec"]["phases"] and not retrying_phase:
+            raise OperationStateError(
+                f"phase already exists and will not be overwritten: "
+                f"{phase_state}"
+            )
+        started_at = now_in_timezone(workspace.timezone)
+        logging_time_range = _logging_time_range_from_args(args)
+        resolved_path = (
+            workspace.operation_root / "health" / "resolved-profiles.yaml"
+        )
+        if args.phase == "before":
+            supplied_profiles = getattr(args, "_health_resolved_profiles", None)
+            if supplied_profiles is not None:
+                resolved_profiles = supplied_profiles
+            elif bool(getattr(args, "recheck", False)):
+                if logging_time_range is not None:
+                    raise OperationStateError(
+                        "logging range options cannot override a before recheck"
+                    )
+                resolved_profiles = load_resolved_profiles(resolved_path)
+                if args.profile:
+                    requested_profiles = resolve_profiles(
+                        args.profile,
+                        change_id=workspace.change_id,
+                        resolved_at=started_at,
+                        timezone=workspace.timezone,
+                    )
+                    requested_profiles = _inherit_fixed_logging_time_range(
+                        requested_profiles,
+                        resolved_profiles,
+                    )
+                    if (
+                        requested_profiles["spec"]["resolved"]["effective_sha256"]
+                        != resolved_profiles["spec"]["resolved"]["effective_sha256"]
+                    ):
+                        raise ProfileResolutionError(
+                            "recheck profile does not match fixed before profile"
+                        )
+            else:
+                if resolved_path.exists() and retrying_before:
+                    resolved_profiles = load_resolved_profiles(resolved_path)
+                    fixed_range = (
+                        resolved_profiles["spec"]["resolved"]["effective"][
+                            "spec"
+                        ]
+                        .get("thresholds", {})
+                        .get("logging", {})
+                        .get("time_range")
+                    )
+                    if (
+                        logging_time_range is not None
+                        and logging_time_range != fixed_range
+                    ):
+                        raise ProfileResolutionError(
+                            "before retry logging range does not match the "
+                            "fixed profile; use a new change ID"
+                        )
+                    requested_profiles = resolve_profiles(
+                        args.profile or [DEFAULT_HEALTH_PROFILE],
+                        change_id=workspace.change_id,
+                        resolved_at=started_at,
+                        resolution_source=(
+                            "explicit" if args.profile else "default"
+                        ),
+                        timezone=workspace.timezone,
+                    )
+                    requested_profiles = _inherit_fixed_logging_time_range(
+                        requested_profiles,
+                        resolved_profiles,
+                    )
+                    if (
+                        requested_profiles["spec"]["resolved"][
+                            "effective_sha256"
+                        ]
+                        != resolved_profiles["spec"]["resolved"][
+                            "effective_sha256"
+                        ]
+                    ):
+                        raise ProfileResolutionError(
+                            "before retry profile does not match fixed profile; "
+                            "use a new change ID for policy changes"
+                        )
+                else:
+                    if resolved_path.exists():
+                        raise OperationStateError(
+                            f"resolved profile already exists: {resolved_path}"
+                        )
+                    resolved_profiles = resolve_profiles(
+                        args.profile or [DEFAULT_HEALTH_PROFILE],
+                        change_id=workspace.change_id,
+                        resolved_at=started_at,
+                        resolution_source=(
+                            "explicit" if args.profile else "default"
+                        ),
+                        timezone=workspace.timezone,
+                    )
+                    if logging_time_range is not None:
+                        resolved_profiles = apply_logging_time_range_override(
+                            resolved_profiles, logging_time_range
+                        )
+        else:
+            if logging_time_range is not None:
+                raise OperationStateError(
+                    "logging range options are valid only for the initial before"
+                )
+            resolved_profiles = load_resolved_profiles(resolved_path)
+            if args.profile:
+                requested_profiles = resolve_profiles(
+                    args.profile,
+                    change_id=workspace.change_id,
+                    resolved_at=started_at,
+                    timezone=workspace.timezone,
+                )
+                requested_profiles = _inherit_fixed_logging_time_range(
+                    requested_profiles,
+                    resolved_profiles,
+                )
+                if (
+                    requested_profiles["spec"]["resolved"]["effective_sha256"]
+                    != resolved_profiles["spec"]["resolved"]["effective_sha256"]
+                ):
+                    raise ProfileResolutionError(
+                        "after profile does not match fixed before profile"
+                    )
+        profile_names = resolved_profiles["spec"]["resolved"]["profile_names"]
+        profile_sha256 = resolved_profiles["spec"]["resolved"][
+            "effective_sha256"
+        ]
+        attempt_id = getattr(args, "_health_attempt_id", None) or generate_attempt_id(
+            args.phase,
+            workspace.timezone,
+            now=started_at,
+        )
+        collection_id = f"{workspace.change_id}-{attempt_id}"
+        overlay_state = None
+        with OperationLock(workspace, f"health-check-snapshot-{args.phase}") as lock:
+            preflight = preflight_operation_workspace(workspace)
+            if not preflight.ok:
+                details = "; ".join(
+                    f"{issue.code}: {issue.message}"
+                    for issue in preflight.issues
+                    if issue.severity == "ERROR"
+                )
+                raise OperationStateError(
+                    f"operation preflight failed: {details}"
+                )
+            if metadata["spec"]["lifecycle"] == "created":
+                transition_operation(
+                    workspace,
+                    "running",
+                    lock=lock,
+                    reason="health_snapshot_started",
+                    now=started_at,
+                )
+            transition_phase(
+                workspace,
+                phase_state,
+                "running",
+                lock=lock,
+                attempt_id=attempt_id,
+                reason="offline_snapshot_started",
+                now=started_at,
+                allow_retry=retrying_phase,
+            )
+            try:
+                completed_at = now_in_timezone(workspace.timezone)
+                import_manifest = None
+                if args.input_format == "alred-collect":
+                    manifest = build_collect_manifest(
+                        args.input,
+                        collection_id=collection_id,
+                        change_id=workspace.change_id,
+                        phase=args.phase,
+                        profiles=profile_names,
+                        started_at=started_at,
+                        completed_at=completed_at,
+                        timezone=workspace.timezone,
+                    )
+                else:
+                    import_manifest, manifest = import_nxos_transcripts(
+                        args.input,
+                        collection_id=collection_id,
+                        change_id=workspace.change_id,
+                        phase=args.phase,
+                        profiles=profile_names,
+                        imported_at=completed_at,
+                        timezone=workspace.timezone,
+                        hosts_path=args.hosts,
+                    )
+                snapshot = build_health_snapshot(
+                    manifest,
+                    profile_refs=profile_names,
+                    created_at=completed_at,
+                    timezone=workspace.timezone,
+                    profile_sha256=profile_sha256,
+                )
+                health_result = evaluate_snapshot(
+                    snapshot,
+                    resolved_profiles,
+                    started_at=started_at,
+                    completed_at=completed_at,
+                )
+                if (
+                    args.phase == "before"
+                    and not resolved_path.exists()
+                    and getattr(args, "_health_attempt_id", None) is None
+                ):
+                    atomic_write_yaml(
+                        workspace.operation_root,
+                        resolved_path,
+                        resolved_profiles,
+                        kind="ResolvedHealthCheckProfiles",
+                    )
+                atomic_write_yaml(
+                    workspace.operation_root,
+                    output_dir / "collection-manifest.yaml",
+                    manifest,
+                    kind="CollectionManifest",
+                )
+                if import_manifest is not None:
+                    atomic_write_yaml(
+                        workspace.operation_root,
+                        output_dir / "transcript-import-manifest.yaml",
+                        import_manifest,
+                        kind="TranscriptImportManifest",
+                    )
+                atomic_write_json(
+                    workspace.operation_root,
+                    output_dir / "snapshot.json",
+                    snapshot,
+                    kind="HealthSnapshot",
+                )
+                atomic_write_json(
+                    workspace.operation_root,
+                    output_dir / "health-result.json",
+                    health_result,
+                    kind="HealthResult",
+                )
+                atomic_write_bytes(
+                    workspace.operation_root,
+                    output_dir / "checklist.md",
+                    render_health_checklist(health_result).encode("utf-8"),
+                )
+                if overlay_profile_enabled(profile_names):
+                    overlay_state = build_overlay_state(snapshot)
+                    atomic_write_yaml(
+                        workspace.operation_root,
+                        output_dir / "overlay-state.yaml",
+                        overlay_state,
+                        kind="OverlayState",
+                    )
+                    atomic_write_bytes(
+                        workspace.operation_root,
+                        output_dir / "vni-map.md",
+                        render_overlay_state_markdown(overlay_state).encode(
+                            "utf-8"
+                        ),
+                    )
+                    atomic_write_bytes(
+                        workspace.operation_root,
+                        output_dir / "vni-map.csv",
+                        overlay_state_csv(overlay_state).encode("utf-8"),
+                    )
+                warning_count = sum(
+                    len(host["parse_warnings"])
+                    for host in snapshot["hosts"].values()
+                )
+                phase_result = (
+                    "completed_with_warnings"
+                    if warning_count or health_result["result"] != "PASS"
+                    else "completed"
+                )
+                transition_phase(
+                    workspace,
+                    phase_state,
+                    phase_result,
+                    lock=lock,
+                    reason="offline_snapshot_completed",
+                    now=completed_at,
+                )
+            except Exception as exc:
+                failed_at = now_in_timezone(workspace.timezone)
+                transition_phase(
+                    workspace,
+                    phase_state,
+                    "failed",
+                    lock=lock,
+                    reason="offline_snapshot_failed",
+                    now=failed_at,
+                )
+                record_operation_error(
+                    workspace,
+                    {
+                        "code": getattr(exc, "code", "PARSER_ERROR"),
+                        "phase": args.phase,
+                        "at": failed_at.isoformat(timespec="seconds"),
+                        "message": str(exc),
+                    },
+                    lock=lock,
+                )
+                raise
+        print("=== HEALTH SNAPSHOT SUMMARY ===")
+        print(f"Change ID : {workspace.change_id}")
+        print(f"Phase     : {args.phase}")
+        print(f"Input     : {args.input_format}")
+        print(f"Hosts     : {len(snapshot['hosts'])}")
+        print(f"Warnings  : {warning_count}")
+        for line in terminal_result_lines(health_result):
+            if not line.startswith(("Change ID", "Phase")):
+                print(line)
+        display_dir = output_dir
+        if args.phase == "before" and getattr(args, "_health_attempt_id", None):
+            display_dir = workspace.operation_root / "health" / "before"
+            print(f"Attempt   : {output_dir}")
+        print(f"Manifest  : {display_dir / 'collection-manifest.yaml'}")
+        if import_manifest is not None:
+            print(
+                "Import    : "
+                f"{display_dir / 'transcript-import-manifest.yaml'}"
+            )
+        print(f"Snapshot  : {display_dir / 'snapshot.json'}")
+        print(f"Checklist : {display_dir / 'checklist.md'}")
+        if overlay_state is not None:
+            print(f"Overlay   : {display_dir / 'overlay-state.yaml'}")
+            print(f"VNI Map   : {display_dir / 'vni-map.md'}")
+            print(f"VNI CSV   : {display_dir / 'vni-map.csv'}")
+        if (
+            args.phase == "before"
+            and workspace.change_id_source == "generated"
+            and args.hosts
+        ):
+            inventory_digest = source_sha256(args.hosts).removeprefix(
+                "sha256:"
+            )
+            save_active_change(
+                args.operations_root,
+                {
+                    "api_version": "alred/v1",
+                    "kind": "ActiveHealthCheckChange",
+                    "metadata": {
+                        "updated_at": completed_at.isoformat(timespec="seconds"),
+                        "timezone": workspace.timezone,
+                    },
+                    "spec": {
+                        "change_id": workspace.change_id,
+                        "change_id_source": "generated",
+                        "state": "before_completed",
+                        "output_root": str(workspace.operation_root),
+                        "before": {
+                            "completed_at": completed_at.isoformat(
+                                timespec="seconds"
+                            ),
+                            "metadata_path": str(workspace.metadata_path),
+                            "snapshot_path": str(output_dir / "snapshot.json"),
+                            "inventory_sha256": inventory_digest,
+                            "profile_sha256": profile_sha256.removeprefix(
+                                "sha256:"
+                            ),
+                        },
+                        "after": {"status": "not_started"},
+                    },
+                },
+            )
+        return _health_result_exit_code(health_result["result"])
+    except (
+        CollectionAdapterError,
+        TranscriptImportError,
+        SnapshotBuildError,
+        HealthEvaluationError,
+        ProfileResolutionError,
+        OperationError,
+        ValueError,
+        OSError,
+    ) as exc:
+        _operation_cli_error(exc)
+
+
+def _resolve_health_after_change_id(args: argparse.Namespace) -> bool:
+    if args.change_id:
+        return False
+    active = load_active_change(args.operations_root)
+    args.change_id = active["spec"]["change_id"]
+    print("Change ID was not specified.")
+    print(f"Using active before Change ID: {args.change_id}")
+    return True
+
+
+def _optional_existing_file(path: str | None, *, label: str) -> str | None:
+    if path is None:
+        return None
+    candidate = Path(path)
+    if not candidate.is_file() or candidate.is_symlink():
+        raise HealthExecutionContextError(
+            f"{label} file is missing or unsafe: {candidate}"
+        )
+    return str(candidate.resolve())
+
+
+def _resolved_credentials_path(args: argparse.Namespace) -> str | None:
+    if args.credentials:
+        return _optional_existing_file(
+            args.credentials,
+            label="credentials",
+        )
+    default_path = Path("clab_credentials.yaml")
+    if default_path.is_file() and not default_path.is_symlink():
+        return str(default_path.resolve())
+    return None
+
+
+def _write_health_execution_context(
+    args: argparse.Namespace,
+    workspace,
+    *,
+    recorded_at: datetime,
+) -> None:
+    context_path = workspace.operation_root / CONTEXT_RELATIVE_PATH
+    if context_path.exists():
+        raise OperationStateError(
+            f"health execution context already exists: {context_path}"
+        )
+    input_mode = "collect" if args.collect else "input"
+    if args.collect:
+        args.hosts = str(
+            Path(resolve_hosts_path(args.hosts, required=True)).resolve()
+        )
+        args.policy = _optional_existing_file(args.policy, label="policy")
+        args.credentials = _resolved_credentials_path(args)
+        collection = {
+            "transport": args.transport,
+            "target_hosts": sorted(parse_host_filter(args.target_hosts)),
+            "workers": args.workers,
+            "show_read_timeout": args.show_read_timeout,
+            "skip_connect_check": args.skip_connect_check,
+            "connect_check_timeout": args.connect_check_timeout,
+        }
+    else:
+        if args.hosts is not None:
+            args.hosts = _optional_existing_file(args.hosts, label="inventory")
+        collection = None
+    context = build_health_execution_context(
+        change_id=workspace.change_id,
+        recorded_at=recorded_at,
+        timezone=workspace.timezone,
+        input_mode=input_mode,
+        inventory_path=args.hosts,
+        policy_path=args.policy if args.collect else None,
+        input_format=args.input_format if not args.collect else None,
+        collection=collection,
+        authentication={
+            "username": args.username if args.collect else None,
+            "credentials_file": args.credentials if args.collect else None,
+            "ask_pass": bool(args.ask_pass) if args.collect else False,
+            "ask_become_pass": (
+                bool(args.ask_become_pass) if args.collect else False
+            ),
+            "password_was_cli": (
+                args.password is not None if args.collect else False
+            ),
+            "enable_secret_was_cli": (
+                args.enable_secret is not None if args.collect else False
+            ),
+        },
+    )
+    atomic_write_yaml(
+        workspace.operation_root,
+        context_path,
+        context,
+        kind="HealthCheckExecutionContext",
+    )
+
+
+def _inherit_context_source(
+    reference: Mapping[str, str] | None,
+    supplied_path: str | None,
+    *,
+    label: str,
+    phase: str = "after",
+) -> str | None:
+    if reference is None:
+        if supplied_path is not None:
+            raise HealthExecutionContextError(
+                f"{label} was not used by before and cannot be added to "
+                f"{phase}"
+            )
+        return None
+    return verify_source_file(reference, supplied_path, label=label)
+
+
+def _apply_health_followup_execution_context(
+    args: argparse.Namespace,
+    workspace,
+) -> bool:
+    phase = args.health_check_command
+    context = load_health_execution_context(workspace.operation_root)
+    if context is None:
+        return False
+    if context["metadata"]["timezone"] != workspace.timezone:
+        raise HealthExecutionContextError(
+            "health execution context timezone does not match operation"
+        )
+    spec = context["spec"]
+    explicit_mode = bool(args.collect or args.input)
+    if not explicit_mode:
+        if spec["input_mode"] == "input":
+            raise OperationStateError(
+                f"health-check {phase} requires --input because before used "
+                "offline input; --input-format is inherited when omitted"
+            )
+        args.collect = True
+
+    inventory = spec["inventory"]
+    if args.collect or args.input:
+        if inventory is not None:
+            args.hosts = verify_source_file(
+                inventory,
+                args.hosts,
+                label="inventory",
+            )
+        elif args.hosts is not None and spec["input_mode"] == "input":
+            raise HealthExecutionContextError(
+                "inventory was not used by before and cannot be added to "
+                f"{phase}"
+            )
+
+    if args.input:
+        if args.input_format is None and spec["input_mode"] == "input":
+            args.input_format = spec["input_format"]
+        return True
+
+    if spec["input_mode"] != "collect":
+        return True
+    args.policy = _inherit_context_source(
+        spec["policy"],
+        args.policy,
+        label="policy",
+        phase=phase,
+    )
+    collection = spec["collection"]
+    recorded_targets = collection["target_hosts"]
+    if args.target_hosts is not None:
+        requested_targets = sorted(parse_host_filter(args.target_hosts))
+        if requested_targets != recorded_targets:
+            raise HealthExecutionContextError(
+                f"{phase} target-hosts do not match before"
+            )
+    args.target_hosts = (
+        ",".join(recorded_targets) if recorded_targets else None
+    )
+    for name in (
+        "transport",
+        "workers",
+        "show_read_timeout",
+        "skip_connect_check",
+        "connect_check_timeout",
+    ):
+        if getattr(args, name) is None:
+            setattr(args, name, collection[name])
+
+    authentication = spec["authentication"]
+    if args.username is None:
+        args.username = authentication["username"]
+    if args.credentials is None:
+        args.credentials = authentication["credentials_file"]
+    if args.credentials is not None:
+        args.credentials = _optional_existing_file(
+            args.credentials,
+            label="credentials",
+        )
+    args.ask_pass = bool(
+        args.ask_pass
+        or authentication["ask_pass"]
+        or (
+            args.password is None
+            and authentication["password_was_cli"]
+        )
+    )
+    args.ask_become_pass = bool(
+        args.ask_become_pass
+        or authentication["ask_become_pass"]
+        or (
+            args.enable_secret is None
+            and authentication["enable_secret_was_cli"]
+        )
+    )
+    return True
+
+
+def _set_health_followup_collect_defaults(args: argparse.Namespace) -> None:
+    defaults = {
+        "transport": "ssh",
+        "workers": 5,
+        "show_read_timeout": 120,
+        "skip_connect_check": False,
+        "connect_check_timeout": DEFAULT_CONNECT_CHECK_TIMEOUT,
+    }
+    for name, value in defaults.items():
+        if getattr(args, name) is None:
+            setattr(args, name, value)
+
+
+def _direct_health_collect(
+    args: argparse.Namespace,
+    workspace,
+    resolved_profiles: Mapping[str, Any],
+) -> Path:
+    phase = args.health_check_command
+    effective = resolved_profiles["spec"]["resolved"]["effective"]
+    commands = [
+        item["command"]
+        for item in effective["spec"]
+        .get("collectors", {})
+        .get("nxos", {})
+        .get("commands", [])
+        if item["id"] != "running_config"
+    ]
+    attempt_id = getattr(args, "_health_attempt_id", None)
+    phase_root = workspace.operation_root / "health" / phase
+    if phase in {"before", "rollback"} and attempt_id:
+        phase_root = phase_root / "attempts" / attempt_id
+    raw_dir = phase_root / "raw"
+    command_path = phase_root / "show-commands.txt"
+    atomic_write_bytes(
+        workspace.operation_root,
+        command_path,
+        (
+            "[device_type:nxos]\n"
+            + "\n".join(commands).rstrip()
+            + "\n"
+        ).encode("utf-8"),
+    )
+    collect_args = argparse.Namespace(
+        command="collect",
+        hosts=args.hosts,
+        policy=args.policy,
+        roles=None,
+        username=args.username,
+        password=args.password,
+        ask_pass=args.ask_pass,
+        enable_secret=args.enable_secret,
+        credentials=args.credentials,
+        ask_become_pass=args.ask_become_pass,
+        transport=args.transport,
+        target_hosts=args.target_hosts,
+        output=str(raw_dir),
+        before_show_run_dir=None,
+        workers=args.workers,
+        show_commands_file=str(command_path),
+        show_hosts=None,
+        show_read_timeout=args.show_read_timeout,
+        skip_connect_check=args.skip_connect_check,
+        connect_check_timeout=args.connect_check_timeout,
+        log_file=str(phase_root / "collect.log"),
+        verbose=args.verbose,
+        show_run_diff=False,
+        show_run_diff_comands=False,
+        show_only=False,
+        run_config_only=True,
+    )
+    started_at = now_in_timezone(workspace.timezone)
+    collection_phase = f"{phase}_collect"
+    with OperationLock(workspace, f"health-check-{collection_phase}") as lock:
+        transition_phase(
+            workspace,
+            collection_phase,
+            "running",
+            lock=lock,
+            attempt_id=generate_attempt_id(
+                collection_phase,
+                workspace.timezone,
+                now=started_at,
+            ),
+            reason="direct_collection_started",
+            now=started_at,
+            allow_retry=bool(getattr(args, "_health_retry", False)),
+        )
+        try:
+            run_collect(
+                collect_args,
+                setup_logging(collect_args.log_file, collect_args.verbose),
+            )
+            transition_phase(
+                workspace,
+                collection_phase,
+                "completed",
+                lock=lock,
+                reason="direct_collection_completed",
+                now=now_in_timezone(workspace.timezone),
+            )
+        except Exception as exc:
+            failed_at = now_in_timezone(workspace.timezone)
+            transition_phase(
+                workspace,
+                collection_phase,
+                "failed",
+                lock=lock,
+                reason="direct_collection_failed",
+                now=failed_at,
+            )
+            record_operation_error(
+                workspace,
+                {
+                    "code": getattr(exc, "code", "COLLECTION_ERROR"),
+                    "phase": collection_phase,
+                    "at": failed_at.isoformat(timespec="seconds"),
+                    "message": str(exc),
+                },
+                lock=lock,
+            )
+            raise
+    return raw_dir
+
+
+def _validate_before_retry_context(args: argparse.Namespace, workspace) -> None:
+    context = load_health_execution_context(workspace.operation_root)
+    if context is None:
+        return
+    spec = context["spec"]
+    requested_mode = "collect" if args.collect else "input"
+    if spec["input_mode"] != requested_mode:
+        raise HealthExecutionContextError(
+            "before retry input mode does not match the fixed before context"
+        )
+    if spec["inventory"] is not None:
+        args.hosts = verify_source_file(
+            spec["inventory"],
+            args.hosts,
+            label="inventory",
+        )
+    elif args.hosts is not None:
+        raise HealthExecutionContextError(
+            "inventory was not fixed by the original before"
+        )
+    if args.collect:
+        if spec["policy"] is not None:
+            args.policy = verify_source_file(
+                spec["policy"],
+                args.policy,
+                label="policy",
+            )
+        elif args.policy is not None:
+            raise HealthExecutionContextError(
+                "policy was not fixed by the original before"
+            )
+
+
+def _profile_value_changes(
+    before: Any,
+    after: Any,
+    path: str = "",
+) -> list[dict[str, Any]]:
+    if isinstance(before, Mapping) and isinstance(after, Mapping):
+        changes = []
+        for key in sorted(set(before) | set(after)):
+            child_path = f"{path}/{key}" if path else f"/{key}"
+            changes.extend(
+                _profile_value_changes(
+                    before.get(key, "<absent>"),
+                    after.get(key, "<absent>"),
+                    child_path,
+                )
+            )
+        return changes
+    if before == after:
+        return []
+    return [{"path": path or "/", "before": before, "after": after}]
+
+
+def _prepare_before_profiles(
+    args: argparse.Namespace,
+    workspace,
+    logging_time_range: Mapping[str, Any] | None,
+) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    resolved_path = workspace.operation_root / "health" / "resolved-profiles.yaml"
+    revision_reason = str(getattr(args, "revision_reason", "") or "").strip()
+    revision_requested = bool(revision_reason)
+    requested = resolve_profiles(
+        args.profile or [DEFAULT_HEALTH_PROFILE],
+        change_id=workspace.change_id,
+        resolved_at=now_in_timezone(workspace.timezone),
+        resolution_source="explicit" if args.profile else "default",
+        timezone=workspace.timezone,
+    )
+    if not resolved_path.exists():
+        if revision_requested:
+            raise ProfileResolutionError(
+                "--revision-reason requires an existing completed before"
+            )
+        if logging_time_range is not None:
+            requested = apply_logging_time_range_override(
+                requested,
+                logging_time_range,
+            )
+        return requested, None
+
+    fixed = load_resolved_profiles(resolved_path)
+    fixed_range = (
+        fixed["spec"]["resolved"]["effective"]["spec"]
+        .get("thresholds", {})
+        .get("logging", {})
+        .get("time_range")
+    )
+    if revision_requested:
+        if logging_time_range is not None:
+            requested = apply_logging_time_range_override(
+                requested,
+                logging_time_range,
+            )
+        elif fixed_range is not None:
+            requested = apply_logging_time_range_override(requested, fixed_range)
+        previous_hash = fixed["spec"]["resolved"]["effective_sha256"]
+        revised_hash = requested["spec"]["resolved"]["effective_sha256"]
+        if previous_hash == revised_hash:
+            raise ProfileResolutionError(
+                "--revision-reason was provided but the effective profile "
+                "did not change"
+            )
+        changes = _profile_value_changes(
+            fixed["spec"]["resolved"]["effective"],
+            requested["spec"]["resolved"]["effective"],
+        )
+        return requested, {
+            "reason": revision_reason,
+            "previous": {
+                "path": str(resolved_path),
+                "effective_sha256": previous_hash,
+                "profile_names": fixed["spec"]["resolved"]["profile_names"],
+            },
+            "revised": {
+                "effective_sha256": revised_hash,
+                "profile_names": requested["spec"]["resolved"]["profile_names"],
+            },
+            "changes": changes,
+        }
+
+    if logging_time_range is not None and logging_time_range != fixed_range:
+        raise ProfileResolutionError(
+            "before retry logging range does not match the fixed profile; "
+            "use a new change ID"
+        )
+    requested = _inherit_fixed_logging_time_range(requested, fixed)
+    if (
+        requested["spec"]["resolved"]["effective_sha256"]
+        != fixed["spec"]["resolved"]["effective_sha256"]
+    ):
+        raise ProfileResolutionError(
+            "before retry profile does not match fixed profile; "
+            "use --revision-reason to record an explicit profile revision"
+        )
+    return fixed, None
+
+
+def _archive_legacy_before_attempt(workspace, metadata: Mapping[str, Any]) -> None:
+    phase = metadata["spec"].get("phases", {}).get("before")
+    phase_root = workspace.operation_root / "health" / "before"
+    snapshot_path = phase_root / "snapshot.json"
+    if not phase or not snapshot_path.is_file():
+        return
+    attempt_id = phase.get("current_attempt") or "legacy-before"
+    attempt_dir = phase_root / "attempts" / attempt_id
+    resolved_path = workspace.operation_root / "health" / "resolved-profiles.yaml"
+    resolved = load_resolved_profiles(resolved_path)
+    profile_sha256 = resolved["spec"]["resolved"]["effective_sha256"]
+    if not attempt_dir.exists():
+        attempt_dir.mkdir(parents=True)
+        for child in phase_root.iterdir():
+            if child.name in {"attempts", "current.json"}:
+                continue
+            destination = attempt_dir / child.name
+            if child.is_dir():
+                shutil.copytree(child, destination)
+            elif child.is_file() and not child.is_symlink():
+                shutil.copy2(child, destination)
+        shutil.copy2(resolved_path, attempt_dir / "resolved-profiles.yaml")
+        health = json.loads(
+            (attempt_dir / "health-result.json").read_text(encoding="utf-8")
+        )
+        atomic_write_json(
+            workspace.operation_root,
+            attempt_dir / "result.json",
+            {
+                "schema_version": 1,
+                "change_id": workspace.change_id,
+                "phase": "before",
+                "attempt_id": attempt_id,
+                "status": "COMPLETED",
+                "health_result": health["result"],
+                "started_at": health["started_at"],
+                "completed_at": health["completed_at"],
+                "artifact_dir": str(attempt_dir),
+                "profile_sha256": profile_sha256,
+            },
+            kind="HealthPhaseAttempt",
+        )
+    elif not (attempt_dir / "resolved-profiles.yaml").exists():
+        shutil.copy2(resolved_path, attempt_dir / "resolved-profiles.yaml")
+    result_path = attempt_dir / "result.json"
+    if result_path.exists():
+        legacy_result = json.loads(result_path.read_text(encoding="utf-8"))
+        if "profile_sha256" not in legacy_result:
+            legacy_result["profile_sha256"] = profile_sha256
+            atomic_write_json(
+                workspace.operation_root,
+                result_path,
+                legacy_result,
+                kind="HealthPhaseAttempt",
+            )
+    health = json.loads(
+        (attempt_dir / "health-result.json").read_text(encoding="utf-8")
+    )
+    atomic_write_json(
+        workspace.operation_root,
+        phase_root / "current.json",
+        {
+            "schema_version": 1,
+            "change_id": workspace.change_id,
+            "phase": "before",
+            "attempt_id": attempt_id,
+            "artifact_dir": str(attempt_dir),
+            "snapshot_path": str(attempt_dir / "snapshot.json"),
+            "snapshot_sha256": source_sha256(attempt_dir / "snapshot.json"),
+            "profile_sha256": profile_sha256,
+            "health_result": health["result"],
+            "completed_at": health["completed_at"],
+        },
+        kind="HealthPhaseCurrent",
+    )
+
+
+def _start_before_attempt(args: argparse.Namespace, workspace) -> dict[str, Any]:
+    metadata = load_operation_metadata(workspace.operation_root)
+    if metadata["spec"].get("workflow_state") is not None:
+        raise OperationStateError(
+            "before cannot be retried after the Overlay workflow has started"
+        )
+    blocking_paths = [
+        workspace.operation_root / "plan" / "execution-plan.json",
+        workspace.operation_root / "approval" / "approval-record.json",
+        workspace.operation_root / "apply" / "execution.json",
+    ]
+    if any(path.exists() for path in blocking_paths):
+        raise OperationStateError(
+            "before cannot be retried after plan, approval, or apply artifacts exist"
+        )
+    phases = metadata["spec"].get("phases", {})
+    previous = phases.get("before")
+    if previous and previous["status"] in {"running", "waiting_for_user"}:
+        raise OperationStateError("a before attempt is already in progress")
+    retry = previous is not None or phases.get("before_collect") is not None
+    if retry:
+        _validate_before_retry_context(args, workspace)
+        _archive_legacy_before_attempt(workspace, metadata)
+    started_at = now_in_timezone(workspace.timezone)
+    attempt_id = generate_attempt_id("before", workspace.timezone, now=started_at)
+    attempt_dir = (
+        workspace.operation_root / "health" / "before" / "attempts" / attempt_id
+    )
+    args._health_attempt_id = attempt_id
+    args._health_retry = retry
+    result = {
+        "schema_version": 1,
+        "change_id": workspace.change_id,
+        "phase": "before",
+        "attempt_id": attempt_id,
+        "status": "RUNNING",
+        "started_at": started_at.isoformat(timespec="seconds"),
+        "artifact_dir": str(attempt_dir),
+        "profile_sha256": args._health_resolved_profiles["spec"]["resolved"][
+            "effective_sha256"
+        ],
+    }
+    atomic_write_yaml(
+        workspace.operation_root,
+        attempt_dir / "resolved-profiles.yaml",
+        args._health_resolved_profiles,
+        kind="ResolvedHealthCheckProfiles",
+    )
+    revision = getattr(args, "_health_profile_revision", None)
+    if revision is not None:
+        revision_path = attempt_dir / "profile-revision.json"
+        revision_document = {
+            "schema_version": 1,
+            "change_id": workspace.change_id,
+            "attempt_id": attempt_id,
+            "revised_at": started_at.isoformat(timespec="seconds"),
+            "reason": revision["reason"],
+            "previous": revision["previous"],
+            "revised": {
+                **revision["revised"],
+                "path": str(attempt_dir / "resolved-profiles.yaml"),
+            },
+            "changes": revision["changes"],
+        }
+        atomic_write_json(
+            workspace.operation_root,
+            revision_path,
+            revision_document,
+            kind="HealthProfileRevision",
+        )
+        result["profile_revision"] = str(revision_path)
+    atomic_write_json(
+        workspace.operation_root,
+        attempt_dir / "result.json",
+        result,
+        kind="HealthPhaseAttempt",
+    )
+    return result
+
+
+def _fail_before_attempt(workspace, attempt: dict[str, Any], exc: BaseException) -> None:
+    attempt_dir = Path(attempt["artifact_dir"])
+    execution = load_operation_execution(workspace.operation_root)
+    last_error = execution["errors"][-1] if execution["errors"] else {}
+    code = last_error.get("code") or getattr(exc, "code", "VALIDATION_ERROR")
+    if not isinstance(code, str):
+        code = "VALIDATION_ERROR"
+    message = last_error.get("message") or str(exc)
+    attempt.update(
+        {
+            "status": "FAILED",
+            "completed_at": now_in_timezone(workspace.timezone).isoformat(
+                timespec="seconds"
+            ),
+            "error": {"code": code, "message": message},
+        }
+    )
+    atomic_write_json(
+        workspace.operation_root,
+        attempt_dir / "result.json",
+        attempt,
+        kind="HealthPhaseAttempt",
+    )
+
+
+def _publish_before_attempt(workspace, attempt: dict[str, Any]) -> None:
+    attempt_dir = Path(attempt["artifact_dir"])
+    phase_root = workspace.operation_root / "health" / "before"
+    health = json.loads(
+        (attempt_dir / "health-result.json").read_text(encoding="utf-8")
+    )
+    for child in attempt_dir.iterdir():
+        if child.name in {"result.json", "resolved-profiles.yaml"}:
+            continue
+        destination = phase_root / child.name
+        if child.is_dir():
+            staged = phase_root / f".{child.name}.{attempt['attempt_id']}.tmp"
+            if staged.exists():
+                shutil.rmtree(staged)
+            shutil.copytree(child, staged)
+            if destination.exists():
+                shutil.rmtree(destination)
+            staged.replace(destination)
+        elif child.is_file() and not child.is_symlink():
+            atomic_write_bytes(
+                workspace.operation_root,
+                destination,
+                child.read_bytes(),
+            )
+    atomic_write_bytes(
+        workspace.operation_root,
+        workspace.operation_root / "health" / "resolved-profiles.yaml",
+        (attempt_dir / "resolved-profiles.yaml").read_bytes(),
+    )
+    completed_at = health["completed_at"]
+    attempt.update(
+        {
+            "status": "COMPLETED",
+            "health_result": health["result"],
+            "completed_at": completed_at,
+        }
+    )
+    atomic_write_json(
+        workspace.operation_root,
+        attempt_dir / "result.json",
+        attempt,
+        kind="HealthPhaseAttempt",
+    )
+    atomic_write_json(
+        workspace.operation_root,
+        phase_root / "current.json",
+        {
+            "schema_version": 1,
+            "change_id": workspace.change_id,
+            "phase": "before",
+            "attempt_id": attempt["attempt_id"],
+            "artifact_dir": str(attempt_dir),
+            "snapshot_path": str(attempt_dir / "snapshot.json"),
+            "snapshot_sha256": source_sha256(attempt_dir / "snapshot.json"),
+            "profile_sha256": attempt["profile_sha256"],
+            "health_result": health["result"],
+            "completed_at": completed_at,
+        },
+        kind="HealthPhaseCurrent",
+    )
+
+
+def _copy_attempt_artifacts(
+    workspace,
+    source: Path,
+    destination_root: Path,
+    *,
+    excluded: set[str],
+) -> None:
+    """Publish immutable attempt files to compatibility paths atomically."""
+    for child in source.iterdir():
+        if child.name in excluded:
+            continue
+        destination = destination_root / child.name
+        if child.is_dir():
+            staged = (
+                destination_root
+                / f".{child.name}.{generate_attempt_id('publish', workspace.timezone)}.tmp"
+            )
+            if staged.exists():
+                shutil.rmtree(staged)
+            shutil.copytree(child, staged)
+            if destination.exists():
+                shutil.rmtree(destination)
+            staged.replace(destination)
+        elif child.is_file() and not child.is_symlink():
+            atomic_write_bytes(
+                workspace.operation_root,
+                destination,
+                child.read_bytes(),
+            )
+
+
+def _rollback_verification_roots(workspace) -> tuple[Path, Path]:
+    qualification = (
+        workspace.operation_root
+        / "qualification/qualification-record.json"
+    ).is_file()
+    root = (
+        workspace.operation_root / "qualification/rollback"
+        if qualification
+        else workspace.operation_root / "rollback"
+    )
+    return root, root / "verification-attempts"
+
+
+def _archive_legacy_rollback_attempt(
+    workspace,
+    metadata: Mapping[str, Any],
+) -> None:
+    phase_root = workspace.operation_root / "health/rollback"
+    snapshot_path = phase_root / "snapshot.json"
+    if not snapshot_path.is_file():
+        return
+    phase = metadata["spec"].get("phases", {}).get("rollback", {})
+
+    def complete_attempt(candidate: Path) -> bool:
+        return (
+            (candidate / "snapshot.json").is_file()
+            and (candidate / "health-result.json").is_file()
+        )
+
+    attempt_id = None
+    attempt_dir = None
+    current_path = phase_root / "current.json"
+    if current_path.is_file():
+        try:
+            current = json.loads(current_path.read_text(encoding="utf-8"))
+            current_id = current.get("attempt_id")
+            current_dir = phase_root / "attempts" / str(current_id)
+            if current_id and complete_attempt(current_dir):
+                attempt_id = str(current_id)
+                attempt_dir = current_dir
+        except (json.JSONDecodeError, OSError):
+            pass
+    phase_attempt_id = phase.get("current_attempt")
+    if attempt_dir is None and phase_attempt_id:
+        phase_attempt_dir = phase_root / "attempts" / phase_attempt_id
+        if complete_attempt(phase_attempt_dir):
+            attempt_id = phase_attempt_id
+            attempt_dir = phase_attempt_dir
+    if attempt_dir is None:
+        attempt_id = "legacy-rollback"
+        attempt_dir = phase_root / "attempts" / attempt_id
+        suffix = 1
+        while attempt_dir.exists() and not complete_attempt(attempt_dir):
+            attempt_id = f"legacy-rollback-{suffix}"
+            attempt_dir = phase_root / "attempts" / attempt_id
+            suffix += 1
+    resolved_path = workspace.operation_root / "health/resolved-profiles.yaml"
+    resolved = load_resolved_profiles(resolved_path)
+    profile_sha256 = resolved["spec"]["resolved"]["effective_sha256"]
+    if not attempt_dir.exists():
+        attempt_dir.mkdir(parents=True)
+        for child in phase_root.iterdir():
+            if child.name in {"attempts", "current.json"}:
+                continue
+            destination = attempt_dir / child.name
+            if child.is_dir():
+                shutil.copytree(child, destination)
+            elif child.is_file() and not child.is_symlink():
+                shutil.copy2(child, destination)
+        shutil.copy2(resolved_path, attempt_dir / "resolved-profiles.yaml")
+    health = json.loads(
+        (attempt_dir / "health-result.json").read_text(encoding="utf-8")
+    )
+    if not (attempt_dir / "result.json").is_file():
+        atomic_write_json(
+            workspace.operation_root,
+            attempt_dir / "result.json",
+            {
+                "schema_version": 1,
+                "change_id": workspace.change_id,
+                "phase": "rollback",
+                "attempt_id": attempt_id,
+                "status": "COMPLETED",
+                "health_result": health["result"],
+                "started_at": health["started_at"],
+                "completed_at": health["completed_at"],
+                "artifact_dir": str(attempt_dir),
+                "profile_sha256": profile_sha256,
+            },
+            kind="HealthPhaseAttempt",
+        )
+    atomic_write_json(
+        workspace.operation_root,
+        phase_root / "current.json",
+        {
+            "schema_version": 1,
+            "change_id": workspace.change_id,
+            "phase": "rollback",
+            "attempt_id": attempt_id,
+            "artifact_dir": str(attempt_dir),
+            "snapshot_path": str(attempt_dir / "snapshot.json"),
+            "snapshot_sha256": source_sha256(attempt_dir / "snapshot.json"),
+            "profile_sha256": profile_sha256,
+            "health_result": health["result"],
+            "completed_at": health["completed_at"],
+        },
+        kind="HealthPhaseCurrent",
+    )
+
+    report_root = workspace.operation_root / "health/rollback-report"
+    report_attempt = report_root / "attempts" / attempt_id
+    if (report_root / "health-result.json").is_file() and not report_attempt.exists():
+        report_attempt.mkdir(parents=True)
+        for name in ("health-result.json", "summary.md"):
+            source = report_root / name
+            if source.is_file() and not source.is_symlink():
+                shutil.copy2(source, report_attempt / name)
+
+    verification_root, attempts_root = _rollback_verification_roots(workspace)
+    verification_attempt = attempts_root / attempt_id
+    legacy_verification = verification_root / "verification.json"
+    if legacy_verification.is_file() and not verification_attempt.exists():
+        verification_attempt.mkdir(parents=True)
+        for name in ("verification.json", "verification-checklist.md"):
+            source = verification_root / name
+            if source.is_file() and not source.is_symlink():
+                shutil.copy2(source, verification_attempt / name)
+    if (
+        (verification_attempt / "verification.json").is_file()
+        and (verification_attempt / "verification-checklist.md").is_file()
+    ):
+        verification = json.loads(
+            (verification_attempt / "verification.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        checklist = verification_attempt / "verification-checklist.md"
+        atomic_write_json(
+            workspace.operation_root,
+            verification_root / "verification-current.json",
+            {
+                "schema_version": 1,
+                "change_id": workspace.change_id,
+                "attempt_id": attempt_id,
+                "result": verification["status"]["result"],
+                "verification_path": str(
+                    verification_attempt / "verification.json"
+                ),
+                "checklist_path": str(checklist),
+                "health_report_path": str(
+                    report_attempt / "health-result.json"
+                ),
+                "completed_at": verification["metadata"]["verified_at"],
+            },
+            kind="RollbackVerificationCurrent",
+        )
+
+
+def _start_rollback_attempt(
+    args: argparse.Namespace,
+    workspace,
+    resolved_profiles: Mapping[str, Any],
+) -> dict[str, Any]:
+    metadata = load_operation_metadata(workspace.operation_root)
+    workflow = metadata["spec"].get("workflow_state")
+    if workflow not in {"rolled_back", "rollback_health_failed"}:
+        raise OperationStateError(
+            "rollback health check requires rolled_back or "
+            "rollback_health_failed"
+        )
+    phases = metadata["spec"].get("phases", {})
+    for phase_name in ("rollback_collect", "rollback"):
+        existing = phases.get(phase_name)
+        if existing and existing["status"] in {"running", "waiting_for_user"}:
+            raise OperationStateError(
+                "a rollback health attempt is already in progress"
+            )
+    retry = "rollback" in phases or "rollback_collect" in phases
+    if retry:
+        _archive_legacy_rollback_attempt(workspace, metadata)
+    started_at = now_in_timezone(workspace.timezone)
+    attempt_id = generate_attempt_id(
+        "rollback",
+        workspace.timezone,
+        now=started_at,
+    )
+    attempt_dir = (
+        workspace.operation_root / "health/rollback/attempts" / attempt_id
+    )
+    args._health_attempt_id = attempt_id
+    args._health_retry = retry
+    result = {
+        "schema_version": 1,
+        "change_id": workspace.change_id,
+        "phase": "rollback",
+        "attempt_id": attempt_id,
+        "status": "RUNNING",
+        "started_at": started_at.isoformat(timespec="seconds"),
+        "artifact_dir": str(attempt_dir),
+        "profile_sha256": resolved_profiles["spec"]["resolved"][
+            "effective_sha256"
+        ],
+    }
+    atomic_write_yaml(
+        workspace.operation_root,
+        attempt_dir / "resolved-profiles.yaml",
+        resolved_profiles,
+        kind="ResolvedHealthCheckProfiles",
+    )
+    atomic_write_json(
+        workspace.operation_root,
+        attempt_dir / "result.json",
+        result,
+        kind="HealthPhaseAttempt",
+    )
+    return result
+
+
+def _fail_rollback_attempt(
+    workspace,
+    attempt: dict[str, Any],
+    exc: BaseException,
+) -> None:
+    attempt.update(
+        {
+            "status": "FAILED",
+            "completed_at": now_in_timezone(workspace.timezone).isoformat(
+                timespec="seconds"
+            ),
+            "error": {
+                "code": str(getattr(exc, "code", "VALIDATION_ERROR")),
+                "message": str(exc),
+            },
+        }
+    )
+    atomic_write_json(
+        workspace.operation_root,
+        Path(attempt["artifact_dir"]) / "result.json",
+        attempt,
+        kind="HealthPhaseAttempt",
+    )
+
+
+def _publish_rollback_attempt(
+    workspace,
+    attempt: dict[str, Any],
+    *,
+    report_dir: Path,
+    verification_dir: Path,
+    verification: Mapping[str, Any],
+) -> None:
+    attempt_dir = Path(attempt["artifact_dir"])
+    phase_root = workspace.operation_root / "health/rollback"
+    report_root = workspace.operation_root / "health/rollback-report"
+    verification_root, _attempts_root = _rollback_verification_roots(workspace)
+    _copy_attempt_artifacts(
+        workspace,
+        attempt_dir,
+        phase_root,
+        excluded={"result.json", "resolved-profiles.yaml"},
+    )
+    _copy_attempt_artifacts(
+        workspace,
+        report_dir,
+        report_root,
+        excluded=set(),
+    )
+    _copy_attempt_artifacts(
+        workspace,
+        verification_dir,
+        verification_root,
+        excluded=set(),
+    )
+    health = json.loads(
+        (attempt_dir / "health-result.json").read_text(encoding="utf-8")
+    )
+    completed_at = verification["metadata"]["verified_at"]
+    attempt.update(
+        {
+            "status": "COMPLETED",
+            "health_result": health["result"],
+            "completed_at": completed_at,
+        }
+    )
+    atomic_write_json(
+        workspace.operation_root,
+        attempt_dir / "result.json",
+        attempt,
+        kind="HealthPhaseAttempt",
+    )
+    atomic_write_json(
+        workspace.operation_root,
+        phase_root / "current.json",
+        {
+            "schema_version": 1,
+            "change_id": workspace.change_id,
+            "phase": "rollback",
+            "attempt_id": attempt["attempt_id"],
+            "artifact_dir": str(attempt_dir),
+            "snapshot_path": str(attempt_dir / "snapshot.json"),
+            "snapshot_sha256": source_sha256(attempt_dir / "snapshot.json"),
+            "profile_sha256": attempt["profile_sha256"],
+            "health_result": health["result"],
+            "completed_at": completed_at,
+        },
+        kind="HealthPhaseCurrent",
+    )
+    atomic_write_json(
+        workspace.operation_root,
+        verification_root / "verification-current.json",
+        {
+            "schema_version": 1,
+            "change_id": workspace.change_id,
+            "attempt_id": attempt["attempt_id"],
+            "result": verification["status"]["result"],
+            "verification_path": str(
+                verification_dir / "verification.json"
+            ),
+            "checklist_path": str(
+                verification_dir / "verification-checklist.md"
+            ),
+            "health_report_path": str(report_dir / "health-result.json"),
+            "completed_at": completed_at,
+        },
+        kind="RollbackVerificationCurrent",
+    )
+
+
+def _verify_and_publish_rollback_attempt(
+    workspace,
+    rollback_attempt: dict[str, Any],
+) -> tuple[dict[str, Any], Path, Path]:
+    attempt_id = rollback_attempt["attempt_id"]
+    attempt_dir = Path(rollback_attempt["artifact_dir"])
+    report_dir = (
+        workspace.operation_root
+        / "health/rollback-report/attempts"
+        / attempt_id
+    )
+    record_path = (
+        workspace.operation_root
+        / "qualification/qualification-record.json"
+    )
+    if record_path.is_file():
+        record = load_qualification_record(record_path)
+        verification_dir = (
+            workspace.operation_root
+            / "qualification/rollback/verification-attempts"
+            / attempt_id
+        )
+        with OperationLock(
+            workspace,
+            "qualification-rollback-verify",
+        ) as lock:
+            verification = verify_qualification_rollback(
+                workspace,
+                record,
+                rollback_snapshot_path=attempt_dir / "snapshot.json",
+                report_dir=report_dir,
+                verification_dir=verification_dir,
+                update_workflow=False,
+                lock=lock,
+                now=lambda: now_in_timezone(workspace.timezone),
+            )
+    else:
+        verification_dir = (
+            workspace.operation_root
+            / "rollback/verification-attempts"
+            / attempt_id
+        )
+        with OperationLock(
+            workspace,
+            "approved-rollback-verify",
+        ) as lock:
+            verification = verify_approved_rollback(
+                workspace,
+                rollback_snapshot_path=attempt_dir / "snapshot.json",
+                plan_path=(
+                    workspace.operation_root / "plan/execution-plan.json"
+                ),
+                report_dir=report_dir,
+                verification_dir=verification_dir,
+                update_workflow=False,
+                lock=lock,
+                now=lambda: now_in_timezone(workspace.timezone),
+            )
+    _publish_rollback_attempt(
+        workspace,
+        rollback_attempt,
+        report_dir=report_dir,
+        verification_dir=verification_dir,
+        verification=verification,
+    )
+    verified = (
+        verification["status"]["result"]
+        == "ROLLED_BACK_AND_VERIFIED"
+    )
+    with OperationLock(
+        workspace,
+        "rollback-health-workflow",
+    ) as lock:
+        transition_workflow(
+            workspace,
+            (
+                "rolled_back_and_verified"
+                if verified
+                else "rollback_health_failed"
+            ),
+            lock=lock,
+            reason=(
+                "rollback_health_retry_verified"
+                if verified
+                else "rollback_health_attempt_failed"
+            ),
+            now=now_in_timezone(workspace.timezone),
+        )
+    return (
+        verification,
+        verification_dir / "verification.json",
+        verification_dir / "verification-checklist.md",
+    )
+
+
+def cmd_health_check_phase(args: argparse.Namespace) -> int:
+    """Run before/after/rollback using input or the shared collect runner."""
+    phase = args.health_check_command
+    args.phase = phase
+    active_change_inherited = False
+    logging_time_range = _logging_time_range_from_args(args)
+    if phase != "before" and logging_time_range is not None:
+        raise OperationStateError(
+            "logging range options are valid only for the initial before"
+        )
+    if phase == "after":
+        active_change_inherited = _resolve_health_after_change_id(args)
+    elif phase == "rollback" and not args.change_id:
+        raise OperationStateError("health-check rollback requires --change-id")
+    if args.collect and args.input:
+        raise OperationStateError("--collect and --input cannot be used together")
+    if phase == "before" and not args.collect and not args.input:
+        raise OperationStateError(
+            f"health-check {phase} requires --collect or --input"
+        )
+    if phase in {"after", "rollback"}:
+        workspace = open_operation_workspace(
+            args.operations_root,
+            args.change_id,
+        )
+        _apply_health_followup_execution_context(args, workspace)
+        if not args.collect and not args.input:
+            raise OperationStateError(
+                f"health-check {phase} requires --collect or --input because "
+                "the before execution context is unavailable"
+            )
+        if args.collect:
+            _set_health_followup_collect_defaults(args)
+            apply_password_prompt_options(args)
+        if phase == "after" and active_change_inherited:
+            if not args.hosts:
+                raise OperationStateError(
+                    "active before cannot be verified without an inherited "
+                    "or explicit inventory"
+                )
+            fixed_profiles = load_resolved_profiles(
+                workspace.operation_root
+                / "health"
+                / "resolved-profiles.yaml"
+            )
+            resolve_active_change_for_after(
+                args.operations_root,
+                inventory_sha256=source_sha256(args.hosts).removeprefix(
+                    "sha256:"
+                ),
+                profile_sha256=fixed_profiles["spec"]["resolved"][
+                    "effective_sha256"
+                ].removeprefix("sha256:"),
+            )
+    if args.collect and not args.hosts:
+        raise OperationStateError("--collect requires --hosts")
+    if args.input and not args.input_format:
+        raise OperationStateError("--input-format is required with --input")
+    before_attempt = None
+    rollback_attempt = None
+    if phase == "before":
+        workspace, _output = _snapshot_workspace(args)
+        args.change_id = workspace.change_id
+        resolved_before, profile_revision = _prepare_before_profiles(
+            args,
+            workspace,
+            logging_time_range,
+        )
+        args._health_resolved_profiles = resolved_before
+        args._health_profile_revision = profile_revision
+        before_attempt = _start_before_attempt(args, workspace)
+    elif phase == "rollback":
+        workspace = open_operation_workspace(
+            args.operations_root,
+            args.change_id,
+        )
+        resolved_rollback = load_resolved_profiles(
+            workspace.operation_root / "health/resolved-profiles.yaml"
+        )
+        rollback_attempt = _start_rollback_attempt(
+            args,
+            workspace,
+            resolved_rollback,
+        )
+    try:
+        if args.collect:
+            workspace, _output = _snapshot_workspace(args)
+            # Pin the automatically generated before change-id before handing
+            # collected raw to the offline Snapshot path. Without this, the
+            # second workspace resolution generates a different operation.
+            args.change_id = workspace.change_id
+            started_at = now_in_timezone(workspace.timezone)
+            if phase == "before":
+                resolved = args._health_resolved_profiles
+            elif phase == "rollback":
+                resolved = resolved_rollback
+            else:
+                resolved = load_resolved_profiles(
+                    workspace.operation_root
+                    / "health"
+                    / "resolved-profiles.yaml"
+                )
+            raw_dir = _direct_health_collect(args, workspace, resolved)
+            args.input = [str(raw_dir)]
+            args.input_format = "alred-collect"
+        result = cmd_health_check_snapshot(args)
+    except (Exception, SystemExit) as exc:
+        if before_attempt is not None:
+            workspace = open_operation_workspace(
+                args.operations_root,
+                args.change_id,
+            )
+            _fail_before_attempt(workspace, before_attempt, exc)
+        if rollback_attempt is not None:
+            workspace = open_operation_workspace(
+                args.operations_root,
+                args.change_id,
+            )
+            _fail_rollback_attempt(workspace, rollback_attempt, exc)
+        raise
+    if phase == "before":
+        workspace = open_operation_workspace(
+            args.operations_root,
+            args.change_id,
+        )
+        _publish_before_attempt(workspace, before_attempt)
+        if not (workspace.operation_root / CONTEXT_RELATIVE_PATH).exists():
+            _write_health_execution_context(
+                args,
+                workspace,
+                recorded_at=now_in_timezone(workspace.timezone),
+            )
+        result_path = (
+            workspace.operation_root
+            / "health"
+            / "before"
+            / "health-result.json"
+        )
+        health_result = json.loads(result_path.read_text(encoding="utf-8"))
+        gate = health_result.get("operation_gate", {})
+        if gate.get("required"):
+            continued = False
+            if sys.stdin.isatty() and sys.stdout.isatty():
+                print("=== OPERATION GATE ===")
+                for reason in gate.get("reasons", []):
+                    print(
+                        f"- {reason['host']}: {reason['code']} "
+                        f"({reason['message']})"
+                    )
+                continued = (
+                    input("Type 'yes' to continue with this before state: ")
+                    .strip()
+                    .lower()
+                    == "yes"
+                )
+            gate["decision"] = {
+                "action": "continue" if continued else "stop",
+                "decided_at": now_in_timezone(
+                    workspace.timezone
+                ).isoformat(timespec="seconds"),
+                "interactive": bool(
+                    sys.stdin.isatty() and sys.stdout.isatty()
+                ),
+            }
+            atomic_write_json(
+                workspace.operation_root,
+                result_path,
+                health_result,
+                kind="HealthResult",
+            )
+            if not continued:
+                print(
+                    "Operation gate was not approved; subsequent apply "
+                    "must not continue."
+                )
+    if phase == "after":
+        workspace = open_operation_workspace(
+            args.operations_root,
+            args.change_id,
+        )
+        compare_result = cmd_health_check_compare(
+            argparse.Namespace(
+                before=str(
+                    workspace.operation_root
+                    / "health"
+                    / "before"
+                    / "snapshot.json"
+                ),
+                after=str(
+                    workspace.operation_root
+                    / "health"
+                    / "after"
+                    / "snapshot.json"
+                ),
+                profile=args.profile,
+                operations_root=args.operations_root,
+                output=None,
+            )
+        )
+        result = max(result, compare_result)
+    if phase == "after" and args.change_id:
+        try:
+            active = load_active_change(args.operations_root)
+        except OperationError:
+            active = None
+        if active and active["spec"]["change_id"] == args.change_id:
+            completed_at = now_in_timezone(active["metadata"]["timezone"])
+            active["metadata"]["updated_at"] = completed_at.isoformat(
+                timespec="seconds"
+            )
+            active["spec"]["state"] = "completed"
+            active["spec"]["after"]["status"] = "completed"
+            save_active_change(args.operations_root, active)
+    if phase == "rollback":
+        workspace = open_operation_workspace(
+            args.operations_root,
+            args.change_id,
+        )
+        try:
+            (
+                verification,
+                evidence,
+                verification_checklist,
+            ) = _verify_and_publish_rollback_attempt(
+                workspace,
+                rollback_attempt,
+            )
+        except (Exception, SystemExit) as exc:
+            _fail_rollback_attempt(workspace, rollback_attempt, exc)
+            if isinstance(
+                exc,
+                (
+                    QualificationError,
+                    HealthEvaluationError,
+                    ProfileResolutionError,
+                    OperationError,
+                    ValueError,
+                    OSError,
+                ),
+            ):
+                _operation_cli_error(exc)
+            raise
+        print("=== ROLLBACK VERIFICATION ===")
+        print(f"Result    : {verification['status']['result']}")
+        print(
+            "Raw config: "
+            f"{verification['status']['raw_config_equal']}"
+        )
+        print(
+            "Semantic  : "
+            f"{verification['status']['semantic_config_equal']}"
+        )
+        print(
+            "Evidence  : "
+            f"{evidence}"
+        )
+        print(f"Checklist : {verification_checklist}")
+        result = max(
+            result,
+            (
+                0
+                if verification["status"]["result"]
+                == "ROLLED_BACK_AND_VERIFIED"
+                else 4
+            ),
+        )
+    return result
+
+
+def _health_result_exit_code(result: str) -> int:
+    return {
+        "PASS": 0,
+        "NOT_APPLICABLE": 0,
+        "WARN": 1,
+        "UNKNOWN": 3,
+        "FAIL": 4,
+        "PLAN_ERROR": 2,
+    }[result]
+
+
+def _load_snapshot_file(path: str | Path) -> dict[str, Any]:
+    candidate = Path(path)
+    if not candidate.is_file() or candidate.is_symlink():
+        raise HealthEvaluationError(f"Snapshot not found: {candidate}")
+    document = json.loads(candidate.read_text(encoding="utf-8"))
+    if not isinstance(document, dict):
+        raise HealthEvaluationError(f"Snapshot is not a JSON object: {candidate}")
+    return document
+
+
+def cmd_health_check_compare(args: argparse.Namespace) -> int:
+    """Compare two offline Snapshots and write common health results."""
+    try:
+        before = _load_snapshot_file(args.before)
+        after = _load_snapshot_file(args.after)
+        if before.get("change_id") != after.get("change_id"):
+            raise HealthEvaluationError("before/after change_id mismatch")
+        workspace = open_operation_workspace(
+            args.operations_root,
+            before["change_id"],
+        )
+        expected_before = (
+            workspace.operation_root / "health" / "before" / "snapshot.json"
+        )
+        expected_after = (
+            workspace.operation_root / "health" / "after" / "snapshot.json"
+        )
+        if Path(args.before).resolve() != expected_before.resolve():
+            raise OperationPathError(
+                f"--before must be the operation Snapshot: {expected_before}"
+            )
+        if Path(args.after).resolve() != expected_after.resolve():
+            raise OperationPathError(
+                f"--after must be the operation Snapshot: {expected_after}"
+            )
+        resolved_path = (
+            workspace.operation_root / "health" / "resolved-profiles.yaml"
+        )
+        resolved_profiles = load_resolved_profiles(resolved_path)
+        started_at = now_in_timezone(workspace.timezone)
+        if args.profile:
+            requested = resolve_profiles(
+                args.profile,
+                change_id=workspace.change_id,
+                resolved_at=started_at,
+                timezone=workspace.timezone,
+            )
+            requested = _inherit_fixed_logging_time_range(
+                requested,
+                resolved_profiles,
+            )
+            if (
+                requested["spec"]["resolved"]["effective_sha256"]
+                != resolved_profiles["spec"]["resolved"]["effective_sha256"]
+            ):
+                raise ProfileResolutionError(
+                    "compare profile does not match fixed before profile"
+                )
+        recheck = bool(getattr(args, "recheck", False))
+        output_dir = (
+            workspace.operation_root
+            / "health"
+            / ("report-recheck" if recheck else "report")
+        )
+        if args.output and Path(args.output).resolve() != output_dir.resolve():
+            raise OperationPathError(
+                f"--output must match the operation report path: {output_dir}"
+            )
+        metadata = load_operation_metadata(workspace.operation_root)
+        phase_name = "compare_recheck" if recheck else "compare"
+        if phase_name in metadata["spec"]["phases"]:
+            raise OperationStateError(
+                f"{phase_name} phase already exists and will not be overwritten"
+            )
+        overlay_diff = None
+        with OperationLock(workspace, "health-check-compare") as lock:
+            transition_phase(
+                workspace,
+                phase_name,
+                "running",
+                lock=lock,
+                attempt_id=generate_attempt_id(
+                    phase_name,
+                    workspace.timezone,
+                    now=started_at,
+                ),
+                reason="offline_compare_started",
+                now=started_at,
+            )
+            try:
+                completed_at = now_in_timezone(workspace.timezone)
+                result = compare_snapshots(
+                    before,
+                    after,
+                    resolved_profiles,
+                    started_at=started_at,
+                    completed_at=completed_at,
+                )
+                result["artifacts"] = {
+                    "before_snapshot": str(expected_before),
+                    "after_snapshot": str(expected_after),
+                    "summary": str(output_dir / "summary.md"),
+                }
+                profile_names = resolved_profiles["spec"]["resolved"][
+                    "profile_names"
+                ]
+                if overlay_profile_enabled(profile_names):
+                    before_overlay = build_overlay_state(before)
+                    after_overlay = build_overlay_state(after)
+                    overlay_diff = compare_overlay_states(
+                        before_overlay,
+                        after_overlay,
+                    )
+                    result["artifacts"].update(
+                        {
+                            "vni_map_diff_json": str(
+                                output_dir / "vni-map-diff.json"
+                            ),
+                            "vni_map_diff_markdown": str(
+                                output_dir / "vni-map-diff.md"
+                            ),
+                            "vni_map_diff_csv": str(
+                                output_dir / "vni-map-diff.csv"
+                            ),
+                        }
+                    )
+                atomic_write_json(
+                    workspace.operation_root,
+                    output_dir / "health-result.json",
+                    result,
+                    kind="HealthResult",
+                )
+                atomic_write_bytes(
+                    workspace.operation_root,
+                    output_dir / "summary.md",
+                    render_health_summary(result).encode("utf-8"),
+                )
+                if overlay_diff is not None:
+                    atomic_write_json(
+                        workspace.operation_root,
+                        output_dir / "vni-map-diff.json",
+                        overlay_diff,
+                        kind="OverlayVniMapDiff",
+                    )
+                    atomic_write_bytes(
+                        workspace.operation_root,
+                        output_dir / "vni-map-diff.md",
+                        render_overlay_diff_markdown(overlay_diff).encode(
+                            "utf-8"
+                        ),
+                    )
+                    atomic_write_bytes(
+                        workspace.operation_root,
+                        output_dir / "vni-map-diff.csv",
+                        overlay_diff_csv(overlay_diff).encode("utf-8"),
+                    )
+                transition_phase(
+                    workspace,
+                    phase_name,
+                    (
+                        "completed"
+                        if result["result"] == "PASS"
+                        else "completed_with_warnings"
+                    ),
+                    lock=lock,
+                    reason="offline_compare_completed",
+                    now=completed_at,
+                )
+            except Exception as exc:
+                failed_at = now_in_timezone(workspace.timezone)
+                transition_phase(
+                    workspace,
+                    phase_name,
+                    "failed",
+                    lock=lock,
+                    reason="offline_compare_failed",
+                    now=failed_at,
+                )
+                record_operation_error(
+                    workspace,
+                    {
+                        "code": getattr(exc, "code", "PARSER_ERROR"),
+                        "phase": phase_name,
+                        "at": failed_at.isoformat(timespec="seconds"),
+                        "message": str(exc),
+                    },
+                    lock=lock,
+                )
+                raise
+        print("=== HEALTH CHECK COMPARE SUMMARY ===")
+        for line in terminal_result_lines(result):
+            print(line)
+        print(f"Report    : {output_dir / 'summary.md'}")
+        print(f"JSON      : {output_dir / 'health-result.json'}")
+        if overlay_diff is not None:
+            print(f"VNI Diff  : {output_dir / 'vni-map-diff.md'}")
+            print(f"VNI JSON  : {output_dir / 'vni-map-diff.json'}")
+            print(f"VNI CSV   : {output_dir / 'vni-map-diff.csv'}")
+        return _health_result_exit_code(result["result"])
+    except (
+        HealthEvaluationError,
+        ProfileResolutionError,
+        OperationError,
+        ValueError,
+        OSError,
+    ) as exc:
+        _operation_cli_error(exc)
+
+
+def cmd_overlay_check_discover(args: argparse.Namespace) -> None:
+    """Discover new Overlay resources from existing before/after Snapshots."""
+    try:
+        before = _load_snapshot_file(args.before)
+        after = _load_snapshot_file(args.after)
+        if before.get("change_id") != after.get("change_id"):
+            raise OverlayDiscoveryError("before/after change_id mismatch")
+        workspace = open_operation_workspace(
+            args.operations_root,
+            before["change_id"],
+        )
+        output_path = (
+            workspace.operation_root / "overlay" / "discovered-changes.yaml"
+        )
+        if output_path.exists():
+            raise OperationStateError(
+                f"discovered ChangeSet already exists: {output_path}"
+            )
+        generated_at = now_in_timezone(workspace.timezone)
+        device_groups = None
+        if args.device_groups:
+            _group_document, group_resolution = load_device_groups_file(
+                args.device_groups,
+                allow_legacy=True,
+            )
+            device_groups = {
+                name: value["devices"]
+                for name, value in group_resolution.groups.items()
+            }
+        document = discover_overlay_changes(
+            before,
+            after,
+            generated_at=generated_at,
+            device_groups=device_groups,
+        )
+        with OperationLock(workspace, "overlay-check-discover") as lock:
+            transition_phase(
+                workspace,
+                "overlay_discovery",
+                "running",
+                lock=lock,
+                attempt_id=generate_attempt_id(
+                    "overlay-discovery",
+                    workspace.timezone,
+                    now=generated_at,
+                ),
+                reason="overlay_discovery_started",
+                now=generated_at,
+            )
+            atomic_write_yaml(
+                workspace.operation_root,
+                output_path,
+                document,
+                kind="OverlayChangeSet",
+            )
+            transition_phase(
+                workspace,
+                "overlay_discovery",
+                (
+                    "completed_with_warnings"
+                    if document["status"]["conflicts"]
+                    else "completed"
+                ),
+                lock=lock,
+                reason="overlay_discovery_completed",
+                now=generated_at,
+            )
+        print("=== OVERLAY DISCOVERY SUMMARY ===")
+        print(f"Change ID : {workspace.change_id}")
+        print(f"L2VNI     : {len(document['spec']['l2vnis'])}")
+        print(f"L3VNI     : {len(document['spec']['l3vnis'])}")
+        print(f"Conflicts : {len(document['status']['conflicts'])}")
+        print(f"ChangeSet : {output_path}")
+    except (
+        OverlayDiscoveryError,
+        OperationError,
+        ValueError,
+        OSError,
+    ) as exc:
+        _operation_cli_error(exc)
+
+
+def cmd_overlay_check_evaluate(args: argparse.Namespace) -> int:
+    """Evaluate an expected or discovered ChangeSet against offline Snapshots."""
+    try:
+        requested_change_id = getattr(args, "change_id", None)
+        if requested_change_id:
+            workspace = open_operation_workspace(
+                args.operations_root,
+                requested_change_id,
+            )
+            before_path = (
+                Path(args.before)
+                if args.before
+                else workspace.operation_root
+                / "health"
+                / "before"
+                / "snapshot.json"
+            )
+            after_path = (
+                Path(args.after)
+                if args.after
+                else workspace.operation_root
+                / "health"
+                / "after"
+                / "snapshot.json"
+            )
+        else:
+            if not args.before or not args.after:
+                raise OverlayEvaluationError(
+                    "overlay-check evaluate requires --change-id or both "
+                    "--before and --after"
+                )
+            before_path = Path(args.before)
+            after_path = Path(args.after)
+            workspace = None
+
+        before = _load_snapshot_file(before_path)
+        after = _load_snapshot_file(after_path)
+        if before.get("change_id") != after.get("change_id"):
+            raise OverlayEvaluationError("before/after change_id mismatch")
+        if workspace is None:
+            workspace = open_operation_workspace(
+                args.operations_root,
+                before["change_id"],
+            )
+        elif before.get("change_id") != workspace.change_id:
+            raise OverlayEvaluationError(
+                "Snapshot change_id does not match --change-id"
+            )
+        if args.change_set:
+            change_set_path = Path(args.change_set)
+        else:
+            declared_change_set = (
+                workspace.operation_root / "inputs" / "change-set.yaml"
+            )
+            discovered_change_set = (
+                workspace.operation_root
+                / "overlay"
+                / "discovered-changes.yaml"
+            )
+            change_set_path = (
+                declared_change_set
+                if declared_change_set.is_file()
+                else discovered_change_set
+            )
+        change_set = load_overlay_change_set(change_set_path).document
+        if change_set["metadata"]["change_id"] != workspace.change_id:
+            raise OverlayEvaluationError(
+                "ChangeSet change_id does not match operation change_id"
+            )
+        recheck = bool(getattr(args, "recheck", False))
+        output_dir = (
+            workspace.operation_root
+            / "overlay"
+            / "recheck"
+            if recheck
+            else workspace.operation_root / "overlay"
+        )
+        output_json = output_dir / "health-result.json"
+        output_summary = output_dir / "overlay-summary.md"
+        if output_json.exists() or output_summary.exists():
+            raise OperationStateError(
+                "Overlay evaluation artifacts already exist"
+            )
+        started_at = now_in_timezone(workspace.timezone)
+        with OperationLock(workspace, "overlay-check-evaluate") as lock:
+            workflow_state = load_operation_metadata(
+                workspace.operation_root
+            )["spec"]["workflow_state"]
+            completes_apply_after = workflow_state in {
+                "apply_completed",
+                "after_running",
+            }
+            if recheck and workflow_state == "rollback_required":
+                original_result_path = (
+                    workspace.operation_root
+                    / "overlay"
+                    / "health-result.json"
+                )
+                if (
+                    not original_result_path.is_file()
+                    or json.loads(
+                        original_result_path.read_text(encoding="utf-8")
+                    ).get("result")
+                    != "UNKNOWN"
+                ):
+                    raise OperationStateError(
+                        "rollback_required can only be reconciled by "
+                        "--recheck when the original Overlay result is UNKNOWN"
+                    )
+                completes_apply_after = True
+            common_after_result = None
+            if completes_apply_after:
+                common_after_path = (
+                    workspace.operation_root
+                    / "health"
+                    / (
+                        "report-recheck"
+                        if (
+                            workspace.operation_root
+                            / "health"
+                            / "report-recheck"
+                            / "health-result.json"
+                        ).is_file()
+                        else "report"
+                    )
+                    / "health-result.json"
+                )
+                if (
+                    not common_after_path.is_file()
+                    or common_after_path.is_symlink()
+                ):
+                    raise OperationStateError(
+                        "common before/after HealthResult is required "
+                        "before Overlay evaluation"
+                    )
+                common_after_result = json.loads(
+                    common_after_path.read_text(encoding="utf-8")
+                )
+                validate_document(common_after_result, kind="HealthResult")
+                if workflow_state in {
+                    "apply_completed",
+                    "rollback_required",
+                }:
+                    transition_workflow(
+                        workspace,
+                        "after_running",
+                        lock=lock,
+                        reason=(
+                            "overlay_after_recheck_started"
+                            if workflow_state == "rollback_required"
+                            else "overlay_after_evaluation_started"
+                        ),
+                        now=started_at,
+                    )
+            transition_phase(
+                workspace,
+                (
+                    "overlay_evaluate_recheck"
+                    if recheck
+                    else "overlay_evaluate"
+                ),
+                "running",
+                lock=lock,
+                attempt_id=generate_attempt_id(
+                    "overlay-evaluate",
+                    workspace.timezone,
+                    now=started_at,
+                ),
+                reason="offline_overlay_evaluation_started",
+                now=started_at,
+            )
+            try:
+                completed_at = now_in_timezone(workspace.timezone)
+                result = evaluate_overlay_change(
+                    before,
+                    after,
+                    change_set,
+                    started_at=started_at,
+                    completed_at=completed_at,
+                )
+                atomic_write_json(
+                    workspace.operation_root,
+                    output_json,
+                    result,
+                    kind="OverlayHealthResult",
+                )
+                atomic_write_bytes(
+                    workspace.operation_root,
+                    output_summary,
+                    render_overlay_summary(result).encode("utf-8"),
+                )
+                transition_phase(
+                    workspace,
+                    (
+                        "overlay_evaluate_recheck"
+                        if recheck
+                        else "overlay_evaluate"
+                    ),
+                    (
+                        "completed"
+                        if result["result"]
+                        in {"VERIFIED", "OBSERVED_HEALTHY"}
+                        else "completed_with_warnings"
+                    ),
+                    lock=lock,
+                    reason="offline_overlay_evaluation_completed",
+                    now=completed_at,
+                )
+                if completes_apply_after:
+                    after_ok = (
+                        common_after_result["result"] == "PASS"
+                        and result["result"]
+                        in {"VERIFIED", "OBSERVED_HEALTHY"}
+                    )
+                    transition_workflow(
+                        workspace,
+                        "after_completed" if after_ok else "health_failed",
+                        lock=lock,
+                        reason=(
+                            "overlay_after_verified"
+                            if after_ok
+                            else "overlay_after_health_failed"
+                        ),
+                        now=completed_at,
+                    )
+                    if not after_ok:
+                        transition_workflow(
+                            workspace,
+                            "rollback_required",
+                            lock=lock,
+                            reason="overlay_after_requires_rollback",
+                            now=completed_at,
+                        )
+            except Exception as exc:
+                failed_at = now_in_timezone(workspace.timezone)
+                transition_phase(
+                    workspace,
+                    (
+                        "overlay_evaluate_recheck"
+                        if recheck
+                        else "overlay_evaluate"
+                    ),
+                    "failed",
+                    lock=lock,
+                    reason="offline_overlay_evaluation_failed",
+                    now=failed_at,
+                )
+                record_operation_error(
+                    workspace,
+                    {
+                        "code": getattr(exc, "code", "PARSER_ERROR"),
+                        "phase": "overlay_evaluate",
+                        "at": failed_at.isoformat(timespec="seconds"),
+                        "message": str(exc),
+                    },
+                    lock=lock,
+                )
+                current_workflow = load_operation_metadata(
+                    workspace.operation_root
+                )["spec"]["workflow_state"]
+                if current_workflow == "after_running":
+                    transition_workflow(
+                        workspace,
+                        "health_failed",
+                        lock=lock,
+                        reason="qualification_after_evaluation_failed",
+                        now=failed_at,
+                    )
+                    transition_workflow(
+                        workspace,
+                        "rollback_required",
+                        lock=lock,
+                        reason="qualification_after_requires_rollback",
+                        now=failed_at,
+                    )
+                raise
+        print("=== OVERLAY HEALTH SUMMARY ===")
+        print(f"Change ID     : {workspace.change_id}")
+        print(f"Result        : {result['result']}")
+        print(f"Configuration : {result['sections']['configuration']}")
+        print(f"Operational   : {result['sections']['operational']}")
+        print(f"Impact        : {result['sections']['impact']}")
+        print(f"Before        : {before_path}")
+        print(f"After         : {after_path}")
+        print(f"ChangeSet     : {change_set_path}")
+        print(f"JSON          : {output_json}")
+        print(f"Summary       : {output_summary}")
+        return {
+            "VERIFIED": 0,
+            "OBSERVED_HEALTHY": 0,
+            "WARN": 1,
+            "PLAN_ERROR": 2,
+            "UNKNOWN": 3,
+            "FAIL": 4,
+        }[result["result"]]
+    except (
+        OverlayEvaluationError,
+        OperationError,
+        ValueError,
+        OSError,
+    ) as exc:
+        _operation_cli_error(exc)
+
+
+def cmd_overlay_check_converge(args: argparse.Namespace) -> int:
+    """Assess an ordered set of saved Overlay health attempts."""
+    try:
+        results = []
+        change_id = None
+        for path_value in args.result:
+            path = Path(path_value)
+            document = json.loads(path.read_text(encoding="utf-8"))
+            validate_document(document, kind="OverlayHealthResult")
+            if change_id is None:
+                change_id = document["change_id"]
+            elif document["change_id"] != change_id:
+                raise OverlayEvaluationError(
+                    "convergence result change_id mismatch"
+                )
+            results.append(document)
+        workspace = open_operation_workspace(
+            args.operations_root,
+            change_id,
+        )
+        assessment = assess_overlay_convergence(
+            results,
+            consecutive_passes=args.consecutive_passes,
+        )
+        assessment["schema_version"] = 1
+        assessment["change_id"] = change_id
+        for record, source in zip(
+            assessment["attempts"],
+            args.result,
+            strict=True,
+        ):
+            record["source_file"] = str(Path(source))
+        output_path = workspace.operation_root / "overlay" / "convergence.json"
+        if output_path.exists():
+            raise OperationStateError(
+                f"convergence artifact already exists: {output_path}"
+            )
+        atomic_write_json(
+            workspace.operation_root,
+            output_path,
+            assessment,
+            kind="OverlayConvergenceResult",
+        )
+        print("=== OVERLAY CONVERGENCE ===")
+        print(f"Change ID  : {change_id}")
+        print(f"Attempts   : {len(results)}")
+        print(f"Required   : {args.consecutive_passes}")
+        print(f"Converged  : {'yes' if assessment['converged'] else 'no'}")
+        print(f"JSON       : {output_path}")
+        return 0 if assessment["converged"] else 4
+    except (
+        OverlayEvaluationError,
+        OperationError,
+        ValueError,
+        OSError,
+    ) as exc:
+        _operation_cli_error(exc)
+
+
+def cmd_support_bundle_create(args: argparse.Namespace) -> None:
+    """Create a redacted support archive from one operation."""
+    try:
+        workspace = open_operation_workspace(
+            args.operations_root,
+            args.change_id,
+        )
+        devices = (
+            [
+                value.strip()
+                for value in args.devices.split(",")
+                if value.strip()
+            ]
+            if args.devices
+            else None
+        )
+        outputs = create_support_bundle(
+            workspace.operation_root,
+            change_id=workspace.change_id,
+            phase=args.phase,
+            output_dir=args.output,
+            created_at=now_in_timezone(workspace.timezone),
+            timezone=workspace.timezone,
+            symptom=args.symptom,
+            questions=args.question,
+            prompt_language=args.prompt_language,
+            max_size_mib=args.max_bundle_size_mib,
+            split=args.split,
+            devices=devices,
+            redaction_profile=args.redact_profile,
+            include_generated_config=args.include_generated_config,
+            include_rollback_config=args.include_rollback_config,
+            include_raw_logging=args.include_raw_logging,
+        )
+        print("=== SUPPORT BUNDLE CREATED ===")
+        for name, path in outputs.items():
+            print(f"{name.capitalize():10}: {path}")
+        print("Warning   : archive is redacted but not encrypted")
+    except (SupportBundleError, OperationError, ValueError, OSError) as exc:
+        _operation_cli_error(exc)
+
+
+def cmd_support_bundle_inspect(args: argparse.Namespace) -> None:
+    """Inspect a support archive without extraction."""
+    try:
+        result = inspect_support_bundle(args.bundle)
+        print("=== SUPPORT BUNDLE INSPECT ===")
+        print(f"Archive : {result['archive']}")
+        print(f"Files   : {len(result['members'])}")
+        for member in result["members"]:
+            print(f"- {member['name']} ({member['size']} bytes)")
+    except (SupportBundleError, ValueError, OSError, tarfile.TarError) as exc:
+        _operation_cli_error(exc)
+
+
+def cmd_support_bundle_verify(args: argparse.Namespace) -> None:
+    """Verify external and internal support bundle checksums."""
+    try:
+        result = verify_support_bundle_manifest(args.manifest)
+        print("=== SUPPORT BUNDLE VERIFIED ===")
+        print(f"Archive : {result['archive']}")
+        print(f"SHA-256 : {result['archive_sha256']}")
+        print(f"Files   : {result['files']}")
+    except (SupportBundleError, ValueError, OSError, tarfile.TarError) as exc:
+        _operation_cli_error(exc)
+
+
 def build_parser() -> argparse.ArgumentParser:
     """
     Build CLI parser.
@@ -7235,6 +11838,929 @@ def build_parser() -> argparse.ArgumentParser:
         help="Show version and exit",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
+
+    p_operation = subparsers.add_parser(
+        "operation",
+        help="Inspect common operation workspace state",
+    )
+    operation_subparsers = p_operation.add_subparsers(
+        dest="operation_command",
+        required=True,
+    )
+    for operation_name, handler, help_text in (
+        ("status", cmd_operation_status, "Show concise operation state"),
+        ("inspect", cmd_operation_inspect, "Show operation artifacts and history"),
+    ):
+        operation_parser = operation_subparsers.add_parser(
+            operation_name,
+            help=help_text,
+        )
+        operation_parser.add_argument(
+            "--change-id",
+            required=True,
+            help="Operation change ID",
+        )
+        operation_parser.add_argument(
+            "--operations-root",
+            default=DEFAULT_OPERATIONS_ROOT,
+            help=f"Operation root directory (default: {DEFAULT_OPERATIONS_ROOT})",
+        )
+        operation_parser.set_defaults(func=handler)
+
+    p_overlay_change = subparsers.add_parser(
+        "overlay-change",
+        help="Plan, approve, apply, and rollback managed Overlay changes",
+    )
+    overlay_change_subparsers = p_overlay_change.add_subparsers(
+        dest="overlay_change_command",
+        required=True,
+    )
+    p_overlay_plan = overlay_change_subparsers.add_parser(
+        "plan",
+        help="Generate PLAN_ONLY forward and rollback artifacts",
+    )
+    p_overlay_plan.add_argument(
+        "--change-set",
+        required=True,
+        help=(
+            "OverlayChangeSet YAML; device_groups_ref is resolved relative "
+            "to this file"
+        ),
+    )
+    p_overlay_plan.add_argument(
+        "--before",
+        help=(
+            "Current operation before Snapshot; when omitted, resolve the "
+            "latest completed before from ChangeSet metadata.change_id"
+        ),
+    )
+    p_overlay_plan.add_argument(
+        "-i",
+        "--inventory",
+        "--hosts",
+        dest="hosts",
+        help="Inventory to pin for APPLY_VERIFIED execution",
+    )
+    p_overlay_plan.add_argument(
+        "--capability-registry",
+        help="NX-OS capability registry YAML (default: packaged registry)",
+    )
+    p_overlay_plan.add_argument(
+        "--operations-root",
+        default=DEFAULT_OPERATIONS_ROOT,
+    )
+    p_overlay_plan.set_defaults(func=cmd_overlay_change_plan)
+    p_overlay_prepare_plan = overlay_change_subparsers.add_parser(
+        "prepare-plan",
+        help=(
+            "Generate a preparation-only plan from a prior healthy terminal "
+            "state without device access"
+        ),
+    )
+    p_overlay_prepare_plan.add_argument(
+        "--change-set",
+        required=True,
+        help=(
+            "OverlayChangeSet YAML; device_groups_ref is resolved relative "
+            "to this file"
+        ),
+    )
+    reference_group = p_overlay_prepare_plan.add_mutually_exclusive_group(
+        required=True
+    )
+    reference_group.add_argument(
+        "--reference-state",
+        choices=["latest-known-good"],
+        help="Automatically select the latest healthy terminal state",
+    )
+    reference_group.add_argument(
+        "--reference-operation-id",
+        help="Operation ID containing the healthy state to reference",
+    )
+    p_overlay_prepare_plan.add_argument(
+        "--reference-phase",
+        choices=["after", "rollback"],
+        help=(
+            "Reference phase for --reference-operation-id; default is "
+            "derived from the terminal workflow state"
+        ),
+    )
+    p_overlay_prepare_plan.add_argument(
+        "--reference-max-age-days",
+        type=int,
+        default=30,
+        help="Maximum reference Snapshot age in days (default: 30)",
+    )
+    p_overlay_prepare_plan.add_argument(
+        "--operations-root",
+        default=DEFAULT_OPERATIONS_ROOT,
+    )
+    p_overlay_prepare_plan.set_defaults(
+        func=cmd_overlay_change_prepare_plan
+    )
+    p_overlay_approve = overlay_change_subparsers.add_parser(
+        "approve",
+        help="Interactively approve exact plan and rollback artifact hashes",
+    )
+    p_overlay_approve.add_argument(
+        "--change-id",
+        required=True,
+        help="Operation change ID",
+    )
+    p_overlay_approve.add_argument(
+        "--operations-root",
+        default=DEFAULT_OPERATIONS_ROOT,
+        help=f"Operation root directory (default: {DEFAULT_OPERATIONS_ROOT})",
+    )
+    p_overlay_approve.add_argument(
+        "--plan",
+        help=(
+            "Execution plan JSON or YAML below the operation root "
+            "(default: <operation>/plan/execution-plan.json)"
+        ),
+    )
+    p_overlay_approve.add_argument(
+        "--rollback-plan",
+        help=(
+            "Rollback plan JSON or YAML below the operation root "
+            "(default: <operation>/plan/rollback-plan.json)"
+        ),
+    )
+    p_overlay_approve.add_argument(
+        "--artifact",
+        action="append",
+        help="Additional approved artifact as NAME=PATH (repeatable)",
+    )
+    p_overlay_approve.add_argument(
+        "--approval-hours",
+        type=int,
+        default=24,
+        help="Approval validity in hours, 1-24 (default: 24)",
+    )
+    p_overlay_approve.add_argument(
+        "--max-devices",
+        type=int,
+        default=50,
+        help="Approved maximum device count, 1-50 (default: 50)",
+    )
+    p_overlay_approve.add_argument(
+        "--save-on-success",
+        dest="save_on_success",
+        action="store_true",
+        help=(
+            "Approve saving configuration after successful health checks "
+            "(default: enabled)"
+        ),
+    )
+    p_overlay_approve.add_argument(
+        "--no-save-on-success",
+        dest="save_on_success",
+        action="store_false",
+        help="Do not approve configuration save",
+    )
+    p_overlay_approve.set_defaults(save_on_success=True)
+    p_overlay_approve.add_argument(
+        "--rollback-policy",
+        choices=["manual"],
+        default="manual",
+        help="Rollback policy (initial implementation: manual)",
+    )
+    p_overlay_approve.set_defaults(func=cmd_overlay_change_approve)
+    p_overlay_apply = overlay_change_subparsers.add_parser(
+        "apply",
+        help="Apply an approved APPLY_VERIFIED plan serially",
+        description=(
+            "Revalidate approval, plan, rollback, inventory, config hashes, "
+            "and live running config before serial managed apply."
+        ),
+    )
+    p_overlay_apply.add_argument("--change-id", required=True)
+    p_overlay_apply.add_argument("--approved-plan")
+    p_overlay_apply.add_argument("--approved-rollback-plan")
+    p_overlay_apply.add_argument("--approval-record")
+    p_overlay_apply.add_argument("-u", "--user", "--username", dest="username")
+    p_overlay_apply.add_argument("--password")
+    p_overlay_apply.add_argument("-k", "--ask-pass", action="store_true")
+    p_overlay_apply.add_argument("--enable-secret")
+    p_overlay_apply.add_argument("--credentials")
+    p_overlay_apply.add_argument(
+        "-K", "--ask-become-pass", action="store_true"
+    )
+    p_overlay_apply.add_argument("--log-file")
+    p_overlay_apply.add_argument("--verbose", action="store_true")
+    p_overlay_apply.add_argument(
+        "--operations-root", default=DEFAULT_OPERATIONS_ROOT
+    )
+    p_overlay_apply.set_defaults(func=cmd_overlay_change_apply)
+    p_overlay_save = overlay_change_subparsers.add_parser(
+        "save",
+        help="Save an approved apply after common and Overlay health pass",
+        description=(
+            "Revalidate approval and health artifacts, verify every live "
+            "running configuration against the after Snapshot, then save "
+            "serially without retry."
+        ),
+    )
+    p_overlay_save.add_argument("--change-id", required=True)
+    p_overlay_save.add_argument("--approved-plan")
+    p_overlay_save.add_argument("--approved-rollback-plan")
+    p_overlay_save.add_argument("--approval-record")
+    p_overlay_save.add_argument("--after-snapshot")
+    p_overlay_save.add_argument(
+        "-u", "--user", "--username", dest="username"
+    )
+    p_overlay_save.add_argument("--password")
+    p_overlay_save.add_argument("-k", "--ask-pass", action="store_true")
+    p_overlay_save.add_argument("--enable-secret")
+    p_overlay_save.add_argument("--credentials")
+    p_overlay_save.add_argument(
+        "-K", "--ask-become-pass", action="store_true"
+    )
+    p_overlay_save.add_argument("--log-file")
+    p_overlay_save.add_argument("--verbose", action="store_true")
+    p_overlay_save.add_argument(
+        "--operations-root", default=DEFAULT_OPERATIONS_ROOT
+    )
+    p_overlay_save.set_defaults(func=cmd_overlay_change_save)
+    p_overlay_rollback_save = overlay_change_subparsers.add_parser(
+        "save-rollback",
+        help="Save the restored baseline after verified rollback",
+        description=(
+            "After rollback health plus raw and semantic restoration pass, "
+            "verify every live running configuration against the rollback "
+            "Snapshot, then restore startup-config serially without retry."
+        ),
+    )
+    p_overlay_rollback_save.add_argument("--change-id", required=True)
+    p_overlay_rollback_save.add_argument("--approved-plan")
+    p_overlay_rollback_save.add_argument("--approved-rollback-plan")
+    p_overlay_rollback_save.add_argument("--approval-record")
+    p_overlay_rollback_save.add_argument(
+        "--after-snapshot",
+        help="Rollback Snapshot (default: operation health/rollback)",
+    )
+    p_overlay_rollback_save.add_argument(
+        "-u", "--user", "--username", dest="username"
+    )
+    p_overlay_rollback_save.add_argument("--password")
+    p_overlay_rollback_save.add_argument(
+        "-k", "--ask-pass", action="store_true"
+    )
+    p_overlay_rollback_save.add_argument("--enable-secret")
+    p_overlay_rollback_save.add_argument("--credentials")
+    p_overlay_rollback_save.add_argument(
+        "-K", "--ask-become-pass", action="store_true"
+    )
+    p_overlay_rollback_save.add_argument("--log-file")
+    p_overlay_rollback_save.add_argument(
+        "--verbose", action="store_true"
+    )
+    p_overlay_rollback_save.add_argument(
+        "--operations-root", default=DEFAULT_OPERATIONS_ROOT
+    )
+    p_overlay_rollback_save.set_defaults(
+        func=cmd_overlay_change_save,
+        save_mode="rollback",
+    )
+    p_overlay_rollback = overlay_change_subparsers.add_parser(
+        "rollback",
+        help="Run the approved inverse configuration in reverse order",
+        description=(
+            "Validate approved hashes and same-session after Snapshot drift, "
+            "then run the pinned rollback serially without retry or save."
+        ),
+    )
+    p_overlay_rollback.add_argument("--change-id", required=True)
+    p_overlay_rollback.add_argument("--approved-plan")
+    p_overlay_rollback.add_argument("--approved-rollback-plan")
+    p_overlay_rollback.add_argument("--approval-record")
+    p_overlay_rollback.add_argument("--current-snapshot")
+    p_overlay_rollback.add_argument(
+        "-u", "--user", "--username", dest="username"
+    )
+    p_overlay_rollback.add_argument("--password")
+    p_overlay_rollback.add_argument("-k", "--ask-pass", action="store_true")
+    p_overlay_rollback.add_argument("--enable-secret")
+    p_overlay_rollback.add_argument("--credentials")
+    p_overlay_rollback.add_argument(
+        "-K", "--ask-become-pass", action="store_true"
+    )
+    p_overlay_rollback.add_argument("--log-file")
+    p_overlay_rollback.add_argument("--verbose", action="store_true")
+    p_overlay_rollback.add_argument(
+        "--operations-root", default=DEFAULT_OPERATIONS_ROOT
+    )
+    p_overlay_rollback.set_defaults(func=cmd_overlay_change_rollback)
+    p_overlay_qualify_approve = overlay_change_subparsers.add_parser(
+        "qualify-approve",
+        help=(
+            "Interactively approve a PLAN_ONLY Nexus 9000v candidate "
+            "for initial lab qualification"
+        ),
+        description=(
+            "Interactively approve a PLAN_ONLY Nexus 9000v candidate "
+            "for initial lab qualification. This does not send configuration."
+        ),
+    )
+    p_overlay_qualify_approve.add_argument(
+        "--change-id",
+        required=True,
+        help="Operation change ID",
+    )
+    p_overlay_qualify_approve.add_argument(
+        "-i",
+        "--inventory",
+        "--hosts",
+        dest="hosts",
+        required=True,
+        help="Exact hosts.yaml source to pin for qualification",
+    )
+    p_overlay_qualify_approve.add_argument("--plan")
+    p_overlay_qualify_approve.add_argument("--rollback-plan")
+    p_overlay_qualify_approve.add_argument("--before-snapshot")
+    p_overlay_qualify_approve.add_argument("--before-health-result")
+    p_overlay_qualify_approve.add_argument("--change-set")
+    p_overlay_qualify_approve.add_argument("--render-manifest")
+    p_overlay_qualify_approve.add_argument(
+        "--approval-hours",
+        type=int,
+        default=4,
+        help="Qualification validity in hours, 1-4 (default: 4)",
+    )
+    p_overlay_qualify_approve.add_argument(
+        "--operations-root",
+        default=DEFAULT_OPERATIONS_ROOT,
+    )
+    p_overlay_qualify_approve.set_defaults(
+        func=cmd_overlay_change_qualify_approve
+    )
+    p_overlay_qualify = overlay_change_subparsers.add_parser(
+        "qualify",
+        help=(
+            "Apply an interactively approved Nexus 9000v qualification "
+            "candidate without saving"
+        ),
+        description=(
+            "Apply an approved initial Nexus 9000v qualification candidate "
+            "with serial=1, no retry, no automatic rollback, and no save."
+        ),
+    )
+    p_overlay_qualify.add_argument("--change-id", required=True)
+    p_overlay_qualify.add_argument(
+        "-i",
+        "--inventory",
+        "--hosts",
+        dest="hosts",
+        required=True,
+        help="Exact hosts.yaml pinned by qualify-approve",
+    )
+    p_overlay_qualify.add_argument("--qualification-record")
+    p_overlay_qualify.add_argument(
+        "-u",
+        "--user",
+        "--username",
+        dest="username",
+    )
+    p_overlay_qualify.add_argument("--password")
+    p_overlay_qualify.add_argument(
+        "-k",
+        "--ask-pass",
+        action="store_true",
+    )
+    p_overlay_qualify.add_argument("--enable-secret")
+    p_overlay_qualify.add_argument("--credentials")
+    p_overlay_qualify.add_argument(
+        "-K",
+        "--ask-become-pass",
+        action="store_true",
+    )
+    p_overlay_qualify.add_argument("--log-file")
+    p_overlay_qualify.add_argument("--verbose", action="store_true")
+    p_overlay_qualify.add_argument(
+        "--operations-root",
+        default=DEFAULT_OPERATIONS_ROOT,
+    )
+    p_overlay_qualify.set_defaults(func=cmd_overlay_change_qualify)
+    p_overlay_qualify_rollback = overlay_change_subparsers.add_parser(
+        "qualify-rollback",
+        help=(
+            "Rollback an initial Nexus 9000v qualification without saving"
+        ),
+        description=(
+            "Run the pinned rollback in reverse device order after an "
+            "after snapshot (including emergency collection). The live "
+            "running configuration "
+            "must match that snapshot. No retry or save is performed."
+        ),
+    )
+    p_overlay_qualify_rollback.add_argument("--change-id", required=True)
+    p_overlay_qualify_rollback.add_argument(
+        "-i",
+        "--inventory",
+        "--hosts",
+        dest="hosts",
+        required=True,
+        help="Exact hosts.yaml pinned by qualify-approve",
+    )
+    p_overlay_qualify_rollback.add_argument("--qualification-record")
+    p_overlay_qualify_rollback.add_argument(
+        "--current-snapshot",
+        help=(
+            "After Snapshot (including emergency collection) used for the "
+            "same-session drift check (default: operation health/after)"
+        ),
+    )
+    p_overlay_qualify_rollback.add_argument(
+        "-u",
+        "--user",
+        "--username",
+        dest="username",
+    )
+    p_overlay_qualify_rollback.add_argument("--password")
+    p_overlay_qualify_rollback.add_argument(
+        "-k",
+        "--ask-pass",
+        action="store_true",
+    )
+    p_overlay_qualify_rollback.add_argument("--enable-secret")
+    p_overlay_qualify_rollback.add_argument("--credentials")
+    p_overlay_qualify_rollback.add_argument(
+        "-K",
+        "--ask-become-pass",
+        action="store_true",
+    )
+    p_overlay_qualify_rollback.add_argument("--log-file")
+    p_overlay_qualify_rollback.add_argument(
+        "--verbose",
+        action="store_true",
+    )
+    p_overlay_qualify_rollback.add_argument(
+        "--operations-root",
+        default=DEFAULT_OPERATIONS_ROOT,
+    )
+    p_overlay_qualify_rollback.set_defaults(
+        func=cmd_overlay_change_qualify_rollback
+    )
+    p_overlay_qualify_save = overlay_change_subparsers.add_parser(
+        "qualify-save-baseline",
+        help=(
+            "Qualify NX-OS configuration save after verified rollback"
+        ),
+        description=(
+            "After qualification rollback is fully verified, require the "
+            "live running configuration to match before and require no "
+            "running/startup diff, then save serially without retry."
+        ),
+    )
+    p_overlay_qualify_save.add_argument("--change-id", required=True)
+    p_overlay_qualify_save.add_argument(
+        "-i",
+        "--inventory",
+        "--hosts",
+        dest="hosts",
+        required=True,
+        help="Exact hosts.yaml pinned by qualify-approve",
+    )
+    p_overlay_qualify_save.add_argument("--qualification-record")
+    p_overlay_qualify_save.add_argument(
+        "-u",
+        "--user",
+        "--username",
+        dest="username",
+    )
+    p_overlay_qualify_save.add_argument("--password")
+    p_overlay_qualify_save.add_argument(
+        "-k",
+        "--ask-pass",
+        action="store_true",
+    )
+    p_overlay_qualify_save.add_argument("--enable-secret")
+    p_overlay_qualify_save.add_argument("--credentials")
+    p_overlay_qualify_save.add_argument(
+        "-K",
+        "--ask-become-pass",
+        action="store_true",
+    )
+    p_overlay_qualify_save.add_argument("--log-file")
+    p_overlay_qualify_save.add_argument(
+        "--verbose",
+        action="store_true",
+    )
+    p_overlay_qualify_save.add_argument(
+        "--operations-root",
+        default=DEFAULT_OPERATIONS_ROOT,
+    )
+    p_overlay_qualify_save.set_defaults(
+        func=cmd_overlay_change_qualify_save_baseline
+    )
+
+    p_health_check = subparsers.add_parser(
+        "health-check",
+        help="Build and evaluate reusable health snapshots",
+    )
+    health_check_subparsers = p_health_check.add_subparsers(
+        dest="health_check_command",
+        required=True,
+    )
+    for phase_name in ("before", "after", "rollback"):
+        phase_parser = health_check_subparsers.add_parser(
+            phase_name,
+            help=(
+                f"Run {phase_name} health check from existing input or "
+                "the shared collect runner"
+            ),
+        )
+        input_mode = phase_parser.add_mutually_exclusive_group(
+            required=phase_name == "before"
+        )
+        input_mode.add_argument(
+            "--input",
+            action="append",
+            help=(
+                "Existing input file/directory (repeatable; after/rollback "
+                "require this when before used offline input)"
+            ),
+        )
+        phase_parser.add_argument(
+            "--input-format",
+            choices=["alred-collect", "nxos-transcript"],
+            help=(
+                "Required with --input except after/rollback inherit the "
+                "format from an offline before; automatic detection is not "
+                "used"
+            ),
+        )
+        input_mode.add_argument(
+            "--collect",
+            action="store_true",
+            help=(
+                "Access devices through the existing collect runner "
+                "(after/rollback inherit this when before used direct "
+                "collection)"
+            ),
+        )
+        phase_parser.add_argument(
+            "--change-id",
+            help=(
+                "Operation change ID; before generates one when omitted, "
+                "after resolves a valid active before, rollback requires an "
+                "existing operation ID"
+            ),
+        )
+        phase_parser.add_argument(
+            "--profile",
+            action="append",
+            help=(
+                "Profile reference (repeatable; before default: "
+                "network-baseline-nxos; after/rollback inherit before)"
+            ),
+        )
+        if phase_name == "before":
+            phase_parser.add_argument(
+                "--revision-reason",
+                help=(
+                    "Auditable reason that explicitly authorizes a fixed "
+                    "profile revision before plan"
+                ),
+            )
+        _add_logging_time_range_arguments(phase_parser)
+        phase_parser.add_argument(
+            "-i",
+            "--inventory",
+            "--hosts",
+            dest="hosts",
+            help=(
+                "hosts.yaml for direct collection or transcript aliases; "
+                "after/rollback inherit and hash-verify the before inventory"
+            ),
+        )
+        phase_parser.add_argument("--policy", help="Collection policy YAML")
+        phase_parser.add_argument(
+            "-u", "--user", "--username", dest="username"
+        )
+        phase_parser.add_argument("--password")
+        phase_parser.add_argument(
+            "-k", "--ask-pass", action="store_true"
+        )
+        phase_parser.add_argument("--enable-secret")
+        phase_parser.add_argument("--credentials")
+        phase_parser.add_argument(
+            "-K", "--ask-become-pass", action="store_true"
+        )
+        phase_parser.add_argument(
+            "--transport",
+            choices=["auto", "nxapi", "ssh"],
+            default=None if phase_name in {"after", "rollback"} else "ssh",
+            help=(
+                "Command transport (default: ssh; after/rollback inherit the "
+                "before transport when an execution context exists)"
+            ),
+        )
+        phase_parser.add_argument("--target-hosts")
+        phase_parser.add_argument(
+            "--workers",
+            type=int,
+            default=None if phase_name in {"after", "rollback"} else 5,
+        )
+        phase_parser.add_argument(
+            "--show-read-timeout",
+            type=int,
+            default=None if phase_name in {"after", "rollback"} else 120,
+        )
+        phase_parser.add_argument(
+            "--skip-connect-check",
+            action="store_true",
+            default=(
+                None if phase_name in {"after", "rollback"} else False
+            ),
+        )
+        phase_parser.add_argument(
+            "--connect-check-timeout",
+            type=float,
+            default=(
+                None
+                if phase_name in {"after", "rollback"}
+                else DEFAULT_CONNECT_CHECK_TIMEOUT
+            ),
+        )
+        phase_parser.add_argument("--verbose", action="store_true")
+        phase_parser.add_argument(
+            "--operations-root",
+            default=DEFAULT_OPERATIONS_ROOT,
+        )
+        phase_parser.add_argument(
+            "--output",
+            help="Phase output path; must match <operation>/health/<phase>",
+        )
+        phase_parser.add_argument(
+            "--timezone",
+            help="IANA timezone (default: ALRED_TIMEZONE or Asia/Tokyo)",
+        )
+        phase_parser.set_defaults(func=cmd_health_check_phase)
+    p_health_snapshot = health_check_subparsers.add_parser(
+        "snapshot",
+        help="Build a Snapshot from existing collect or transcript files",
+    )
+    p_health_snapshot.add_argument(
+        "--input",
+        action="append",
+        required=True,
+        help="Input file or directory (repeatable)",
+    )
+    p_health_snapshot.add_argument(
+        "--input-format",
+        choices=["alred-collect", "nxos-transcript"],
+        required=True,
+        help="Explicit input adapter; automatic detection is not used",
+    )
+    p_health_snapshot.add_argument(
+        "--phase",
+        choices=["before", "after"],
+        required=True,
+        help="Snapshot phase",
+    )
+    p_health_snapshot.add_argument(
+        "--change-id",
+        help="Operation change ID; generated for before when omitted",
+    )
+    p_health_snapshot.add_argument(
+        "--profile",
+        action="append",
+        help=(
+            "Profile reference recorded in the Snapshot (repeatable; "
+            "before default: network-baseline-nxos)"
+        ),
+    )
+    _add_logging_time_range_arguments(p_health_snapshot)
+    p_health_snapshot.add_argument(
+        "--hosts",
+        help="Optional hosts.yaml used for transcript hostname aliases",
+    )
+    p_health_snapshot.add_argument(
+        "--operations-root",
+        default=DEFAULT_OPERATIONS_ROOT,
+        help=f"Operation root directory (default: {DEFAULT_OPERATIONS_ROOT})",
+    )
+    p_health_snapshot.add_argument(
+        "--output",
+        help="Phase output path; must match <operation>/health/<phase>",
+    )
+    p_health_snapshot.add_argument(
+        "--timezone",
+        help="IANA timezone (default: ALRED_TIMEZONE or Asia/Tokyo)",
+    )
+    p_health_snapshot.add_argument(
+        "--recheck",
+        action="store_true",
+        help=(
+            "Reparse immutable input into health/<phase>-recheck without "
+            "replacing the original Snapshot"
+        ),
+    )
+    p_health_snapshot.set_defaults(func=cmd_health_check_snapshot)
+    p_health_compare = health_check_subparsers.add_parser(
+        "compare",
+        help="Compare existing before and after Snapshots offline",
+    )
+    p_health_compare.add_argument(
+        "--before",
+        required=True,
+        help="Before snapshot.json",
+    )
+    p_health_compare.add_argument(
+        "--after",
+        required=True,
+        help="After snapshot.json",
+    )
+    p_health_compare.add_argument(
+        "--profile",
+        action="append",
+        help="Optional explicit profile reference for hash verification",
+    )
+    p_health_compare.add_argument(
+        "--operations-root",
+        default=DEFAULT_OPERATIONS_ROOT,
+        help=f"Operation root directory (default: {DEFAULT_OPERATIONS_ROOT})",
+    )
+    p_health_compare.add_argument(
+        "--output",
+        help=(
+            "Report path; must match <operation>/health/report or "
+            "report-recheck with --recheck"
+        ),
+    )
+    p_health_compare.add_argument(
+        "--recheck",
+        action="store_true",
+        help=(
+            "Re-evaluate immutable before/after Snapshots into "
+            "health/report-recheck without replacing the original report"
+        ),
+    )
+    p_health_compare.set_defaults(func=cmd_health_check_compare)
+
+    p_overlay_check = subparsers.add_parser(
+        "overlay-check",
+        help="Analyze Overlay state without applying configuration",
+    )
+    overlay_check_subparsers = p_overlay_check.add_subparsers(
+        dest="overlay_check_command",
+        required=True,
+    )
+    p_overlay_discover = overlay_check_subparsers.add_parser(
+        "discover",
+        help="Discover new Overlay resources from before/after Snapshots",
+    )
+    p_overlay_discover.add_argument("--before", required=True)
+    p_overlay_discover.add_argument("--after", required=True)
+    p_overlay_discover.add_argument(
+        "--device-groups",
+        help=(
+            "Optional OverlayDeviceGroups YAML (hierarchy supported) or "
+            "legacy mapping; exact memberships compress discovered targets"
+        ),
+    )
+    p_overlay_discover.add_argument(
+        "--operations-root",
+        default=DEFAULT_OPERATIONS_ROOT,
+    )
+    p_overlay_discover.set_defaults(func=cmd_overlay_check_discover)
+    p_overlay_evaluate = overlay_check_subparsers.add_parser(
+        "evaluate",
+        help="Evaluate Overlay configuration, operation, and impact offline",
+    )
+    p_overlay_evaluate.add_argument(
+        "--change-id",
+        help=(
+            "Operation change ID; defaults before/after Snapshots and the "
+            "pinned ChangeSet from the operation workspace"
+        ),
+    )
+    p_overlay_evaluate.add_argument(
+        "--before",
+        help=(
+            "Before Snapshot JSON (default with --change-id: "
+            "health/before/snapshot.json)"
+        ),
+    )
+    p_overlay_evaluate.add_argument(
+        "--after",
+        help=(
+            "After Snapshot JSON (default with --change-id: "
+            "health/after/snapshot.json)"
+        ),
+    )
+    p_overlay_evaluate.add_argument(
+        "--change-set",
+        help=(
+            "Expected/discovered ChangeSet YAML (default: operation "
+            "inputs/change-set.yaml, then overlay/discovered-changes.yaml)"
+        ),
+    )
+    p_overlay_evaluate.add_argument(
+        "--operations-root",
+        default=DEFAULT_OPERATIONS_ROOT,
+    )
+    p_overlay_evaluate.add_argument(
+        "--recheck",
+        action="store_true",
+        help=(
+            "Write immutable re-evaluation under overlay/recheck; an "
+            "original UNKNOWN may reconcile rollback_required"
+        ),
+    )
+    p_overlay_evaluate.set_defaults(func=cmd_overlay_check_evaluate)
+    p_overlay_converge = overlay_check_subparsers.add_parser(
+        "converge",
+        help="Assess ordered saved Overlay health results",
+    )
+    p_overlay_converge.add_argument(
+        "--result",
+        action="append",
+        required=True,
+        help="OverlayHealthResult JSON in attempt order (repeatable)",
+    )
+    p_overlay_converge.add_argument(
+        "--consecutive-passes",
+        type=int,
+        default=2,
+    )
+    p_overlay_converge.add_argument(
+        "--operations-root",
+        default=DEFAULT_OPERATIONS_ROOT,
+    )
+    p_overlay_converge.set_defaults(func=cmd_overlay_check_converge)
+
+    p_support = subparsers.add_parser(
+        "support-bundle",
+        help="Create and verify redacted operation support archives",
+    )
+    support_subparsers = p_support.add_subparsers(
+        dest="support_bundle_command",
+        required=True,
+    )
+    p_support_create = support_subparsers.add_parser("create")
+    p_support_create.add_argument("--change-id", required=True)
+    p_support_create.add_argument(
+        "--phase",
+        choices=["before", "after", "rollback", "all"],
+        required=True,
+    )
+    p_support_create.add_argument(
+        "--split",
+        choices=["none", "phase", "device"],
+        default="none",
+    )
+    p_support_create.add_argument(
+        "--devices",
+        help="Comma-separated hostnames; default is all manifest hosts",
+    )
+    p_support_create.add_argument(
+        "--redact-profile",
+        help="Site-specific SupportBundleRedactionPolicy YAML",
+    )
+    p_support_create.add_argument(
+        "--include-generated-config",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+    )
+    p_support_create.add_argument(
+        "--include-rollback-config",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+    )
+    p_support_create.add_argument(
+        "--include-raw-logging",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+    )
+    p_support_create.add_argument(
+        "--max-bundle-size-mib",
+        type=int,
+        default=100,
+    )
+    p_support_create.add_argument(
+        "--prompt-language",
+        choices=["ja", "en"],
+        default="ja",
+    )
+    p_support_create.add_argument("--symptom")
+    p_support_create.add_argument("--question", action="append")
+    p_support_create.add_argument(
+        "--operations-root",
+        default=DEFAULT_OPERATIONS_ROOT,
+    )
+    p_support_create.add_argument(
+        "--output",
+        default="support-bundles",
+    )
+    p_support_create.set_defaults(func=cmd_support_bundle_create)
+    p_support_inspect = support_subparsers.add_parser("inspect")
+    p_support_inspect.add_argument("--bundle", required=True)
+    p_support_inspect.set_defaults(func=cmd_support_bundle_inspect)
+    p_support_verify = support_subparsers.add_parser("verify")
+    p_support_verify.add_argument("--manifest", required=True)
+    p_support_verify.set_defaults(func=cmd_support_bundle_verify)
 
     p_prepare = subparsers.add_parser("prepare-hosts", help="Generate Ansible-style hosts.yaml from hosts.txt")
     p_prepare.add_argument("--input", required=True, help="Input hosts.txt")
@@ -8388,4 +13914,9 @@ def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
     apply_password_prompt_options(args)
-    args.func(args)
+    try:
+        result = args.func(args)
+    except (OperationError, ProfileResolutionError) as exc:
+        _operation_cli_error(exc)
+    if isinstance(result, int) and result:
+        raise SystemExit(result)

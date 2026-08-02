@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://alred.local/schemas/v1/health-snapshot.schema.json",
+  "title": "HealthSnapshot",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "change_id",
+    "collection_id",
+    "phase",
+    "profile_sha256",
+    "hosts"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "change_id": {"type": "string", "minLength": 1},
+    "collection_id": {"type": "string", "minLength": 1},
+    "phase": {"enum": ["before", "after", "rollback"]},
+    "created_at": {"type": "string", "format": "date-time"},
+    "timezone": {"type": "string", "minLength": 1},
+    "parser_versions": {
+      "type": "object",
+      "additionalProperties": {"type": "string", "minLength": 1}
+    },
+    "profile_sha256": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "hosts": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["common", "profiles", "sources"],
+        "properties": {
+          "collection_status": {
+            "enum": ["success", "partial", "failed"]
+          },
+          "common": {"type": "object"},
+          "profiles": {"type": "object"},
+          "sources": {"type": "object"},
+          "parse_warnings": {
+            "type": "array",
+            "items": {"type": "string"}
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Prepare Pull Request"
+  short_description: "Prepare a safe, reviewable alred pull request"
+  default_prompt: "Use $prepare-pull-request to validate changes and create a draft pull request."

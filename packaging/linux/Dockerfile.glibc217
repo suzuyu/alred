@@ -57,12 +57,10 @@ RUN curl -fsSLO "https://www.python.org/ftp/python/${PYTHON_VERSION}/Python-${PY
     && cd /work \
     && rm -rf "Python-${PYTHON_VERSION}" "Python-${PYTHON_VERSION}.tgz"
 
+COPY packaging/linux/requirements-build.lock /tmp/alred-requirements-build.lock
+
 RUN "${PYTHON_BIN}" -m pip install --no-cache-dir --upgrade pip \
     && "${PYTHON_BIN}" -m pip install --no-cache-dir \
-        pyinstaller \
-        Jinja2>=3.1.4 \
-        netmiko>=4.4.0 \
-        PyYAML>=6.0.2 \
-        python-dotenv>=1.0.1
+        -r /tmp/alred-requirements-build.lock
 
 CMD ["/bin/bash"]

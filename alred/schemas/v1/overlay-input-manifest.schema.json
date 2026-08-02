@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://alred.local/schemas/v1/overlay-input-manifest.schema.json",
+  "title": "OverlayInputManifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "change_id", "change_set", "device_groups", "resolved_targets"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "change_id": {"type": "string", "minLength": 1},
+    "change_set": {"$ref": "#/$defs/source_artifact"},
+    "device_groups": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "resolved_canonical_sha256"],
+      "properties": {
+        "mode": {"enum": ["inline", "external"]},
+        "source_path": {"type": "string", "minLength": 1},
+        "pinned_path": {"type": "string", "minLength": 1},
+        "source_sha256": {"$ref": "#/$defs/sha256"},
+        "source_canonical_sha256": {"$ref": "#/$defs/sha256"},
+        "pinned_sha256": {"$ref": "#/$defs/sha256"},
+        "resolved_canonical_sha256": {"$ref": "#/$defs/sha256"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"mode": {"const": "external"}}},
+          "then": {
+            "required": [
+              "source_path",
+              "pinned_path",
+              "source_sha256",
+              "source_canonical_sha256",
+              "pinned_sha256"
+            ]
+          }
+        }
+      ]
+    },
+    "resolved_targets": {"$ref": "#/$defs/generated_artifact"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "source_artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_path",
+        "pinned_path",
+        "source_sha256",
+        "source_canonical_sha256",
+        "pinned_sha256",
+        "resolved_canonical_sha256"
+      ],
+      "properties": {
+        "source_path": {"type": "string", "minLength": 1},
+        "pinned_path": {"type": "string", "minLength": 1},
+        "source_sha256": {"$ref": "#/$defs/sha256"},
+        "source_canonical_sha256": {"$ref": "#/$defs/sha256"},
+        "pinned_sha256": {"$ref": "#/$defs/sha256"},
+        "resolved_canonical_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "generated_artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pinned_path", "pinned_sha256", "canonical_sha256"],
+      "properties": {
+        "pinned_path": {"type": "string", "minLength": 1},
+        "pinned_sha256": {"$ref": "#/$defs/sha256"},
+        "canonical_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    }
+  }
+}

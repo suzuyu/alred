@@ -1,0 +1,13 @@
+interface nve1
+  no member vni 10010
+!
+evpn
+  no vni 10010 l2
+!
+no interface Vlan10
+!
+no vlan 10
+!
+vrf context TENANT-A
+  no vni 50001
+!

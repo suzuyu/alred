@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://alred.local/schemas/v1/overlay-state.schema.json",
+  "title": "OverlayState",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["api_version", "kind", "metadata", "spec"],
+  "properties": {
+    "api_version": {"const": "alred/v1"},
+    "kind": {"const": "OverlayState"},
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["change_id", "phase", "generated_at", "timezone", "profile_sha256", "parser_versions", "generator_version"],
+      "properties": {
+        "change_id": {"type": "string", "minLength": 1},
+        "phase": {"enum": ["before", "after", "rollback"]},
+        "generated_at": {"type": "string", "format": "date-time"},
+        "timezone": {"type": "string", "minLength": 1},
+        "profile_sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "parser_versions": {"type": "object", "additionalProperties": {"type": "string"}},
+        "generator_version": {"type": "string", "minLength": 1}
+      }
+    },
+    "spec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scope", "summary", "l2vnis", "l3vnis", "conflicts", "unknowns", "evidence"],
+      "properties": {
+        "scope": {"type": "object"},
+        "summary": {"type": "object"},
+        "l2vnis": {"type": "array", "items": {"$ref": "#/$defs/resource"}},
+        "l3vnis": {"type": "array", "items": {"$ref": "#/$defs/resource"}},
+        "conflicts": {"type": "array", "items": {"type": "object"}},
+        "unknowns": {"type": "array", "items": {"type": "object"}},
+        "evidence": {"type": "object"}
+      }
+    }
+  },
+  "$defs": {
+    "resource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["vni", "vrf", "status", "devices"],
+      "properties": {
+        "vni": {"type": "integer", "minimum": 1, "maximum": 16777215},
+        "vrf": {"type": ["string", "null"]},
+        "vlan_name": {"type": ["string", "null"]},
+        "status": {"enum": ["CONSISTENT", "DEVICE_VARIANT", "CONFLICT", "UNKNOWN"]},
+        "devices": {"type": "object", "additionalProperties": {"type": "object"}}
+      }
+    }
+  }
+}

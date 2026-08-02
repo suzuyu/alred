@@ -1,0 +1,100 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://alred.local/schemas/v1/operation-execution.schema.json",
+  "title": "OperationExecution",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "change_id",
+    "lifecycle",
+    "workflow_state",
+    "phases",
+    "transitions",
+    "errors"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "change_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "lifecycle": {
+      "enum": [
+        "created",
+        "running",
+        "waiting_for_user",
+        "completed",
+        "completed_with_warnings",
+        "failed",
+        "cancelled",
+        "state_unknown"
+      ]
+    },
+    "workflow_state": {
+      "type": ["string", "null"]
+    },
+    "phases": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["current_attempt", "status"],
+        "properties": {
+          "current_attempt": {
+            "type": ["string", "null"]
+          },
+          "status": {
+            "enum": [
+              "not_started",
+              "running",
+              "waiting_for_user",
+              "completed",
+              "completed_with_warnings",
+              "failed",
+              "cancelled",
+              "unknown"
+            ]
+          }
+        }
+      }
+    },
+    "transitions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["scope", "from", "to", "at", "reason"],
+        "properties": {
+          "scope": {
+            "type": "string",
+            "minLength": 1
+          },
+          "from": {
+            "type": ["string", "null"]
+          },
+          "to": {
+            "type": "string",
+            "minLength": 1
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "reason": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "errors": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    }
+  }
+}
