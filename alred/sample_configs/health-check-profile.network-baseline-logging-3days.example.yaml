@@ -1,0 +1,102 @@
+api_version: alred/v1
+kind: HealthCheckProfile
+metadata:
+  name: network-baseline-nxos-logging-3days-example
+  version: "1.0"
+  description: Example NX-OS baseline with a three-day logging range
+spec:
+  platforms:
+    - nxos
+  collectors:
+    nxos:
+      commands:
+        - id: show_version
+          command: show version
+          required: true
+        - id: processes_cpu
+          command: show processes cpu
+          required: true
+        - id: system_resources
+          command: show system resources
+          required: true
+        - id: environment
+          command: show environment
+          required: true
+        - id: reload_pending
+          command: show system config reload-pending
+          required: true
+        - id: show_logging
+          command: show logging
+          required: true
+        - id: route_summary_ipv4
+          command: show ip route summary vrf all
+          required: true
+        - id: ospf_neighbors
+          command: show ip ospf neighbors
+          required: false
+        - id: bgp_ipv4_summary
+          command: show bgp ipv4 unicast summary vrf all
+          required: false
+        - id: vpc_brief
+          command: show vpc brief
+          required: false
+  checks:
+    - id: collection_complete
+      evaluator: collection_complete
+      severity: fail
+    - id: system_identity
+      evaluator: system_identity
+      severity: fail
+    - id: cpu_utilization
+      evaluator: cpu_utilization
+      severity: warn
+    - id: memory_utilization
+      evaluator: memory_utilization
+      severity: warn
+    - id: environment_health
+      evaluator: environment_health
+      severity: fail
+    - id: reload_pending
+      evaluator: reload_pending
+      severity: fail
+    - id: logging_health
+      evaluator: logging_health
+      severity: warn
+    - id: ipv4_route_count
+      evaluator: ipv4_route_count
+      severity: fail
+    - id: ospf_neighbor_health
+      evaluator: ospf_neighbor_health
+      severity: fail
+    - id: bgp_ipv4_health
+      evaluator: bgp_ipv4_health
+      severity: fail
+    - id: vpc_health
+      evaluator: vpc_health
+      severity: fail
+  thresholds:
+    logging:
+      severity_threshold: 4
+      time_range:
+        mode: days
+        days: 3
+      include_patterns: []
+      exclude_patterns: []
+    cpu:
+      metric: one_minute_percent
+      warn_percent: 80
+      required_consecutive_samples: 3
+      sample_interval_seconds: 15
+    memory:
+      warn_percent: 85
+      fail_percent: 95
+    route_count:
+      warn_decrease_percent: 10
+      fail_decrease_percent: 30
+  operation_gate:
+    interactive_action: confirm
+    non_interactive_action: abort
+  convergence:
+    interval_seconds: 15
+    timeout_seconds: 300
+    consecutive_passes: 2

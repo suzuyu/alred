@@ -1,0 +1,120 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://alred.local/schemas/v1/qualification-record.schema.json",
+  "title": "QualificationRecord",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "api_version",
+    "kind",
+    "metadata",
+    "target",
+    "artifacts",
+    "constraints"
+  ],
+  "properties": {
+    "api_version": {"const": "alred/v1"},
+    "kind": {"const": "QualificationRecord"},
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "qualification_id",
+        "change_id",
+        "purpose",
+        "approved_at",
+        "expires_at",
+        "approval_method",
+        "approver",
+        "confirmation_phrase"
+      ],
+      "properties": {
+        "qualification_id": {
+          "type": "string",
+          "pattern": "^QLF-[0-9]{8}T[0-9]{6}-[pm][0-9]{4}-[0-9a-f]{6}$"
+        },
+        "change_id": {"type": "string", "minLength": 1},
+        "purpose": {"const": "initial_lab_qualification"},
+        "approved_at": {"type": "string", "format": "date-time"},
+        "expires_at": {"type": "string", "format": "date-time"},
+        "approval_method": {"const": "interactive"},
+        "approver": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["os_user", "hostname"],
+          "properties": {
+            "os_user": {"type": "string", "minLength": 1},
+            "hostname": {"type": "string", "minLength": 1}
+          }
+        },
+        "confirmation_phrase": {"type": "string", "minLength": 1}
+      }
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["platform", "model", "release", "role", "devices"],
+      "properties": {
+        "platform": {"const": "nxos"},
+        "model": {"const": "N9K-C9300V"},
+        "release": {"type": "string", "minLength": 1},
+        "role": {"const": "vtep_leaf"},
+        "devices": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 2,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "artifacts": {
+      "type": "object",
+      "minProperties": 7,
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "sha256", "hash_mode"],
+        "properties": {
+          "path": {"type": "string", "minLength": 1},
+          "sha256": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "hash_mode": {"enum": ["canonical_json", "source_bytes"]}
+        }
+      },
+      "required": [
+        "execution_plan",
+        "rollback_plan",
+        "before_snapshot",
+        "before_health_result",
+        "change_set",
+        "render_manifest",
+        "inventory"
+      ]
+    },
+    "constraints": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "max_devices",
+        "serial",
+        "stop_on_first_error",
+        "automatic_retry",
+        "automatic_rollback",
+        "save_on_initial_apply",
+        "rollback_policy"
+      ],
+      "properties": {
+        "max_devices": {"const": 2},
+        "serial": {"const": 1},
+        "stop_on_first_error": {"const": true},
+        "automatic_retry": {"const": false},
+        "automatic_rollback": {"const": false},
+        "save_on_initial_apply": {"const": false},
+        "rollback_policy": {"const": "manual"}
+      }
+    }
+  }
+}

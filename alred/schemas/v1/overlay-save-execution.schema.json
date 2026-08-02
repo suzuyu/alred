@@ -1,0 +1,142 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://alred.local/schemas/v1/overlay-save-execution.schema.json",
+  "title": "OverlaySaveExecution",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["api_version", "kind", "metadata", "spec", "status"],
+  "properties": {
+    "api_version": {"const": "alred/v1"},
+    "kind": {"const": "OverlaySaveExecution"},
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["change_id", "started_at", "completed_at", "timezone"],
+      "properties": {
+        "change_id": {"type": "string", "minLength": 1},
+        "started_at": {"type": "string", "format": "date-time"},
+        "completed_at": {"type": "string", "format": "date-time"},
+        "timezone": {"type": "string", "minLength": 1}
+      }
+    },
+    "spec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "approval_id",
+        "execution_plan_sha256",
+        "rollback_plan_sha256",
+        "mode",
+        "serial",
+        "stop_on_first_error",
+        "automatic_retry",
+        "precheck_commands",
+        "save_command",
+        "success_marker"
+      ],
+      "properties": {
+        "approval_id": {"type": "string", "minLength": 1},
+        "execution_plan_sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "rollback_plan_sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "mode": {
+          "enum": ["after_verified_apply", "after_verified_rollback"]
+        },
+        "serial": {"const": 1},
+        "stop_on_first_error": {"const": true},
+        "automatic_retry": {"const": false},
+        "precheck_commands": {
+          "const": ["show running-config", "show running-config diff"]
+        },
+        "save_command": {"type": "string", "minLength": 1},
+        "success_marker": {"type": ["string", "null"]}
+      }
+    },
+    "status": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["result", "devices", "first_failure"],
+      "properties": {
+        "result": {
+          "enum": [
+            "APPLIED_AND_VERIFIED",
+            "ROLLED_BACK_AND_SAVED",
+            "SAVE_FAILED"
+          ]
+        },
+        "devices": {
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 50,
+          "additionalProperties": {"$ref": "#/$defs/device"}
+        },
+        "first_failure": {
+          "oneOf": [
+            {"type": "null"},
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["host", "stage", "message"],
+              "properties": {
+                "host": {"type": "string", "minLength": 1},
+                "stage": {
+                  "enum": [
+                    "connect",
+                    "running_config",
+                    "pre_save_diff",
+                    "save",
+                    "post_save_diff"
+                  ]
+                },
+                "message": {"type": "string", "minLength": 1}
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  "$defs": {
+    "save": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command",
+        "started_at",
+        "completed_at",
+        "status",
+        "response",
+        "error"
+      ],
+      "properties": {
+        "command": {"type": "string", "minLength": 1},
+        "started_at": {"type": "string", "format": "date-time"},
+        "completed_at": {"type": "string", "format": "date-time"},
+        "status": {"enum": ["SUCCESS", "FAILED", "UNKNOWN"]},
+        "response": {"type": "string"},
+        "error": {"type": ["string", "null"]}
+      }
+    },
+    "device": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "running_config_equal",
+        "pre_save_diff",
+        "save",
+        "post_save_diff"
+      ],
+      "properties": {
+        "status": {
+          "enum": ["SUCCESS", "FAILED", "UNKNOWN", "NOT_STARTED"]
+        },
+        "running_config_equal": {"type": ["boolean", "null"]},
+        "pre_save_diff": {"type": ["string", "null"]},
+        "save": {
+          "oneOf": [{"type": "null"}, {"$ref": "#/$defs/save"}]
+        },
+        "post_save_diff": {"type": ["string", "null"]}
+      }
+    }
+  }
+}

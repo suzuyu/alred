@@ -1,0 +1,102 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://alred.local/schemas/v1/active-health-check-change.schema.json",
+  "title": "ActiveHealthCheckChange",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["api_version", "kind", "metadata", "spec"],
+  "properties": {
+    "api_version": {
+      "const": "alred/v1"
+    },
+    "kind": {
+      "const": "ActiveHealthCheckChange"
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["updated_at", "timezone"],
+      "properties": {
+        "updated_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "timezone": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "spec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "change_id",
+        "change_id_source",
+        "state",
+        "output_root",
+        "before",
+        "after"
+      ],
+      "properties": {
+        "change_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "change_id_source": {
+          "const": "generated"
+        },
+        "state": {
+          "enum": ["before_completed", "after_failed", "completed"]
+        },
+        "output_root": {
+          "type": "string",
+          "minLength": 1
+        },
+        "before": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "completed_at",
+            "metadata_path",
+            "snapshot_path",
+            "inventory_sha256",
+            "profile_sha256"
+          ],
+          "properties": {
+            "completed_at": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "metadata_path": {
+              "type": "string",
+              "minLength": 1
+            },
+            "snapshot_path": {
+              "type": "string",
+              "minLength": 1
+            },
+            "inventory_sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "profile_sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            }
+          }
+        },
+        "after": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status"],
+          "properties": {
+            "status": {
+              "enum": ["not_started", "failed", "completed"]
+            }
+          }
+        }
+      }
+    }
+  }
+}

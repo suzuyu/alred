@@ -1,0 +1,91 @@
+! alred generated scoped rollback configuration
+! change-id: {{ change_id }}
+! host: {{ device }}
+! renderer: nxos-overlay@1.0
+!
+configure terminal
+!
+router bgp {{ local_as }}
+{% for l3 in l3vnis %}
+{% if l3._ownership.bgp_vrf_new %}
+  no vrf {{ l3.vrf }}
+{% else %}
+  vrf {{ l3.vrf }}
+{% for af, commands in l3._ownership.bgp_added.items() %}
+{% if commands %}
+    address-family {{ af }} unicast
+{% for command in commands|reverse %}
+      no {{ command }}
+{% endfor %}
+{% endif %}
+{% endfor %}
+{% endif %}
+{% endfor %}
+!
+interface {{ nve_interface }}
+{% for l2 in l2vnis %}
+{% if l2._ownership.nve_new %}
+  no member vni {{ l2.vni }}
+{% endif %}
+{% endfor %}
+{% for l3 in l3vnis %}
+{% if l3._ownership.nve_new %}
+  no member vni {{ l3.vni }} associate-vrf
+{% endif %}
+{% endfor %}
+!
+{% if l2vnis %}
+evpn
+{% for l2 in l2vnis %}
+{% if l2._ownership.evpn_new %}
+  no vni {{ l2.vni }} l2
+{% endif %}
+{% endfor %}
+!
+{% endif %}
+{% for l2 in l2vnis %}
+{% if l2._ownership.svi_new %}
+no interface Vlan{{ l2.vlan }}
+{% endif %}
+{% if l2._ownership.vlan_new %}
+no vlan {{ l2.vlan }}
+{% else %}
+{% if l2._ownership.vlan_mapping_new or l2._ownership.vlan_name_new %}
+vlan {{ l2.vlan }}
+{% if l2._ownership.vlan_mapping_new %}
+  no vn-segment {{ l2.vni }}
+{% endif %}
+{% if l2._ownership.vlan_name_new %}
+  no name {{ l2.vlan_name }}
+{% endif %}
+{% endif %}
+{% endif %}
+{% endfor %}
+{% for l3 in l3vnis %}
+{% if l3.mode == "traditional_vlan_svi" %}
+{% if l3._ownership.svi_new %}
+no interface Vlan{{ l3.vlan }}
+{% endif %}
+{% if l3._ownership.vlan_new %}
+no vlan {{ l3.vlan }}
+{% elif l3._ownership.vlan_mapping_new %}
+vlan {{ l3.vlan }}
+  no vn-segment {{ l3.vni }}
+{% endif %}
+{% endif %}
+{% if l3._ownership.vrf_new %}
+no vrf context {{ l3.vrf }}
+{% else %}
+vrf context {{ l3.vrf }}
+  no vni {{ l3.vni }}
+{% for af, commands in l3._ownership.vrf_af_added.items() %}
+{% if commands %}
+  address-family {{ af }} unicast
+{% for command in commands|reverse %}
+    no {{ command }}
+{% endfor %}
+{% endif %}
+{% endfor %}
+{% endif %}
+{% endfor %}
+end

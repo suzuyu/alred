@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://alred.local/schemas/v1/overlay-preparation-current.schema.json",
+  "title": "OverlayPreparationCurrent",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "change_id", "attempt_id", "artifact_dir", "completed_at"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "change_id": {"type": "string", "minLength": 1},
+    "attempt_id": {"type": "string", "minLength": 1},
+    "artifact_dir": {"type": "string", "minLength": 1},
+    "completed_at": {"type": "string", "format": "date-time"}
+  }
+}

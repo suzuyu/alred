@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://alred.local/schemas/v1/nxos-capability-registry.schema.json",
+  "title": "NxosCapabilityRegistry",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["api_version", "kind", "metadata", "entries"],
+  "properties": {
+    "api_version": {"const": "alred/v1"},
+    "kind": {"const": "NxosCapabilityRegistry"},
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "updated_at"],
+      "properties": {
+        "version": {"type": "integer", "minimum": 1},
+        "updated_at": {"type": "string", "format": "date-time"}
+      }
+    },
+    "entries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "model",
+          "release",
+          "role",
+          "level",
+          "capabilities",
+          "evidence"
+        ],
+        "properties": {
+          "model": {"type": "string", "minLength": 1},
+          "release": {"type": "string", "minLength": 1},
+          "role": {"type": "string", "minLength": 1},
+          "level": {"enum": ["OBSERVE_ONLY", "PLAN_ONLY", "APPLY_VERIFIED"]},
+          "capabilities": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {"type": "string", "minLength": 1}
+          },
+          "evidence": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["change_id", "workflow", "reviewed_at"],
+            "properties": {
+              "change_id": {"type": "string", "minLength": 1},
+              "workflow": {"type": "string", "minLength": 1},
+              "reviewed_at": {"type": "string", "format": "date-time"}
+            }
+          }
+        }
+      }
+    }
+  }
+}

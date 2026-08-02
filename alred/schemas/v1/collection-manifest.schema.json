@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://alred.local/schemas/v1/collection-manifest.schema.json",
+  "title": "CollectionManifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["api_version", "kind", "metadata", "spec"],
+  "properties": {
+    "api_version": {"const": "alred/v1"},
+    "kind": {"const": "CollectionManifest"},
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "collection_id",
+        "change_id",
+        "phase",
+        "started_at",
+        "completed_at",
+        "timezone"
+      ],
+      "properties": {
+        "collection_id": {"type": "string", "minLength": 1},
+        "change_id": {"type": "string", "minLength": 1},
+        "phase": {"enum": ["before", "after", "rollback"]},
+        "started_at": {"type": "string", "format": "date-time"},
+        "completed_at": {"type": "string", "format": "date-time"},
+        "timezone": {"type": "string", "minLength": 1}
+      }
+    },
+    "spec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["profiles", "hosts"],
+      "properties": {
+        "profiles": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1}
+        },
+        "hosts": {
+          "type": "object",
+          "additionalProperties": {"$ref": "#/$defs/host"}
+        }
+      }
+    }
+  },
+  "$defs": {
+    "host": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "commands"],
+      "properties": {
+        "status": {"enum": ["success", "partial", "failed", "skipped"]},
+        "commands": {
+          "type": "object",
+          "additionalProperties": {"$ref": "#/$defs/command"}
+        }
+      }
+    },
+    "command": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "collected_at", "file", "sha256"],
+      "properties": {
+        "status": {"enum": ["success", "failed", "unsupported", "skipped"]},
+        "collected_at": {"type": "string", "format": "date-time"},
+        "file": {"type": "string", "minLength": 1},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "command": {"type": "string"},
+        "normalized_command": {"type": "string"},
+        "source": {
+          "enum": ["alred_collect", "external_transcript", "running_config"]
+        },
+        "transport": {"type": "string"},
+        "error": {"type": "string"},
+        "start_line": {"type": "integer", "minimum": 1},
+        "end_line": {"type": "integer", "minimum": 1},
+        "output_start_line": {"type": "integer", "minimum": 1},
+        "output_end_line": {"type": "integer", "minimum": 1},
+        "confidence": {"enum": ["high", "medium", "low"]}
+      }
+    }
+  }
+}

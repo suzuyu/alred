@@ -1,0 +1,151 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://alred.local/schemas/v1/operation-metadata.schema.json",
+  "title": "OperationMetadata",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["api_version", "kind", "metadata", "spec"],
+  "properties": {
+    "api_version": {
+      "const": "alred/v1"
+    },
+    "kind": {
+      "const": "OperationMetadata"
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "change_id",
+        "change_id_source",
+        "timezone",
+        "utc_offset",
+        "created_at",
+        "tool_version"
+      ],
+      "properties": {
+        "change_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+        },
+        "change_id_source": {
+          "enum": ["specified", "generated"]
+        },
+        "timezone": {
+          "type": "string",
+          "minLength": 1
+        },
+        "utc_offset": {
+          "type": "string",
+          "pattern": "^[+-][0-9]{2}:[0-9]{2}$"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "tool_version": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "spec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "output_root",
+        "lifecycle",
+        "workflow_state",
+        "phases",
+        "last_transition"
+      ],
+      "properties": {
+        "output_root": {
+          "type": "string",
+          "minLength": 1
+        },
+        "lifecycle": {
+          "$ref": "#/$defs/operation_state"
+        },
+        "workflow_state": {
+          "type": ["string", "null"]
+        },
+        "phases": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/phase"
+          }
+        },
+        "last_transition": {
+          "$ref": "#/$defs/transition"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "operation_state": {
+      "enum": [
+        "created",
+        "running",
+        "waiting_for_user",
+        "completed",
+        "completed_with_warnings",
+        "failed",
+        "cancelled",
+        "state_unknown"
+      ]
+    },
+    "phase_state": {
+      "enum": [
+        "not_started",
+        "running",
+        "waiting_for_user",
+        "completed",
+        "completed_with_warnings",
+        "failed",
+        "cancelled",
+        "unknown"
+      ]
+    },
+    "phase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["current_attempt", "status"],
+      "properties": {
+        "current_attempt": {
+          "type": ["string", "null"]
+        },
+        "status": {
+          "$ref": "#/$defs/phase_state"
+        }
+      }
+    },
+    "transition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scope", "from", "to", "at", "reason"],
+      "properties": {
+        "scope": {
+          "type": "string",
+          "minLength": 1
+        },
+        "from": {
+          "type": ["string", "null"]
+        },
+        "to": {
+          "type": "string",
+          "minLength": 1
+        },
+        "at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "reason": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

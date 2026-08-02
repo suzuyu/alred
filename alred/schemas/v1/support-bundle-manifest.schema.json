@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://alred.local/schemas/v1/support-bundle-manifest.schema.json",
+  "title": "SupportBundleManifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["api_version", "kind", "metadata", "spec", "status"],
+  "properties": {
+    "api_version": {"const": "alred/v1"},
+    "kind": {"const": "SupportBundleManifest"},
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["change_id", "phase", "created_at", "timezone"],
+      "properties": {
+        "change_id": {"type": "string", "minLength": 1},
+        "phase": {"enum": ["before", "after", "rollback", "all"]},
+        "created_at": {"type": "string", "format": "date-time"},
+        "timezone": {"type": "string", "minLength": 1}
+      }
+    },
+    "spec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_operation", "split", "archive_name", "files", "prompt_language"],
+      "properties": {
+        "source_operation": {"type": "string", "minLength": 1},
+        "split": {"enum": ["none", "phase", "device"]},
+        "archive_name": {"type": "string", "minLength": 1},
+        "archive_sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "part_id": {"type": "string", "minLength": 1},
+        "devices": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "redaction_policy_sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "prompt_language": {"enum": ["ja", "en"]},
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["bundle_path", "source_sha256", "redacted_sha256", "phase", "devices"],
+            "properties": {
+              "bundle_path": {"type": "string", "minLength": 1},
+              "source_sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+              "redacted_sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+              "phase": {"enum": ["before", "after", "rollback", "common"]},
+              "devices": {
+                "type": "array",
+                "uniqueItems": true,
+                "items": {"type": "string", "minLength": 1}
+              }
+            }
+          }
+        }
+      }
+    },
+    "status": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["result", "files_included", "files_excluded", "source_missing", "secret_scan", "analysis_limitations"],
+      "properties": {
+        "result": {"enum": ["COMPLETE", "COMPLETE_WITH_WARNINGS"]},
+        "files_included": {"type": "integer", "minimum": 0},
+        "files_excluded": {"type": "integer", "minimum": 0},
+        "source_missing": {"type": "array", "items": {"type": "string"}},
+        "secret_scan": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["high_confidence", "low_confidence"],
+          "properties": {
+            "high_confidence": {"type": "integer", "minimum": 0},
+            "low_confidence": {"type": "integer", "minimum": 0}
+          }
+        },
+        "analysis_limitations": {"type": "array", "items": {"type": "string"}}
+      }
+    }
+  }
+}

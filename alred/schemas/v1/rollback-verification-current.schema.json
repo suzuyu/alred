@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://alred.local/schemas/v1/rollback-verification-current.schema.json",
+  "title": "RollbackVerificationCurrent",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "change_id", "attempt_id", "result", "verification_path", "checklist_path", "health_report_path", "completed_at"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "change_id": {"type": "string", "minLength": 1},
+    "attempt_id": {"type": "string", "minLength": 1},
+    "result": {"enum": ["ROLLED_BACK_AND_VERIFIED", "ROLLBACK_HEALTH_FAILED"]},
+    "verification_path": {"type": "string", "minLength": 1},
+    "checklist_path": {"type": "string", "minLength": 1},
+    "health_report_path": {"type": "string", "minLength": 1},
+    "completed_at": {"type": "string", "format": "date-time"}
+  }
+}

@@ -1,0 +1,22 @@
+api_version: alred/v1
+kind: HealthCheckProfile
+
+metadata:
+  name: logging-excludes-example
+  version: "1.0"
+  description: Example logging exclusions layered after network-baseline-nxos
+
+spec:
+  platforms:
+    - nxos
+  thresholds:
+    logging:
+      exclude_patterns:
+        # Patterns are matched using case-insensitive substring matching.
+        - "expected maintenance message"
+        - "known harmless event"
+        # Common warning messages in NX-OS 9000v lab environments.
+        - "PAM unable to dlopen(/lib64/security/pam_pwquality.so)"
+        - "PAM adding faulty module: /lib64/security/pam_pwquality.so"
+        - "kex_exchange_identification: connection closed by remote host"
+        - "kex_exchange_identification: read: Connection reset by peer"

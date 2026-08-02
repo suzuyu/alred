@@ -1,6 +1,6 @@
 [project]
 name = "alred"
-version = "0.1.0a25"
+version = "0.2.0a1"
 description = "Collect LLDP and running-config, normalize links, generate containerlab, Mermaid, Terraform, and VNI outputs, and push config to devices"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -17,6 +17,7 @@ classifiers = [
 ]
 dependencies = [
   "Jinja2>=3.1.4",
+  "jsonschema>=4.23.0",
   "netmiko>=4.4.0",
   "PyYAML>=6.0.2",
   "python-dotenv>=1.0.1",
@@ -41,11 +42,39 @@ packages = ["alred"]
 ignore-vcs = true
 include = [
   "/alred/**/*.py",
+  "/alred/health/profiles/*.yaml",
+  "/alred/capabilities/*.yaml",
+  "/alred/schemas/**/*.json",
   "/alred/j2/*.j2",
   "/alred/sample_configs/*",
   "/README.md",
   "/CONFIG.md",
 ]
 
-[tool.uv]
-dev-dependencies = []
+[dependency-groups]
+dev = [
+  "pytest>=8.3,<10",
+  "ruff>=0.12,<1",
+]
+build = [
+  "pyinstaller>=6.11,<7",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = [
+  "-ra",
+  "--strict-markers",
+]
+markers = [
+  "unit: external accessを伴わない単体テスト",
+  "integration: 複数componentまたはCLIの統合テスト",
+  "device: labまたは実機への接続が必要なテスト",
+]
+
+[tool.ruff]
+target-version = "py311"
+
+[tool.ruff.lint]
+# Phase 0では実行時障害につながるruleから開始し、既存codeの一括整形は行わない。
+select = ["E9", "F63", "F7", "F82"]

@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://alred.local/schemas/v1/approval-record.schema.json",
+  "title": "ApprovalRecord",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "approval_id",
+    "change_id",
+    "approved_at",
+    "expires_at",
+    "approval_method",
+    "approver",
+    "artifacts",
+    "constraints"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "approval_id": {
+      "type": "string",
+      "pattern": "^APR-[0-9]{8}T[0-9]{6}-[pm][0-9]{4}-[0-9a-f]{6}$"
+    },
+    "change_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "approved_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "expires_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "approval_method": {
+      "const": "interactive"
+    },
+    "approver": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["os_user", "hostname"],
+      "properties": {
+        "os_user": {
+          "type": "string",
+          "minLength": 1
+        },
+        "hostname": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "artifacts": {
+      "type": "object",
+      "minProperties": 2,
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^sha256:[0-9a-f]{64}$"
+      },
+      "required": ["execution_plan", "rollback_plan"]
+    },
+    "constraints": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["max_devices", "save_on_success", "rollback_policy"],
+      "properties": {
+        "max_devices": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 50
+        },
+        "save_on_success": {
+          "type": "boolean"
+        },
+        "rollback_policy": {
+          "const": "manual"
+        }
+      }
+    }
+  }
+}

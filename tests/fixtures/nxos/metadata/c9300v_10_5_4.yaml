@@ -1,0 +1,77 @@
+api_version: alred/v1
+kind: NxosFixtureMetadata
+
+metadata:
+  fixture_id: nxos-10.5-4-c9300v-baseline-001
+  source_type: lab
+  captured_at: "2026-08-01T16:42:58+09:00"
+  sanitized: true
+
+spec:
+  platform: nxos
+  model: Nexus 9000v C9300v
+  release: "10.5(4)"
+  role: leaf
+  purpose:
+    - baseline
+    - overlay-observe
+  commands:
+    - command: show version
+      fixture: ../show_version/c9300v_10_5_4.txt
+    - command: show processes cpu
+      fixture: ../show_processes_cpu/c9300v_10_5_4.txt
+    - command: show system resources
+      fixture: ../show_system_resources/c9300v_10_5_4.txt
+    - command: show system config reload-pending
+      fixture: ../show_reload_pending/c9300v_10_5_4_no_pending.txt
+    - command: show vpc brief
+      fixture: ../show_vpc_brief/c9300v_10_5_4_healthy.txt
+    - command: show nve interface
+      fixture: ../show_nve_interface/c9300v_10_5_4_up.txt
+    - command: show bgp l2vpn evpn summary
+      fixture: ../show_bgp_summary/c9300v_10_5_4_evpn_healthy.txt
+    - command: show environment
+      fixture: ../show_environment/c9300v_10_5_4_virtual.txt
+    - command: show ip route summary vrf all
+      fixture: ../show_route_summary_ipv4/c9300v_10_5_4.txt
+    - command: show ip ospf neighbors
+      fixture: ../show_ospf_neighbors/c9300v_10_5_4_full.txt
+    - command: show bgp ipv4 unicast summary vrf all
+      fixture: ../show_bgp_ipv4_summary/c9300v_10_5_4_idle.txt
+  expected:
+    show_version:
+      model: Nexus 9000v C9300v
+      release: "10.5(4)"
+    cpu:
+      five_seconds_total_percent: 75
+      default_threshold_percent: 80
+      threshold_exceeded: false
+    reload_pending: false
+    vpc_peer_formed: true
+    nve_state: Up
+    evpn_capable_peers: 2
+    environment_applicable: false
+    ospf_full_neighbors: 2
+    ipv4_route_vrfs: 2
+    bgp_ipv4_capable_peers: 0
+  provenance:
+    source_generation: "20260729164224"
+    source_transcript_sha256: 3d85d4a735b25d63e4f02ff7c8d9a1df26be90a496dcc88d974fcbdb0ca37149
+    source_archive_sha256: 0b06f3ad30bd0408818732cd5be84cd2827ac251bffcde16b758bba0339a6769
+    original_retained_outside_tracked_repository: true
+    sanitization_profile: nxos-fixture-v1
+  sanitization:
+    identifier_replacements:
+      hostname: leaf-fixture-01
+      processor_board_id: REDACTED-SERIAL
+      ipv4_addresses: RFC5737_TEST_NET_1
+      mac_addresses: locally_administered_test_value
+    excluded_sections:
+      - show running-config
+      - show logging
+      - show inventory
+    content_reduction:
+      show_processes_cpu: representative process rows plus CPU summaries
+      show_route_summary_ipv4: representative VRFs
+      show_bgp_ipv4_summary: representative VRF
+    secret_scan_required: true

@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://alred.local/schemas/v1/resolved-health-check-profiles.schema.json",
+  "title": "ResolvedHealthCheckProfiles",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["api_version", "kind", "metadata", "spec"],
+  "properties": {
+    "api_version": {"const": "alred/v1"},
+    "kind": {"const": "ResolvedHealthCheckProfiles"},
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["change_id", "resolved_at", "timezone"],
+      "properties": {
+        "change_id": {"type": "string", "minLength": 1},
+        "resolved_at": {"type": "string", "format": "date-time"},
+        "timezone": {"type": "string", "minLength": 1}
+      }
+    },
+    "spec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requested", "resolved"],
+      "properties": {
+        "requested": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/requested"}
+        },
+        "resolved": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "profile_names",
+            "effective_sha256",
+            "effective",
+            "overrides"
+          ],
+          "properties": {
+            "profile_names": {
+              "type": "array",
+              "minItems": 1,
+              "items": {"type": "string", "minLength": 1}
+            },
+            "effective_sha256": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
+            "effective": {"type": "object"},
+            "overrides": {
+              "type": "array",
+              "items": {"type": "object"}
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "requested": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "order",
+        "ref",
+        "type",
+        "name",
+        "version",
+        "source",
+        "source_sha256"
+      ],
+      "properties": {
+        "order": {"type": "integer", "minimum": 1},
+        "ref": {"type": "string", "minLength": 1},
+        "type": {"enum": ["builtin", "file"]},
+        "name": {"type": "string", "minLength": 1},
+        "version": {"type": "string", "minLength": 1},
+        "source": {"type": "string", "minLength": 1},
+        "source_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "resolution_source": {"enum": ["default", "explicit"]}
+      }
+    }
+  }
+}

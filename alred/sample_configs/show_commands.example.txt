@@ -1,4 +1,10 @@
 # show_commands.txt
+#
+# Default commands preserve the common work-state of production EVPN/VXLAN
+# fabrics while avoiding full routing, MAC, ARP and internal diagnostic tables.
+# Some commands intentionally overlap dedicated collect-all artifacts so that
+# the consolidated show log remains independently useful as work evidence.
+
 [device_type:nxos]
 show clock
 show boot
@@ -16,109 +22,133 @@ show feature
 show ntp status
 show ntp peers
 show ntp peer-status
-show license usage 
+show license usage
 show license all
-show interface
 show interface status
-show interface description
 show interface brief
-show interface switchport
-show interface counters
-show interface counters table
-show interface counters errors
 show interface counters errors non-zero
-show interface counters storm-control
-show interface transceiver
-show interface transceiver detail
 show vrf
 show ip interface brief vrf all
 show ipv6 interface brief vrf all
-show ip arp vrf all
 show ip route
 show ip route vrf all
 show ip route summary vrf all
-show ipv6 neighbor vrf all 
-show ipv6 route vrf all
+show ipv6 neighbor vrf all
 show ipv6 route summary vrf all
 show bfd clients
 show bfd neighbors vrf all
-show bfd neighbors vrf all detail
+show lacp internal info
+show port-channel summary
 show spanning-tree
-show lldp neighbors
-show hardware capacity
-show hardware capacity forwarding 
-show hardware access-list resource utilization
 show logging
+show system config reload-pending
+show running-config diff
+
+# These commands duplicate some dedicated collect-all phases intentionally:
+# show running-config and show running-config diff are retained in the
+# consolidated show log as common before/after work evidence.
+
+# Interface and optical diagnostics. Summary and non-zero errors remain enabled.
+# show interface
+# show interface description
+# show interface switchport
+# show interface counters
+# show interface counters table
+# show interface counters errors
+# show interface counters storm-control
+# show interface transceiver
+# show interface transceiver detail
+
+# Full ARP / IPv6 route tables can be large on production fabrics.
+# show ip arp vrf all
+# show ipv6 route vrf all
+
+# Protocol and hardware diagnostics. Summary commands remain enabled above.
+# show bfd neighbors vrf all detail
+# show lldp neighbors
+# show hardware capacity
+# show hardware capacity forwarding
+# show hardware access-list resource utilization
 
 [spine]
 show ip ospf neighbors
 
 [underlay-route-reflector]
 show bgp l2vpn evpn summary
-show bgp l2vpn evpn
-show bgp l2vpn evpn neighbors
+# Full EVPN table and neighbor detail can be large. Enable for targeted diagnosis.
+# show bgp l2vpn evpn
+# show bgp l2vpn evpn neighbors
 
 [leaf]
-show vlan
 show vlan brief
-show vpc
+show ip ospf neighbors
 show vpc brief
 show vpc peer-keepalive
 show vpc orphan-ports
-show lacp internal info
-show port-channel summary
-show port-channel load-balance
 show nve interface
-show nve vrf
 show nve vni
 show nve peers
-show nve peers detail
-show nve interface nve1 detail
-show nve internal export nve
-show nve internal export vni
-show nve peers control-plane-vni 
-show nve internal platform interface detail 
-show system internal l3vm sdb vrf 
-show mac address-table
-show ip bgp vrf all
-show ip bgp summary vrf all
-show ip bgp neighbors vrf all
-show ip bgp flap-statistics vrf all
-show bgp all vrf all
-show bgp l2vpn evpn
-show bgp l2vpn evpn vrf all
-show bgp l2vpn evpn detail vrf all
 show bgp l2vpn evpn summary
-show bgp l2vpn evpn summary vrf all
-show bgp evi
-show bgp ipv4 unicast vrf all
-show bgp ipv4 unicast neighbors vrf all
 show bgp ipv4 unicast summary vrf all
-show bgp ipv6 unicast vrf all
-show bgp ipv6 unicast neighbors vrf all
 show bgp ipv6 unicast summary vrf all
-show bgp vpnv4 unicast vrf all
-show bgp vpnv4 unicast neighbors vrf all
-show bgp vpnv4 unicast summary vrf all
-show bgp vpnv6 unicast vrf all
-show bgp vpnv6 unicast neighbors vrf all
-show bgp vpnv6 unicast summary vrf all
-show l2route evpn fl all
-show l2route evpn imet all
-show l2route evpn imet all detail
-show l2route evpn mac all
-show l2route evpn mac-ip all
-show l2route evpn mac-ip all detail
-show l2route topology
+
+# Additional vPC / port-channel diagnostics.
+# show vpc
+# show port-channel load-balance
+
+# NVE detail and internal diagnostics.
+# show nve vrf
+# show nve peers detail
+# show nve interface nve1 detail
+# show nve internal export nve
+# show nve internal export vni
+# show nve peers control-plane-vni
+# show nve internal platform interface detail
+# show system internal l3vm sdb vrf
+
+# Full MAC, BGP, EVPN and L2RIB tables can be large on production fabrics.
+# Use summary commands above for baseline collection and enable these only for
+# a targeted health-check profile or diagnosis.
+# show vlan
+# show mac address-table
+# show ip bgp vrf all
+# show ip bgp summary vrf all
+# show ip bgp neighbors vrf all
+# show ip bgp flap-statistics vrf all
+# show bgp all vrf all
+# show bgp l2vpn evpn
+# show bgp l2vpn evpn vrf all
+# show bgp l2vpn evpn detail vrf all
+# show bgp l2vpn evpn summary vrf all
+# show bgp evi
+# show bgp ipv4 unicast vrf all
+# show bgp ipv4 unicast neighbors vrf all
+# show bgp ipv6 unicast vrf all
+# show bgp ipv6 unicast neighbors vrf all
+# show bgp vpnv4 unicast vrf all
+# show bgp vpnv4 unicast neighbors vrf all
+# show bgp vpnv4 unicast summary vrf all
+# show bgp vpnv6 unicast vrf all
+# show bgp vpnv6 unicast neighbors vrf all
+# show bgp vpnv6 unicast summary vrf all
+# show l2route evpn fl all
+# show l2route evpn imet all
+# show l2route evpn imet all detail
+# show l2route evpn mac all
+# show l2route evpn mac-ip all
+# show l2route evpn mac-ip all detail
+# show l2route topology
 # show hsrp
 # show hsrp summary
 # show hsrp brief
 # show hsrp detail
 # show hsrp ipv6
 # show hsrp brief ipv6
-show ip access-lists
-show access-lists
-show ipv6 access-lists
+
+# Full ACL output can be large. Enable only when ACL validation is required.
+# show ip access-lists
+# show access-lists
+# show ipv6 access-lists
 
 # [lfsw0101]
 # show int description

@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://alred.local/schemas/v1/overlay-render-manifest.schema.json",
+  "title": "OverlayRenderManifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "change_id", "renderer", "templates", "devices"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "change_id": {"type": "string", "minLength": 1},
+    "renderer": {"type": "string", "minLength": 1},
+    "templates": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["forward", "rollback"],
+      "properties": {
+        "forward": {"type": "string", "minLength": 1},
+        "rollback": {"type": "string", "minLength": 1}
+      }
+    },
+    "inputs": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^sha256:[0-9a-f]{64}$"
+      }
+    },
+    "devices": {
+      "type": "object",
+      "maxProperties": 50,
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "forward_config",
+          "rollback_config",
+          "forward_sha256",
+          "rollback_sha256",
+          "model_sha256",
+          "actions"
+        ],
+        "properties": {
+          "forward_config": {"type": "string"},
+          "rollback_config": {"type": "string"},
+          "forward_sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+          "rollback_sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+          "model_sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+          "actions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["resource", "action"],
+              "properties": {
+                "resource": {"type": "string", "minLength": 1},
+                "action": {"enum": ["create", "update", "preserve"]}
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

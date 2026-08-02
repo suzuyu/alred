@@ -1,0 +1,21 @@
+api_version: alred/v1
+kind: NxosFixtureMetadata
+metadata:
+  fixture_id: synthetic-collect-contract-001
+  source_type: synthetic
+  captured_at: "2026-07-26T00:00:00+09:00"
+  sanitized: true
+spec:
+  platform: nxos
+  model: synthetic
+  release: synthetic
+  purpose:
+    - collect-contract
+  commands:
+    - show version
+    - show system config reload-pending
+  expected:
+    parser_result: not_applicable
+  provenance:
+    original_retained_outside_repository: false
+    sanitization_profile: synthetic

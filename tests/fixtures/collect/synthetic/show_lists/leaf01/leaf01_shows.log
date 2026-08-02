@@ -1,0 +1,18 @@
+### COMMAND_LIST
+show version
+show system config reload-pending
+
+### COMMAND: show version
+### COLLECTED_AT: 2026-07-26T00:00:00+09:00
+### STATUS: OK
+### TRANSPORT: ssh
+leaf01# show version
+Cisco Nexus Operating System (NX-OS) Software
+Synthetic fixture; not capability evidence.
+
+### COMMAND: show system config reload-pending
+### COLLECTED_AT: 2026-07-26T00:00:01+09:00
+### STATUS: OK
+### TRANSPORT: ssh
+leaf01# show system config reload-pending
+Synthetic fixture; no reload-pending configuration.

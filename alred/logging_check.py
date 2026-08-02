@@ -13,7 +13,7 @@ from typing import List, Optional
 NXOS_LOG_RECORD_START_RE = re.compile(
     r"^(?P<timestamp>\d{4}\s+[A-Z][a-z]{2}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2})\s+"
 )
-NXOS_SEVERITY_RE = re.compile(r"%[A-Z0-9_]+-(?P<severity>[0-7])-[A-Z0-9_]+:")
+NXOS_SEVERITY_RE = re.compile(r"%[A-Z0-9_-]+-(?P<severity>[0-7])-[A-Z0-9_-]+:")
 
 
 @dataclass
@@ -84,7 +84,9 @@ class HostLoggingCheckResult:
 
     @property
     def timestamp_parse_warnings(self) -> int:
-        return sum(1 for item in self.warnings if item.warning_type == "timestamp_parse")
+        return sum(
+            1 for item in self.warnings if item.warning_type == "timestamp_parse"
+        )
 
     @property
     def severity_parse_warnings(self) -> int:
@@ -92,7 +94,11 @@ class HostLoggingCheckResult:
 
     @property
     def section_warnings(self) -> int:
-        return sum(1 for item in self.warnings if item.warning_type in {"section", "collect", "unsupported"})
+        return sum(
+            1
+            for item in self.warnings
+            if item.warning_type in {"section", "collect", "unsupported"}
+        )
 
 
 def parse_last_window(amount: int, unit: str) -> timedelta:
@@ -130,7 +136,29 @@ def load_check_patterns(path: str | None) -> List[str]:
     return patterns
 
 
-def extract_latest_show_logging_block(hostname: str, text: str, raw_source: str) -> tuple[Optional[str], List[LoggingWarning]]:
+def classify_logging_record(
+    *,
+    text: str,
+    record_severity: int | None,
+    severity_threshold: int,
+    include_patterns: List[str],
+    exclude_patterns: List[str],
+) -> tuple[bool, bool, List[str]]:
+    """Return exclusion, severity match, and matched include patterns."""
+    lowered = text.lower()
+    excluded = any(pattern.lower() in lowered for pattern in exclude_patterns)
+    matched_by_severity = (
+        record_severity is not None and record_severity <= severity_threshold
+    )
+    matched_patterns = [
+        pattern for pattern in include_patterns if pattern.lower() in lowered
+    ]
+    return excluded, matched_by_severity, matched_patterns
+
+
+def extract_latest_show_logging_block(
+    hostname: str, text: str, raw_source: str
+) -> tuple[Optional[str], List[LoggingWarning]]:
     """
     Extract the latest `### COMMAND: show logging` section body from _shows.log.
     """
@@ -139,7 +167,11 @@ def extract_latest_show_logging_block(hostname: str, text: str, raw_source: str)
     command_marker = "### COMMAND: show logging"
     prompt_marker = f"{hostname}# show logging"
 
-    starts = [idx for idx, line in enumerate(text.splitlines()) if line.strip() == command_marker]
+    starts = [
+        idx
+        for idx, line in enumerate(text.splitlines())
+        if line.strip() == command_marker
+    ]
     if not starts:
         warnings.append(
             LoggingWarning(
@@ -162,7 +194,7 @@ def extract_latest_show_logging_block(hostname: str, text: str, raw_source: str)
     section_lines = lines[start_idx:end_idx]
     for idx, line in enumerate(section_lines):
         if line.strip() == prompt_marker:
-            body = "\n".join(section_lines[idx + 1:]).strip("\n")
+            body = "\n".join(section_lines[idx + 1 :]).strip("\n")
             return body, warnings
 
     warnings.append(
@@ -176,7 +208,9 @@ def extract_latest_show_logging_block(hostname: str, text: str, raw_source: str)
     return None, warnings
 
 
-def parse_nxos_log_records(hostname: str, text: str, raw_source: str, tzinfo) -> tuple[List[LoggingRecord], List[LoggingWarning]]:
+def parse_nxos_log_records(
+    hostname: str, text: str, raw_source: str, tzinfo
+) -> tuple[List[LoggingRecord], List[LoggingWarning]]:
     """
     Split NX-OS show logging text into records.
     """
@@ -187,7 +221,9 @@ def parse_nxos_log_records(hostname: str, text: str, raw_source: str, tzinfo) ->
 
     def parse_timestamp_text(timestamp_text: str) -> Optional[datetime]:
         try:
-            return datetime.strptime(timestamp_text, "%Y %b %d %H:%M:%S").replace(tzinfo=tzinfo)
+            return datetime.strptime(timestamp_text, "%Y %b %d %H:%M:%S").replace(
+                tzinfo=tzinfo
+            )
         except ValueError:
             return None
 
@@ -236,20 +272,10 @@ def parse_nxos_log_records(hostname: str, text: str, raw_source: str, tzinfo) ->
         severity_match = NXOS_SEVERITY_RE.search(header)
         if severity_match:
             severity = int(severity_match.group("severity"))
-        else:
-            message = "severity not found in record header"
-            parse_warning_messages.append(message)
-            warnings.append(
-                    LoggingWarning(
-                        hostname=hostname,
-                        warning_type="severity_parse",
-                        message=message,
-                        raw_source=raw_source,
-                        timestamp_text=timestamp_text,
-                        timestamp=timestamp,
-                        record_text="\n".join(current_lines),
-                    )
-                )
+        # NX-OS also emits timestamped, unstructured records without a
+        # numeric syslog severity. Absence of that optional field is valid
+        # input, not a parse failure. The record remains eligible for
+        # include-pattern matching.
 
         records.append(
             LoggingRecord(
@@ -294,44 +320,44 @@ def check_host_logging(
     Evaluate one host's show logging body text.
     """
 
-    result = HostLoggingCheckResult(hostname=hostname, device_type=device_type, raw_source=raw_source)
+    result = HostLoggingCheckResult(
+        hostname=hostname, device_type=device_type, raw_source=raw_source
+    )
     if text is None:
         return result
 
-    records, warnings = parse_nxos_log_records(hostname, text, raw_source, started_at.tzinfo)
+    records, warnings = parse_nxos_log_records(
+        hostname, text, raw_source, started_at.tzinfo
+    )
     result.warnings.extend(warnings)
     result.total_records = len(records)
 
     severity_reason = f"severity<={severity}"
-    lowered_patterns = [(pattern, pattern.lower()) for pattern in check_patterns]
-    lowered_exclude_patterns = [(pattern, pattern.lower()) for pattern in exclude_patterns]
     lower_bound = started_at - last_window if last_window is not None else None
 
     for record in records:
         in_range = True
         if lower_bound is not None:
-            in_range = record.timestamp is not None and lower_bound <= record.timestamp <= started_at
+            in_range = (
+                record.timestamp is not None
+                and lower_bound <= record.timestamp <= started_at
+            )
         if in_range:
             result.in_range_records += 1
 
         if not in_range:
             continue
 
-        matched_exclude_patterns = [
-            original
-            for original, lowered in lowered_exclude_patterns
-            if lowered in record.normalized_text.lower()
-        ]
-        if matched_exclude_patterns:
+        excluded, matched_by_severity, matched_patterns = classify_logging_record(
+            text=record.normalized_text,
+            record_severity=record.severity,
+            severity_threshold=severity,
+            include_patterns=check_patterns,
+            exclude_patterns=exclude_patterns,
+        )
+        if excluded:
             result.excluded_records += 1
             continue
-
-        matched_by_severity = record.severity is not None and record.severity <= severity
-        matched_patterns = [
-            original
-            for original, lowered in lowered_patterns
-            if lowered in record.normalized_text.lower()
-        ]
 
         if matched_by_severity:
             result.severity_matched += 1
@@ -344,7 +370,9 @@ def check_host_logging(
         match_reasons: List[str] = []
         if matched_by_severity:
             match_reasons.append(severity_reason)
-        match_reasons.extend([f"check-string:{pattern}" for pattern in matched_patterns])
+        match_reasons.extend(
+            [f"check-string:{pattern}" for pattern in matched_patterns]
+        )
 
         result.matches.append(
             LoggingMatch(
@@ -428,14 +456,16 @@ def render_check_logging_report(
     else:
         for item in sorted(results, key=lambda x: x.hostname):
             for match in item.matches:
-                lines.extend([
-                    "",
-                    f"### HOST: {match.hostname}",
-                    f"### MATCH_REASON: {','.join(match.match_reasons)}",
-                    f"### TIMESTAMP: {match.timestamp_text or 'unknown'}",
-                    f"### SEVERITY: {match.severity if match.severity is not None else 'unknown'}",
-                    f"### RAW_SOURCE: {match.raw_source}",
-                ])
+                lines.extend(
+                    [
+                        "",
+                        f"### HOST: {match.hostname}",
+                        f"### MATCH_REASON: {','.join(match.match_reasons)}",
+                        f"### TIMESTAMP: {match.timestamp_text or 'unknown'}",
+                        f"### SEVERITY: {match.severity if match.severity is not None else 'unknown'}",
+                        f"### RAW_SOURCE: {match.raw_source}",
+                    ]
+                )
                 for message in match.parse_warning_messages:
                     lines.append(f"### PARSE_WARNING: {message}")
                 lines.extend(match.raw_lines)
@@ -449,13 +479,15 @@ def render_check_logging_report(
                 if not (lower_bound <= warning.timestamp <= started_at):
                     continue
             rendered_warnings += 1
-            lines.extend([
-                "",
-                f"### HOST: {warning.hostname}",
-                f"### WARNING_TYPE: {warning.warning_type}",
-                f"### WARNING: {warning.message}",
-                f"### RAW_SOURCE: {warning.raw_source}",
-            ])
+            lines.extend(
+                [
+                    "",
+                    f"### HOST: {warning.hostname}",
+                    f"### WARNING_TYPE: {warning.warning_type}",
+                    f"### WARNING: {warning.message}",
+                    f"### RAW_SOURCE: {warning.raw_source}",
+                ]
+            )
             if warning.timestamp_text:
                 lines.append(f"### TIMESTAMP: {warning.timestamp_text}")
             if warning.record_text:

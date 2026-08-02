@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://alred.local/schemas/v1/overlay-conflict-report.schema.json",
+  "title": "OverlayConflictReport",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "change_id", "snapshot_change_id", "result", "counts", "checks"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "change_id": {"type": "string", "minLength": 1},
+    "snapshot_change_id": {"type": "string", "minLength": 1},
+    "result": {"enum": ["PASS", "CONFLICT", "UNKNOWN"]},
+    "counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pass", "conflict", "unknown"],
+      "properties": {
+        "pass": {"type": "integer", "minimum": 0},
+        "conflict": {"type": "integer", "minimum": 0},
+        "unknown": {"type": "integer", "minimum": 0}
+      }
+    },
+    "checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["host", "resource", "result", "code", "message"],
+        "properties": {
+          "host": {"type": "string"},
+          "resource": {"type": "string", "minLength": 1},
+          "result": {"enum": ["PASS", "CONFLICT", "UNKNOWN"]},
+          "code": {"type": "string", "minLength": 1},
+          "message": {"type": "string", "minLength": 1}
+        }
+      }
+    }
+  }
+}

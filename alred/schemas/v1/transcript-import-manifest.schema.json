@@ -1,0 +1,155 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://alred.local/schemas/v1/transcript-import-manifest.schema.json",
+  "title": "TranscriptImportManifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["api_version", "kind", "metadata", "spec"],
+  "properties": {
+    "api_version": {"const": "alred/v1"},
+    "kind": {"const": "TranscriptImportManifest"},
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "change_id",
+        "phase",
+        "source",
+        "imported_at",
+        "timezone"
+      ],
+      "properties": {
+        "change_id": {"type": "string", "minLength": 1},
+        "phase": {"enum": ["before", "after", "rollback"]},
+        "source": {"const": "external_transcript"},
+        "imported_at": {"type": "string", "format": "date-time"},
+        "timezone": {"type": "string", "minLength": 1}
+      }
+    },
+    "spec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "input_format",
+        "inputs",
+        "hosts",
+        "unresolved_segments",
+        "summary"
+      ],
+      "properties": {
+        "input_format": {"const": "nxos-transcript"},
+        "inputs": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/input"}
+        },
+        "hosts": {
+          "type": "object",
+          "additionalProperties": {"$ref": "#/$defs/host"}
+        },
+        "unresolved_segments": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/unresolved"}
+        },
+        "summary": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "files_scanned",
+            "hosts_detected",
+            "commands_detected",
+            "unresolved_segments",
+            "ambiguous_segments"
+          ],
+          "properties": {
+            "files_scanned": {"type": "integer", "minimum": 0},
+            "hosts_detected": {"type": "integer", "minimum": 0},
+            "commands_detected": {"type": "integer", "minimum": 0},
+            "unresolved_segments": {"type": "integer", "minimum": 0},
+            "ambiguous_segments": {"type": "integer", "minimum": 0}
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "segment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command",
+        "normalized_command",
+        "command_id",
+        "source_file",
+        "start_line",
+        "end_line",
+        "output_start_line",
+        "output_end_line",
+        "confidence"
+      ],
+      "properties": {
+        "command": {"type": "string", "minLength": 1},
+        "normalized_command": {"type": "string", "minLength": 1},
+        "command_id": {"type": "string", "minLength": 1},
+        "source_file": {"type": "string", "minLength": 1},
+        "start_line": {"type": "integer", "minimum": 1},
+        "end_line": {"type": "integer", "minimum": 1},
+        "output_start_line": {"type": "integer", "minimum": 1},
+        "output_end_line": {"type": "integer", "minimum": 1},
+        "confidence": {"enum": ["high", "medium", "low"]},
+        "ambiguous": {"type": "boolean"}
+      }
+    },
+    "host": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "detected_prompts",
+        "inventory_name",
+        "platform",
+        "segments"
+      ],
+      "properties": {
+        "detected_prompts": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1}
+        },
+        "inventory_name": {"type": "string", "minLength": 1},
+        "matched_by": {"enum": ["hostname", "short_name", "alias", "detected"]},
+        "platform": {"const": "nxos"},
+        "segments": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/segment"}
+        }
+      }
+    },
+    "unresolved": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_file",
+        "start_line",
+        "end_line",
+        "reason",
+        "confidence"
+      ],
+      "properties": {
+        "source_file": {"type": "string", "minLength": 1},
+        "start_line": {"type": "integer", "minimum": 1},
+        "end_line": {"type": "integer", "minimum": 1},
+        "reason": {"type": "string", "minLength": 1},
+        "confidence": {"enum": ["high", "medium", "low"]},
+        "detected_prompt": {"type": "string"},
+        "command": {"type": "string"}
+      }
+    }
+  }
+}

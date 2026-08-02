@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://alred.local/schemas/v1/overlay-vni-map-diff.schema.json",
+  "title": "OverlayVniMapDiff",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["api_version", "kind", "metadata", "summary", "changes"],
+  "properties": {
+    "api_version": {"const": "alred/v1"},
+    "kind": {"const": "OverlayVniMapDiff"},
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["change_id", "before_phase", "after_phase", "generated_at", "generator_version"],
+      "properties": {
+        "change_id": {"type": "string", "minLength": 1},
+        "before_phase": {"type": "string", "minLength": 1},
+        "after_phase": {"type": "string", "minLength": 1},
+        "generated_at": {"type": "string", "format": "date-time"},
+        "generator_version": {"type": "string", "minLength": 1}
+      }
+    },
+    "summary": {"type": "object"},
+    "changes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["change_type", "resource_type", "vni", "vrf", "device", "field", "before", "after", "status", "evidence_before", "evidence_after"],
+        "properties": {
+          "change_type": {"enum": ["ADDED", "REMOVED", "MODIFIED", "CONFLICT", "UNKNOWN"]},
+          "resource_type": {"enum": ["L2VNI", "L3VNI", "OVERLAY_STATE"]},
+          "vni": {"type": ["integer", "null"], "minimum": 1, "maximum": 16777215},
+          "vrf": {"type": ["string", "null"]},
+          "device": {"type": "string", "minLength": 1},
+          "field": {"type": "string", "minLength": 1},
+          "before": {},
+          "after": {},
+          "status": {"enum": ["OBSERVED", "CONFLICT", "UNKNOWN", "EXPECTED", "UNEXPECTED"]},
+          "evidence_before": {"type": "array", "items": {"type": "object"}},
+          "evidence_after": {"type": "array", "items": {"type": "object"}}
+        }
+      }
+    }
+  }
+}

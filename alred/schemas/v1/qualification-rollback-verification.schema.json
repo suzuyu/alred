@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://alred.local/schemas/v1/qualification-rollback-verification.schema.json",
+  "title": "QualificationRollbackVerification",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["api_version", "kind", "metadata", "status", "devices", "artifacts"],
+  "properties": {
+    "api_version": {"const": "alred/v1"},
+    "kind": {"const": "QualificationRollbackVerification"},
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["change_id", "verified_at", "timezone"],
+      "properties": {
+        "change_id": {"type": "string", "minLength": 1},
+        "verified_at": {"type": "string", "format": "date-time"},
+        "timezone": {"type": "string", "minLength": 1}
+      }
+    },
+    "status": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["result", "health_result", "raw_config_equal", "semantic_config_equal"],
+      "properties": {
+        "result": {"enum": ["ROLLED_BACK_AND_VERIFIED", "ROLLBACK_HEALTH_FAILED"]},
+        "health_result": {"type": "string", "minLength": 1},
+        "snapshot_fresh": {"type": "boolean"},
+        "raw_config_equal": {"type": "boolean"},
+        "semantic_config_equal": {"type": "boolean"}
+      }
+    },
+    "devices": {
+      "type": "object",
+      "minProperties": 1,
+      "maxProperties": 2,
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["raw_config_equal", "semantic_config_equal"],
+        "properties": {
+          "raw_config_equal": {"type": "boolean"},
+          "semantic_config_equal": {"type": "boolean"},
+          "raw_config_diff": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["added_line_count", "removed_line_count"],
+            "properties": {
+              "added_line_count": {"type": "integer", "minimum": 0},
+              "removed_line_count": {"type": "integer", "minimum": 0}
+            }
+          },
+          "semantic_difference_paths": {
+            "type": "array",
+            "items": {"type": "string", "minLength": 1},
+            "uniqueItems": true
+          }
+        }
+      }
+    },
+    "artifacts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["before_snapshot", "rollback_snapshot", "health_result"],
+      "properties": {
+        "before_snapshot": {"type": "string", "minLength": 1},
+        "rollback_snapshot": {"type": "string", "minLength": 1},
+        "health_result": {"type": "string", "minLength": 1},
+        "verification_json": {"type": "string", "minLength": 1},
+        "verification_checklist": {"type": "string", "minLength": 1}
+      }
+    }
+  }
+}

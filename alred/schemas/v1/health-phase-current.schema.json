@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://alred.local/schemas/v1/health-phase-current.schema.json",
+  "title": "HealthPhaseCurrent",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "change_id", "phase", "attempt_id", "artifact_dir", "snapshot_path", "snapshot_sha256", "profile_sha256", "health_result", "completed_at"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "change_id": {"type": "string", "minLength": 1},
+    "phase": {"enum": ["before", "rollback"]},
+    "attempt_id": {"type": "string", "minLength": 1},
+    "artifact_dir": {"type": "string", "minLength": 1},
+    "snapshot_path": {"type": "string", "minLength": 1},
+    "snapshot_sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "profile_sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "health_result": {"enum": ["PASS", "WARN", "FAIL", "UNKNOWN"]},
+    "completed_at": {"type": "string", "format": "date-time"}
+  }
+}

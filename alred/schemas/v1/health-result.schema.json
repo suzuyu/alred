@@ -1,0 +1,98 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://alred.local/schemas/v1/health-result.schema.json",
+  "title": "HealthResult",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "change_id",
+    "phase",
+    "started_at",
+    "completed_at",
+    "profiles",
+    "result",
+    "counts",
+    "checks"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "change_id": {"type": "string", "minLength": 1},
+    "phase": {"enum": ["before", "after", "compare", "rollback"]},
+    "timezone": {"type": "string", "minLength": 1},
+    "profile_sha256": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "started_at": {"type": "string", "format": "date-time"},
+    "completed_at": {"type": "string", "format": "date-time"},
+    "profiles": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1}
+    },
+    "result": {
+      "enum": ["PASS", "WARN", "FAIL", "UNKNOWN", "NOT_APPLICABLE", "PLAN_ERROR"]
+    },
+    "counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pass", "warn", "fail", "unknown", "not_applicable"],
+      "properties": {
+        "pass": {"type": "integer", "minimum": 0},
+        "warn": {"type": "integer", "minimum": 0},
+        "fail": {"type": "integer", "minimum": 0},
+        "unknown": {"type": "integer", "minimum": 0},
+        "not_applicable": {"type": "integer", "minimum": 0}
+      }
+    },
+    "checks": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/check"}
+    },
+    "operation_gate": {"type": "object"},
+    "artifacts": {"type": "object"}
+  },
+  "$defs": {
+    "check": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "check_id",
+        "profile",
+        "host",
+        "result",
+        "classification",
+        "message",
+        "evidence"
+      ],
+      "properties": {
+        "check_id": {"type": "string", "minLength": 1},
+        "profile": {"type": "string", "minLength": 1},
+        "host": {"type": "string", "minLength": 1},
+        "resource": {"type": ["string", "null"]},
+        "result": {
+          "enum": ["PASS", "WARN", "FAIL", "UNKNOWN", "NOT_APPLICABLE", "PLAN_ERROR"]
+        },
+        "classification": {
+          "enum": [
+            "normal",
+            "pre_existing",
+            "regression",
+            "improvement",
+            "expected_change",
+            "unexpected_change",
+            "target_not_ready",
+            "collection_error"
+          ]
+        },
+        "message": {"type": "string"},
+        "before": {},
+        "after": {},
+        "evidence": {
+          "type": "array",
+          "items": {"type": "object"}
+        }
+      }
+    }
+  }
+}

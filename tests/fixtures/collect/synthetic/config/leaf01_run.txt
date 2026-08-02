@@ -1,0 +1,5 @@
+!Command: show running-config
+!Synthetic fixture; not capability evidence.
+hostname leaf01
+feature bgp
+feature nv overlay
