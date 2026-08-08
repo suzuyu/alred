@@ -5,7 +5,7 @@
 設計書に記載された機能と現行実装の差を管理する。本書の状態はコードとテストで確認できる
 事実を示し、設計の正本としては使用しない。
 
-最終更新日: 2026-08-03
+最終更新日: 2026-08-08
 
 本書は`docs/design/`に記載された新規・変更設計の実装状況を管理するものであり、alredに
 存在する全機能の実装状況一覧ではない。本書に記載がない既存機能を`not_started`または
@@ -41,12 +41,15 @@ errorはTracebackなし、終了code `2`で表示する。
 | 既存config push / save | `partial` | 既存接続を再利用するmanaged executor、1行単位結果、timeout/切断時UNKNOWN、保存marker、未着手機器停止をmock検証。9000v qualificationと通常apply/save/rollback/save-rollbackへ統合・実機確認済み。既存legacy push全体の設計統合は別途監査対象 |
 | Operation workspace / change-id | `implemented` | secure workspace、JST既定の自動採番、attempt ID、active before解決、atomic writeを実装 |
 | Operation state / lock / approval | `implemented` | 状態遷移、排他lock、SIGINT/SIGTERM時の状態保存、対話承認、read-only status/inspectを実装 |
-| Machine-readable schema | `partial` | Phase 1-9、HealthCheckExecutionContext、managed config実行結果、通常save、QualificationRecord、通常rollback verification（freshness、非秘密raw差分件数、semantic差分pathを含む）、Capability Registry、OverlayState、OverlayVniMapDiffを含むschemaおよびpackage resource loaderを実装。既存機能全体のschema化は監査継続 |
+| Machine-readable schema | `partial` | Phase 1-9、HealthCheckExecutionContext、ResolvedRoles、managed config実行結果、通常save、QualificationRecord、通常rollback verification（freshness、非秘密raw差分件数、semantic差分pathを含む）、Capability Registry、OverlayState、OverlayVniMapDiffを含むschemaおよびpackage resource loaderを実装。既存機能全体のschema化は監査継続 |
 | 共通Error Catalog | `not_started` | codeと終了codeは設計済み。共通型・CLI mappingは未実装 |
 | NX-OS Capability Registry | `implemented` | C9300v 10.5(4) vpc_vtep_leafの検証済みcapability setをmachine-readable registryへ登録。exact model/release/role/capability照合をplanへ接続。hardware 4機種は文書確認対象であり、`APPLY_VERIFIED` entryを登録しない |
+| Canonical role 解決 | `partial` | version 省略/v1 の legacy 互換、v2 の単一 topology role、nested function、expectation rule、provenance、conflict、source/policy hash と `resolved-roles.yaml` 固定を実装。既存 topology/diagram/collect 利用機能の resolver 移行は未実装 |
+| Role-aware profile scope / Checklist | `partial` | NX-OS baseline の server 除外、Overlay の 4 role allowlist、未実行ホスト一覧、`other` の read-only `UNKNOWN` と compare 停止、v2 role/function 別 command group、function expectation、NVE peer/VNI、VLAN／VRF／SVI operational health、border EVPN、EVPN RR neighbor/config/route、underlay RR config、BGP `template peer`／`inherit peer` の多段展開と dynamic neighbor prefix を実装。VLAN／VRF／SVI は running config から期待対象を自動導出し、一括 command の欠損を `UNKNOWN`、状態異常を `FAIL`、before からの悪化を regression とする。未知 template／循環は `RR_TEMPLATE_UNRESOLVED` の `UNKNOWN` とする。Type-5 は SVI connected prefix と `redistribute direct`／route-map から期待値を導出し、`advertise l2vpn evpn` の明示を必須にしない。`full` mode で広報元、EVPN RR、同一 L3VNI／import RT の全受信対象 Leaf、VRF route 導入、evidence coverage を判定する。EVPN NLRI ごとの全 path を保持し、同じ secondary VTEP を共有する vPC pair は origin group として全 primary／secondary next-hop を照合する。Type-5／VRF route の snapshot 単位検索 index と、正常な prefix x receiver 明細を `stage_summary` へ集約する成果物 scale 対策を実装。受信対象 0 台は receiver stage を `NOT_APPLICABLE` とする。Checklist は失敗 stage、VRF、prefix、device、理由を直接表示する。未対応 route-map match は `UNKNOWN` とする。targeted route command 最適化、`network` による Type-5 広報、`sampled` mode、vPC pair の全 Overlay consistency、plan/apply guard は未実装 |
 | 外部transcript import | `implemented` | NX-OS prompt、inventory alias、command区間、ANSI/backspace、未解決・重複・ambiguityをmanifest化 |
 | Canonical Health Snapshot | `implemented` | collect/transcript共通manifest、source hash/行範囲、parser version、UNKNOWN provenanceを実装 |
 | 共通baseline health evaluator | `implemented` | CPU、memory、environment、reload-pending、logging（hyphen付きfacility、severityなし非構造化record、all / days / start-time、severity、lookback、include / exclude、作業期間の新規候補）、route count、OSPF、BGP IPv4、vPCの単体・比較判定を実装 |
+| 共通baseline追加check | `partial` | clock、NTP、interface status/error、port-channel の collect command ID を manifest/parser へ接続し、未収集は `UNKNOWN` とする。NTP の `Distribution Disabled`／`No session` は session 状態、configured peer の有無は設定状態として分離し、`show clock` の time source を補助 evidence として保持する。`show ntp peer-status` の selected/mode、remote/local、stratum、poll、reach、delay、VRF と非対応時 fallback を実装。interface admin / operational状態、NTP同期・選択peer、clock offset・意図しない再起動、interface error delta、port-channel bundle/memberを実装しChecklistへ接続。module、LACP internal、BFD、STP、IPv6、licenseは設計済み・未実装 |
 | Health Check Profile | `implemented` | builtin/file profile、順序付き合成、checks省略可能な閾値・policy差分profile、`generate-sample-config`対応logging除外サンプル、閾値override、hash固定、解決元を記録するresolved artifactを実装 |
 | `health-check` CLI | `implemented` | snapshot/compare、offline/direct before/after/rollback、直接収集のSSH既定とbefore transport継承、WARN等のbeforeおよび非PASS／処理失敗後のrollback attempt再実行と過去証跡保持、成功／判定完了attemptのcurrent指示・互換正本反映、plan前の理由・旧新hash・field差分付きprofile revision、失敗時の旧正本維持、plan前guard、before execution contextによる`after/rollback --change-id`の入力モード・収集条件継承、inventory/policy hash固定、秘密情報非保存、logging範囲CLI override、profile固定継承、active change引継ぎ、Operation Gate、既存collect raw保存、実施日時・機器別checklist表示を実装 |
 | Overlay ChangeSet loader | `implemented` | inline／外部`device_groups_ref`、group/default/device override、SVI（IPv6 RA suppress選択を含む）、L3 AF、既定値解決、cross-field validationを実装 |
@@ -57,13 +60,13 @@ errorはTracebackなし、終了code `2`で表示する。
 | Canonical Render Model / 共通renderer | `implemented` | legacy CSV adapterとChangeSet adapterを共通境界へ接続。新仕様forward/scoped rollback、IPv6 RA suppress既定有効・明示無効、hash、template provenance、VLAN/VNI/VRF/SVI IP共通競合判定を実装 |
 | `overlay-check` CLI | `partial` | offline discover/evaluate/convergeを実装。evaluateはchange IDだけで正規before/after/固定ChangeSetを解決可能。収集はhealth-check before/afterを共用。plan aliasはPhase 8 |
 | `overlay-change prepare-plan/plan/apply/save/rollback` | `implemented` | Overlay terminalまたは正常なstandalone afterを使う非投入prepare-plan、attempt単位の失敗証跡と再実行、ChangeSet change IDからの最新成功before自動解決とpointer/hash/health/gate検証、fresh beforeで再実行する共通競合検査、`approve --change-id`からの標準plan／rollback plan解決、machine Registryによるfail-closed plan、通常approve/apply/save/rollback/save-rollback、9000v専用qualification経路を実装。prepare-planはoffline検証済み。通常経路はC9300v 10.5(4)でafter VERIFIED、通常save、保存済みrollback、raw/semanticおよびstartup復元を実機確認済み |
-| 出力report | `partial` | HealthResult JSON、checklist、compare summary Markdown、通常／qualification rollbackの統合verification Checklist、`nxos-overlay`有効時のphase別OverlayState / VNI map YAML・Markdown・CSV、compareのVNI map diff JSON・Markdown・CSVを実装。期待ChangeSet未入力の差分はOBSERVEDとし、unchanged行を出力しない。その他のOverlay/report拡張は継続 |
+| 出力report | `partial` | HealthResult JSON、management IP を併記する device → profile 単位の checklist（inventory に IP address がない場合は hostname のみ）、check を持つ profile だけの `Result by Profile`、compare summary Markdown、通常／qualification rollbackの統合verification Checklist、`nxos-overlay`有効時のphase別OverlayState / VNI map YAML・Markdown・CSV、compareのVNI map diff JSON・Markdown・CSVを実装。期待ChangeSet未入力の差分はOBSERVEDとし、unchanged行を出力しない。その他のOverlay/report拡張は継続 |
 | support bundle | `implemented` | create/inspect/verify、phase/device split、device filter、site policy、Manifest固定raw、redaction/pseudonymization、secret scan、checksum、AI promptを実装 |
 | 文書local link検証 | `implemented` | `tests/test_documentation.py`で`AGENTS.md`と`docs/**/*.md`を検証 |
 | pytest test runner | `implemented` | 開発依存関係とpytest設定を`pyproject.toml`へ定義。既存`unittest`は互換収集 |
 | CI baseline | `implemented` | `.github/workflows/quality.yml`でPython 3.11/3.12のpytestを実行し、`device`を除外。Python 3.11 native PyInstaller build、binary help/version、bundled sample生成も確認 |
 | Ruff baseline | `implemented` | 実行障害に直結する初期rule setを`uv.lock`とCIへ追加 |
-| Architecture Decision Records | `implemented` | `docs/adr/`に7件の設計判断と運用規則を記録 |
+| Architecture Decision Records | `implemented` | `docs/adr/`に8件の設計判断と運用規則を記録 |
 | 既存機能の設計書化管理 | `implemented` | 専用進捗表と`docs/as-is/`の解析・統合規則を追加。個別解析は今後段階実施 |
 | 実装前Decision Tracker | `implemented` | 推奨案、初期NX-OS対象、反映先を管理。機能実装は別途未着手 |
 

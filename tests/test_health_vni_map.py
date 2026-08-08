@@ -1,6 +1,10 @@
 from copy import deepcopy
 import csv
 import io
+import json
+from pathlib import Path
+
+import yaml
 
 from alred.health.vni_map import (
     build_overlay_state,
@@ -11,6 +15,7 @@ from alred.health.vni_map import (
     render_overlay_state_markdown,
 )
 from alred.cli import build_parser, cmd_health_check_compare, cmd_health_check_snapshot
+from alred.schema import validate_document
 
 
 def _snapshot(phase="before"):
@@ -153,6 +158,105 @@ def test_compare_overlay_states_writes_field_level_changes_only():
     markdown = render_overlay_diff_markdown(diff)
     assert "# VNI Mapping Diff" in markdown
     assert "svi.mtu" in markdown
+    assert "## L2VNI 10010 — VRF TENANT-A" in markdown
+    assert "| MODIFIED | operational_state | leaf01 | Up | Down | OBSERVED |" in markdown
+    assert "## Field Source List" in markdown
+    assert "| operational_state | Operational command output | `show nve vni` |" in markdown
+    assert "| svi.mtu | Running configuration | `show running-config` |" in markdown
+    assert "## Evidence Files" in markdown
+    assert "/raw/before/leaf10_shows.log" in markdown
+    assert "/raw/after/config/leaf10_run.txt" in markdown
+
+
+def test_overlay_diff_groups_changes_by_vni_across_resource_types():
+    before = build_overlay_state(_snapshot())
+    after_snapshot = _snapshot("after")
+    profile = after_snapshot["hosts"]["leaf01"]["profiles"]["nxos-overlay"]
+    profile["config"]["svis"]["10"]["mtu"] = 9000
+    profile["nve_vnis"]["vnis"]["50001"]["state"] = "Down"
+    after = build_overlay_state(after_snapshot)
+
+    diff = compare_overlay_states(before, after)
+
+    assert [change["vni"] for change in diff["changes"]] == [10010, 50001]
+    assert [change["resource_type"] for change in diff["changes"]] == [
+        "L2VNI",
+        "L3VNI",
+    ]
+
+
+def test_overlay_diff_markdown_groups_devices_with_the_same_result():
+    before = build_overlay_state(_snapshot())
+    after_snapshot = _snapshot("after")
+    for host in ("leaf01", "leaf02"):
+        profile = after_snapshot["hosts"][host]["profiles"]["nxos-overlay"]
+        vlan = "10" if host == "leaf01" else "110"
+        profile["config"]["svis"][vlan]["mtu"] = 9000
+    after = build_overlay_state(after_snapshot)
+
+    markdown = render_overlay_diff_markdown(compare_overlay_states(before, after))
+
+    assert "- Field changes: 2" in markdown
+    assert "- Display rows: 1" in markdown
+    assert "| MODIFIED | svi.mtu | leaf01, leaf02 | 9216 | 9000 | OBSERVED |" in markdown
+
+
+def test_documented_overlay_state_and_diff_samples_match_schemas():
+    samples = (
+        Path(__file__).parents[1]
+        / "docs"
+        / "manual"
+        / "network-ops"
+        / "examples"
+        / "nxos-overlay"
+    )
+    states = []
+    for name in ("before-overlay-state.yaml", "after-overlay-state.yaml"):
+        document = yaml.safe_load((samples / name).read_text(encoding="utf-8"))
+        validate_document(document, kind="OverlayState")
+        states.append(document)
+
+    diff = json.loads((samples / "vni-map-diff.json").read_text(encoding="utf-8"))
+    validate_document(diff, kind="OverlayVniMapDiff")
+    assert len(diff["changes"]) == diff["summary"]["total_changes"]
+    assert render_overlay_diff_markdown(diff) == (
+        samples / "vni-map-diff.md"
+    ).read_text(encoding="utf-8")
+    generated = compare_overlay_states(*states)
+    fields = (
+        "change_type",
+        "resource_type",
+        "vni",
+        "vrf",
+        "device",
+        "field",
+        "before",
+        "after",
+        "status",
+    )
+    assert [tuple(item[key] for key in fields) for item in diff["changes"]] == [
+        tuple(item[key] for key in fields) for item in generated["changes"]
+    ]
+
+    for phase in ("before", "after"):
+        checklist = (samples / f"{phase}-checklist.md").read_text(encoding="utf-8")
+        assert checklist.startswith("# Health Check Checklist\n")
+        assert f"- Phase: {phase}" in checklist
+        assert "- Result: PASS" in checklist
+        assert "## Result by Profile" in checklist
+        assert "| network-baseline-nxos | 44 | 0 | 0 | 0 | 4 |" in checklist
+        assert "| nxos-overlay | 13 | 0 | 0 | 0 | 2 |" in checklist
+        assert "`vlan_operational_health`: PASS" in checklist
+        assert "`vrf_operational_health`: PASS" in checklist
+        assert "`svi_operational_health`: PASS" in checklist
+        assert "`type5_prefix_propagation`" in checklist
+        assert checklist.count("### Device: `") == 3
+        assert checklist.index("### Device: `leaf01`") < checklist.index(
+            "### Device: `leaf02`"
+        ) < checklist.index("### Device: `spine01`")
+        assert checklist.count("#### Profile: `network-baseline-nxos`") == 3
+        assert checklist.count("#### Profile: `nxos-overlay`") == 3
+        assert sum(line.startswith("- [") for line in checklist.splitlines()) == 63
 
 
 def test_overlay_state_records_missing_config_as_unknown_without_guessing():
@@ -269,7 +373,8 @@ router bgp 65000
     )
 
 
-def test_overlay_profile_cli_writes_phase_maps_and_compare_diff(tmp_path):
+def test_overlay_profile_cli_writes_phase_maps_and_compare_diff(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
     operations = tmp_path / "operations"
     before_input = tmp_path / "before"
     after_input = tmp_path / "after"

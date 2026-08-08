@@ -43,6 +43,16 @@ VNI_DIFF_CSV_FIELDS = [
     "evidence_before",
     "evidence_after",
 ]
+VNI_DIFF_FIELD_SOURCES = {
+    "running_config": {
+        "label": "Running configuration",
+        "command": "show running-config",
+    },
+    "nve_vni": {
+        "label": "Operational command output",
+        "command": "show nve vni",
+    },
+}
 
 
 def overlay_profile_enabled(profile_names: list[str] | tuple[str, ...]) -> bool:
@@ -552,8 +562,9 @@ def compare_overlay_states(before: Mapping[str, Any], after: Mapping[str, Any]) 
             )
     changes.sort(
         key=lambda item: (
-            item["resource_type"],
+            item.get("vni") is None,
             item.get("vni") or 0,
+            item["resource_type"],
             item.get("vrf") or "",
             item["device"],
             item["field"],
@@ -601,28 +612,159 @@ def overlay_diff_csv(diff: Mapping[str, Any]) -> str:
     return stream.getvalue()
 
 
+def _diff_field_source_ids(change: Mapping[str, Any]) -> tuple[str, ...]:
+    field = str(change["field"])
+    if field in {"operational_state", "replication"}:
+        return ("nve_vni",)
+    if field in {
+        "nve_member",
+        "nve_associate_vrf",
+        "local_as",
+        "rd",
+        "vlan",
+        "vlan_name",
+    } or field.startswith(("svi.", "bgp_processes.", "address_families.")):
+        return ("running_config",)
+    source_ids = {
+        str(item["source_id"])
+        for phase in ("evidence_before", "evidence_after")
+        for item in change.get(phase, [])
+        if item.get("source_id")
+    }
+    return tuple(sorted(source_ids))
+
+
 def render_overlay_diff_markdown(diff: Mapping[str, Any]) -> str:
+    grouped: list[dict[str, Any]] = []
+    group_index: dict[tuple[Any, ...], dict[str, Any]] = {}
+    for change in diff["changes"]:
+        key = (
+            change["resource_type"],
+            change.get("vni"),
+            change.get("vrf"),
+            change["change_type"],
+            change["field"],
+            json.dumps(change.get("before"), ensure_ascii=False, sort_keys=True),
+            json.dumps(change.get("after"), ensure_ascii=False, sort_keys=True),
+            change["status"],
+        )
+        item = group_index.get(key)
+        if item is None:
+            item = {**change, "devices": []}
+            group_index[key] = item
+            grouped.append(item)
+        if change["device"] not in item["devices"]:
+            item["devices"].append(change["device"])
+    grouped.sort(
+        key=lambda item: (
+            item.get("vni") is None,
+            item.get("vni") or 0,
+            item["resource_type"],
+            item.get("vrf") or "",
+            item["field"],
+            item["devices"][0],
+            item["change_type"],
+        )
+    )
+
     lines = [
         "# VNI Mapping Diff",
         "",
         f"- Change ID: {diff['metadata']['change_id']}",
         f"- Before phase: {diff['metadata']['before_phase']}",
         f"- After phase: {diff['metadata']['after_phase']}",
-        f"- Changes: {diff['summary']['total_changes']}",
-        "",
-        "| Change | Type | VNI | VRF | Device | Field | Before | After | Status |",
-        "|---|---|---:|---|---|---|---|---|---|",
+        f"- Field changes: {diff['summary']['total_changes']}",
+        f"- Display rows: {len(grouped)}",
     ]
-    for change in diff["changes"]:
+    current_resource: tuple[str, int | None, str | None] | None = None
+    for change in grouped:
+        resource = (
+            change["resource_type"],
+            change.get("vni"),
+            change.get("vrf"),
+        )
+        if resource != current_resource:
+            resource_type, vni, vrf = resource
+            heading = (
+                "Overlay State"
+                if vni is None
+                else f"{resource_type} {vni} — VRF {vrf or '-'}"
+            )
+            lines.extend(
+                [
+                    "",
+                    f"## {heading}",
+                    "",
+                    "| Change | Field | Devices | Before | After | Status |",
+                    "|---|---|---|---|---|---|",
+                ]
+            )
+            current_resource = resource
         values = {
             key: _json_cell(change.get(key)).replace("|", "\\|")
             for key in ("before", "after")
         }
         lines.append(
-            f"| {change['change_type']} | {change['resource_type']} | {change.get('vni') or '-'} | "
-            f"{change.get('vrf') or '-'} | {change['device']} | {change['field']} | "
+            f"| {change['change_type']} | {change['field']} | {', '.join(change['devices'])} | "
             f"{values['before'] or '-'} | {values['after'] or '-'} | {change['status']} |"
         )
-    if not diff["changes"]:
-        lines.append("| - | - | - | - | - | - | - | - | OBSERVED |")
+    if not grouped:
+        lines.extend(["", "No VNI mapping changes were observed."])
+        return "\n".join(lines) + "\n"
+
+    source_fields: dict[str, set[str]] = defaultdict(set)
+    evidence_by_source: dict[str, dict[str, dict[str, str]]] = defaultdict(
+        lambda: defaultdict(dict)
+    )
+    for change in diff["changes"]:
+        source_ids = _diff_field_source_ids(change)
+        for source_id in source_ids:
+            source_fields[source_id].add(str(change["field"]))
+        for phase in ("before", "after"):
+            for item in change.get(f"evidence_{phase}", []):
+                source_id = str(item.get("source_id") or "")
+                if source_id not in source_ids or not item.get("file"):
+                    continue
+                evidence_by_source[source_id][change["device"]][phase] = str(
+                    item["file"]
+                )
+
+    lines.extend(
+        [
+            "",
+            "## Field Source List",
+            "",
+            "| Fields | Source | Verification command |",
+            "|---|---|---|",
+        ]
+    )
+    for source_id in sorted(source_fields):
+        source = VNI_DIFF_FIELD_SOURCES.get(source_id)
+        label = source["label"] if source else source_id
+        command = source["command"] if source else "-"
+        lines.append(
+            f"| {', '.join(sorted(source_fields[source_id]))} | {label} | `{command}` |"
+        )
+
+    lines.extend(
+        [
+            "",
+            "## Evidence Files",
+            "",
+            "| Command | Device | Before evidence | After evidence |",
+            "|---|---|---|---|",
+        ]
+    )
+    evidence_rows = 0
+    for source_id in sorted(evidence_by_source):
+        source = VNI_DIFF_FIELD_SOURCES.get(source_id)
+        command = source["command"] if source else source_id
+        for device, phases in sorted(evidence_by_source[source_id].items()):
+            lines.append(
+                f"| `{command}` | {device} | {phases.get('before', '-')} | "
+                f"{phases.get('after', '-')} |"
+            )
+            evidence_rows += 1
+    if not evidence_rows:
+        lines.append("| - | - | - | - |")
     return "\n".join(lines) + "\n"

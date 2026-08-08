@@ -260,25 +260,75 @@ No collection errors.
 - Phase: after
 - Result: FAIL
 
+## Result by Profile
+
+| Profile | PASS | WARN | FAIL | UNKNOWN | N/A |
+|---|---:|---:|---:|---:|---:|
+| network-baseline-nxos | 2 | 2 | 1 | 0 | 0 |
+
 ## Checks
 
-### Device: `leaf01`
+### Device: `leaf01` (192.0.2.11)
+
+#### Profile: `network-baseline-nxos`
 
 - [x] `system_identity`: PASS - NX-OS 10.4(5)M was identified
 - [ ] `cpu_utilization`: WARN - CPU utilization reached 85%
 - [x] `logging_health`: PASS - No new abnormal logs were detected
 
-### Device: `leaf02`
+### Device: `leaf02` (192.0.2.12)
+
+#### Profile: `network-baseline-nxos`
 
 - [x] `system_identity`: PASS - NX-OS 10.4(5)M was identified
 - [ ] `bgp_ipv4_health`: FAIL - BGP peer regression: 192.0.2.254
 - [ ] `logging_health`: WARN - 1 new abnormal log record was detected
+
+## Unexecuted Hosts
+
+| Host | Platform | Topology Role | Profile | Reason Code | Reason |
+|---|---|---|---|---|---|
+| `fw01` | nxos | network-functions | nxos-overlay | PROFILE_ROLE_EXCLUDED | topology role is outside the nxos-overlay scope |
+| `server01` | linux | server | network-baseline-nxos | PROFILE_PLATFORM_EXCLUDED | platform is outside the profile scope |
+| `unknown01` | nxos | other | nxos-overlay | TOPOLOGY_ROLE_UNRESOLVED | hostname did not match one topology role rule |
 ```
 
-先頭のmetadataは実施開始日時、実施完了日時の順とする。`Checks`は機器名を昇順に並べ、
-各機器の見出し配下ではprofileで解決したcheck順を維持する。
+先頭のmetadataは実施開始日時、実施完了日時の順とする。`Result by Profile`は、実際に check
+結果を 1 件以上持つ profile だけを resolved profile順に表示する。threshold、logging exclude、
+report policy などの override だけを提供し、check を持たない profile を全件 0 の結果行として
+表示しない。適用した全 profile と override provenance は `resolved-profiles.yaml` を正本とする。
+`Checks` は機器名を昇順に並べ、device 見出しを ``hostname (management IP)`` 形式で表示する。
+management IP は収集時に使用した inventory の `ansible_host` を `CollectionManifest`、
+`HealthSnapshot`、`HealthResult` の順に引き継ぐ。inventory が指定されていない offline 入力、
+または `ansible_host` が IP address ではない場合は、推測せず従来どおり hostname だけを表示する。
+機器内を resolved profile 順に section 化し、各 profile 内では profile で
+解決したcheck順を維持する。checkがないprofile sectionは機器配下へ出力しない。
+
+`Unexecuted Hosts` は、対象 host に含まれていたが platform または topology role policy により profile を実行しなかった host を hostname、platform、topology role、profile の順に並べる。`network-functions` と `other` でも対応 OS の別 profile を実行した場合、その結果は通常の device → profile section に表示し、未実行の profile だけをこの一覧へ出力する。`server` は NX-OS profile を実行しない。
+
+未実行 host は check 単位の `NOT_APPLICABLE` 件数へ含めない。`other` に対する `nxos-overlay` は未実行理由を表示した上で profile 結果を `UNKNOWN` とし、compare、plan、apply では `PLAN_ERROR` とする。未実行 host が 0 件の場合も `None` を表示して、一覧の生成漏れと区別する。
 
 Markdownのcheckboxはツールが結果として生成する。利用者が手作業で完了状態を書き換えるための正本にはしない。
+check の message は判定結果名を先頭へ重複保存しない。renderer が `PASS -`、`FAIL -`、
+`UNKNOWN -` などを付加するため、message は `Type-5 propagation: ...` のように理由から開始する。
+
+複数 stage を持つ check の message は、単なる収集 coverage ではなく判定結果を先頭に表示する。
+`FAIL` / `UNKNOWN` では stage、VRF、prefix または resource、device、理由を直接表示する。
+coverage を表示する場合は `receiver evidence` のように証跡取得数であることを明記し、正常数と
+誤認させる `receiver coverage` という表記を使用しない。
+
+Type-5 の例:
+
+```text
+- [ ] `type5_prefix_propagation`: FAIL - Type-5 propagation: 1 issue(s) across 8 prefix(es); RECEIVER_VRF_ROUTE tenant2-vpc1 172.17.0.0/24 on leaf05,leaf06: VRF route is missing
+```
+
+全受信対象が正常な場合は `receiver evidence 28/28`、受信対象がない場合は
+`receiver stage NOT_APPLICABLE (0 targets)` と表示する。詳細な stage 別結果は
+`health-result.json` の `failures`、`unknowns`、`stage_summary` に保存する。正常な
+`prefix x receiver` の明細は全件保存せず、`stage_summary` の prefix 件数と receiver evidence
+件数へ集約する。`failures` と `unknowns` には問題がある stage、VRF、prefix、device、reason
+だけを保存する。raw command と `snapshot.json` は再評価可能な証跡として従来どおり保持する。
 
 ## 6. health-result.json
 
@@ -301,6 +351,26 @@ Markdownのcheckboxはツールが結果として生成する。利用者が手�
     "unknown": 0,
     "not_applicable": 8
   },
+  "unexecuted_hosts": [
+    {
+      "host": "fw01",
+      "platform": "nxos",
+      "topology_role": "network-functions",
+      "profile": "nxos-overlay",
+      "profile_result": "NOT_APPLICABLE",
+      "reason_code": "PROFILE_ROLE_EXCLUDED",
+      "message": "Topology role is outside the nxos-overlay scope."
+    },
+    {
+      "host": "unknown01",
+      "platform": "nxos",
+      "topology_role": "other",
+      "profile": "nxos-overlay",
+      "profile_result": "UNKNOWN",
+      "reason_code": "TOPOLOGY_ROLE_UNRESOLVED",
+      "message": "Hostname did not match one topology role rule."
+    }
+  ],
   "checks": [
     {
       "check_id": "preserve_bgp_neighbors",
@@ -361,6 +431,10 @@ Markdownのcheckboxはツールが結果として生成する。利用者が手�
   }
 }
 ```
+
+`unexecuted_hosts` は host/profile 単位の実行可否を表し、check 単位の `checks` および `counts.not_applicable` とは分離する。配列は 0 件でも省略せず空配列を保存する。`profile_result` は定義済み対象外なら `NOT_APPLICABLE`、role 未解決など正常性を保証できない場合は `UNKNOWN` とする。
+
+この field は既存 field の意味を変更しない追加であるため `schema_version: 1` を維持する。旧成果物で field が欠落している場合、reader は空配列として扱う。ただし、新実装が生成する正規成果物では必須とする。
 
 ## 7. execution.json
 
@@ -684,6 +758,13 @@ normalized raw running-config、Overlay parserのsemantic configを1つのgate�
 同じディレクトリへ`verification-checklist.md`も出力し、運用者がJSONを直接解析せずに統合gateと
 機器別結果を確認できるようにする。
 
+rollback verification の Health compare は before で固定した `health/resolved-roles.yaml` を
+通常 rollback と qualification rollback の両方で再利用する。role artifact がある operation では
+`compare_snapshots` に同じ resolved role を渡し、通常の Health Checklist と同じ profile／function
+適用範囲を維持する。例えば `network-functions` の `nxos-overlay`、EVPN RR だけを持つ Spine の
+NVE peer／VNI check は verification に再出現させない。role 解決導入前の operation に
+`resolved-roles.yaml` が存在しない場合だけ legacy の全 host 互換動作を維持する。
+
 ```json
 {
   "api_version": "alred/v1",
@@ -847,7 +928,16 @@ MODIFIED,L2VNI,10010,TENANT-A,leaf01,operational_state,Up,Down,OBSERVED,../befor
 
 CSV内の配列とobjectはJSON文字列とする。期待ChangeSetがない場合の`status`は
 `OBSERVED` / `CONFLICT` / `UNKNOWN`とし、観測差分だけを根拠に`EXPECTED` /
-`UNEXPECTED`を付与しない。詳細な内部modelと生成条件は
+`UNEXPECTED`を付与しない。差分行はVNI、resource type、VRF、device、fieldの順に並べ、
+同じVNIの変更を連続して出力する。VNIに関連付けられない`OVERLAY_STATE`の行は末尾に出力する。
+MarkdownはVNI / resource type / VRFごとにsectionを分け、change type、field、before、after、
+statusが同じdeviceを1行へ集約する。元のfield変更件数と集約後の表示行数を併記し、deviceごとに
+値が異なる変更は別行にして差異を保持する。JSONとCSVはfield単位の行を集約しない。
+Markdown末尾の`Field Source List`には、表示したfieldの取得元種別と、そのまま再確認に使える
+NX-OSコマンドを出力する。`Evidence Files`にはsourceとdeviceごとのbefore / after証跡pathを
+出力する。config由来fieldは`show running-config`、VNI operational stateとreplicationは
+`show nve vni`へ対応付ける。複合判定または未知fieldは変更行が保持するevidenceを列挙する。
+詳細な内部modelと生成条件は
 [Overlay Change Management Design](./OVERLAY_CHANGE_MANAGEMENT_DESIGN.md#81-health-check-vni-mapping成果物)を正本とする。
 
 ## 14. 出力の互換性

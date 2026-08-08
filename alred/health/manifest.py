@@ -6,7 +6,7 @@ from datetime import datetime
 import hashlib
 from pathlib import Path
 import re
-from typing import Any, Iterable
+from typing import Any, Iterable, Mapping
 
 from .commands import command_id, normalize_command
 from ..schema import API_VERSION, validate_document
@@ -200,6 +200,7 @@ def build_collection_manifest(
     started_at: datetime,
     completed_at: datetime,
     timezone: str,
+    host_addresses: Mapping[str, str] | None = None,
 ) -> dict[str, Any]:
     """Build a strict manifest and reject duplicate host/command generations."""
     grouped: dict[str, dict[str, list[dict[str, Any]]]] = {}
@@ -263,7 +264,10 @@ def build_collection_manifest(
                 host_partial = True
             commands[identifier] = command_record
         status = "failed" if host_failed else ("partial" if host_partial else "success")
-        hosts[host] = {"status": status, "commands": commands}
+        host_record: dict[str, Any] = {"status": status, "commands": commands}
+        if host_addresses and host in host_addresses:
+            host_record["address"] = host_addresses[host]
+        hosts[host] = host_record
 
     document = {
         "api_version": API_VERSION,
@@ -295,6 +299,7 @@ def build_collect_manifest(
     started_at: datetime,
     completed_at: datetime,
     timezone: str,
+    host_addresses: Mapping[str, str] | None = None,
 ) -> dict[str, Any]:
     """Adapt current alred collect files into one fixed collection generation."""
     files = discover_input_files(inputs, suffixes={".log", ".txt", ".json"})
@@ -336,4 +341,5 @@ def build_collect_manifest(
         started_at=started_at,
         completed_at=completed_at,
         timezone=timezone,
+        host_addresses=host_addresses,
     )

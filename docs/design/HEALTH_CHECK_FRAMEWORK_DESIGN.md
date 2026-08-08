@@ -313,7 +313,7 @@ alred health-check before \
 | profile名 | 適用対象 | 主な内容 |
 |---|---|---|
 | `network-baseline-nxos` | NX-OSを対象とする通常の作業前後確認 | CPU、memory、interface、route、neighbor、logging、設定保存、reload-pending。featureに応じてvPC、BFD、OSPF、BGPなどを追加 |
-| `nxos-overlay` | EVPN/VXLANの追加・変更 | NVE、VNI、EVPN route、VLAN、VRF、SVI、anycast gateway、および新規Overlay変更の発見・評価 |
+| `nxos-overlay` | NX-OS の `leaf`、`border-gateway`、`spine`、`super-spine` | NVE、VNI、EVPN route、VLAN、VRF、SVI、anycast gateway、および新規 Overlay 変更の発見・評価 |
 
 `nxos-overlay`だけの指定も許可するが、通常運用では既存通信への影響も確認するため、`network-baseline-nxos`との併用を推奨する。
 
@@ -468,6 +468,15 @@ collect標準コマンド
 - 上書きが発生した値は`resolved-profiles.yaml`へ元値、上書き値、指定元を記録する
 - platform不一致のprofileは黙って無視せず、対象hostごとに`NOT_APPLICABLE`とする
 
+platform と topology role による profile 実行可否は host ごとに解決する。
+
+- `network-baseline-nxos` は topology role にかかわらず、platform が NX-OS の全 host で実行する
+- `nxos-overlay` は platform が NX-OS かつ topology role が `leaf`、`border-gateway`、`spine`、`super-spine` の host で実行する
+- `network-functions` は対応 OS に一致する baseline 等の profile を実行するが、`nxos-overlay` は実行しない
+- `server` には NX-OS profile を実行しない
+- `other` でも platform が NX-OS なら `network-baseline-nxos` を実行する。`nxos-overlay` は未実行とし結果を `UNKNOWN` にする
+- profile 未実行 host は check の `NOT_APPLICABLE` 件数へ含めず、Checklist の未実行ホスト一覧へ理由付きで表示する
+
 ### 4.5 before / afterでのProfile固定
 
 beforeでprofile参照を解決し、合成後の内容を`resolved-profiles.yaml`へ保存する。保存対象は、指定順、profile名、version、取得元、解決元（省略時既定値または明示指定）、元ファイルのSHA-256、合成後設定のSHA-256とする。
@@ -508,6 +517,13 @@ EVPN BGPのshow commandは条件付きとする。running configから設定有�
 この規則により、NVEを持たないSpineやEVPN/NVEを持たないBorderへLeaf用commandを
 実行した結果を異常扱いしない。一方、設定済み機能の運用情報欠落は正常と推定しない。
 role名やhostnameから適用可否を決めず、同じ収集時点の設定証跡を使用する。
+
+topology role を使って profile 内の候補 check や Checklist section を整理する場合は、
+[Role Definition and Resolution Design](./ROLE_DEFINITION_AND_RESOLUTION_DESIGN.md) の canonical な
+role/function 解決を使用する。role/function は候補選択と期待状態の根拠であり、最終的な適用可否と正常性は引き続き
+同一 Snapshot の running config と show command 証跡で確定する。
+
+直接収集は、topology role と platform の解決、`show running-config`、function の実在確認、function 固有 show command の順に 2 段階で行う。外部 transcript のように再収集できない入力は、該当する可能性がある function のコマンドを事前に含める。必須証跡不足は `UNKNOWN` とする。
 
 before / afterの双方でrunning config上NVEが未設定の場合、`show nve ...`の欠落や
 unsupportedは比較でも`NOT_APPLICABLE`とする。同様に、before / afterの双方で

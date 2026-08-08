@@ -11,6 +11,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 import difflib
 from getpass import getpass
+import ipaddress
 import json
 import math
 import os
@@ -236,6 +237,15 @@ from .health.profile import (
     ProfileResolutionError,
     load_resolved_profiles,
     resolve_profiles,
+)
+from .health.roles import (
+    RoleResolutionError,
+    load_role_config,
+    resolve_role_policy,
+)
+from .health.role_commands import (
+    build_role_command_groups,
+    render_role_command_groups,
 )
 from .health.execution_context import (
     CONTEXT_RELATIVE_PATH,
@@ -9240,6 +9250,68 @@ def _inherit_fixed_logging_time_range(
     return apply_logging_time_range_override(requested, time_range)
 
 
+def _load_resolved_roles(path: str | Path) -> dict[str, Any]:
+    candidate = Path(path)
+    if not candidate.is_file() or candidate.is_symlink():
+        raise RoleResolutionError(f"resolved roles file is missing or unsafe: {candidate}")
+    document = yaml.safe_load(candidate.read_text(encoding="utf-8"))
+    if not isinstance(document, dict):
+        raise RoleResolutionError(f"resolved roles is not a mapping: {candidate}")
+    validate_document(document, kind="ResolvedRoles")
+    return document
+
+
+def _resolve_health_roles(
+    args: argparse.Namespace,
+    workspace,
+    snapshot: Mapping[str, Any],
+    *,
+    resolved_at: datetime,
+) -> tuple[dict[str, Any] | None, Path]:
+    """Resolve before roles once, then reuse the immutable operation artifact."""
+    fixed_path = workspace.operation_root / "health" / "resolved-roles.yaml"
+    supplied = getattr(args, "roles", None)
+    supplied_path = Path(supplied) if supplied else Path(DEFAULT_ROLES_PATH)
+    source_exists = supplied_path.is_file() and not supplied_path.is_symlink()
+
+    if fixed_path.exists():
+        resolved = _load_resolved_roles(fixed_path)
+        if supplied:
+            _config, source_path = load_role_config(supplied_path)
+            if source_sha256(source_path) != resolved["spec"]["source"]["sha256"]:
+                error = RoleResolutionError(
+                    "roles file does not match the policy fixed by before"
+                )
+                error.code = "ROLE_RESOLUTION_MISMATCH"
+                raise error
+    elif args.phase != "before":
+        return None, fixed_path
+    elif source_exists:
+        config, source_path = load_role_config(supplied_path)
+        resolved = resolve_role_policy(
+            config,
+            snapshot["hosts"],
+            change_id=workspace.change_id,
+            resolved_at=resolved_at.isoformat(timespec="seconds"),
+            timezone=workspace.timezone,
+            source_path=source_path,
+        )
+    elif supplied:
+        raise RoleResolutionError(f"roles file is missing or unsafe: {supplied_path}")
+    else:
+        return None, fixed_path
+
+    expected_hosts = set(snapshot["hosts"])
+    resolved_hosts = set(resolved["spec"]["devices"])
+    if expected_hosts != resolved_hosts:
+        error = RoleResolutionError(
+            "ROLE_RESOLUTION_MISMATCH: Snapshot hosts do not match resolved roles"
+        )
+        error.code = "ROLE_RESOLUTION_MISMATCH"
+        raise error
+    return resolved, fixed_path
+
+
 def cmd_health_check_snapshot(args: argparse.Namespace) -> int:
     """Build a Snapshot from existing files without device access."""
     try:
@@ -9431,6 +9503,18 @@ def cmd_health_check_snapshot(args: argparse.Namespace) -> int:
             try:
                 completed_at = now_in_timezone(workspace.timezone)
                 import_manifest = None
+                host_addresses: dict[str, str] = {}
+                if args.hosts:
+                    inventory = load_inventory_data(load_yaml(str(args.hosts)))
+                    for inventory_host in inventory:
+                        raw_address = inventory_host.get("ip")
+                        if raw_address is None:
+                            continue
+                        try:
+                            address = str(ipaddress.ip_address(str(raw_address)))
+                        except ValueError:
+                            continue
+                        host_addresses[str(inventory_host["hostname"])] = address
                 if args.input_format == "alred-collect":
                     manifest = build_collect_manifest(
                         args.input,
@@ -9441,6 +9525,7 @@ def cmd_health_check_snapshot(args: argparse.Namespace) -> int:
                         started_at=started_at,
                         completed_at=completed_at,
                         timezone=workspace.timezone,
+                        host_addresses=host_addresses,
                     )
                 else:
                     import_manifest, manifest = import_nxos_transcripts(
@@ -9453,6 +9538,10 @@ def cmd_health_check_snapshot(args: argparse.Namespace) -> int:
                         timezone=workspace.timezone,
                         hosts_path=args.hosts,
                     )
+                    for hostname, host_record in manifest["spec"]["hosts"].items():
+                        if hostname in host_addresses:
+                            host_record["address"] = host_addresses[hostname]
+                    validate_document(manifest, kind="CollectionManifest")
                 snapshot = build_health_snapshot(
                     manifest,
                     profile_refs=profile_names,
@@ -9460,11 +9549,18 @@ def cmd_health_check_snapshot(args: argparse.Namespace) -> int:
                     timezone=workspace.timezone,
                     profile_sha256=profile_sha256,
                 )
+                resolved_roles, resolved_roles_path = _resolve_health_roles(
+                    args,
+                    workspace,
+                    snapshot,
+                    resolved_at=completed_at,
+                )
                 health_result = evaluate_snapshot(
                     snapshot,
                     resolved_profiles,
                     started_at=started_at,
                     completed_at=completed_at,
+                    resolved_roles=resolved_roles,
                 )
                 if (
                     args.phase == "before"
@@ -9476,6 +9572,20 @@ def cmd_health_check_snapshot(args: argparse.Namespace) -> int:
                         resolved_path,
                         resolved_profiles,
                         kind="ResolvedHealthCheckProfiles",
+                    )
+                if resolved_roles is not None:
+                    if not resolved_roles_path.exists():
+                        atomic_write_yaml(
+                            workspace.operation_root,
+                            resolved_roles_path,
+                            resolved_roles,
+                            kind="ResolvedRoles",
+                        )
+                    atomic_write_yaml(
+                        workspace.operation_root,
+                        output_dir / "resolved-roles.yaml",
+                        resolved_roles,
+                        kind="ResolvedRoles",
                     )
                 atomic_write_yaml(
                     workspace.operation_root,
@@ -9872,14 +9982,27 @@ def _direct_health_collect(
 ) -> Path:
     phase = args.health_check_command
     effective = resolved_profiles["spec"]["resolved"]["effective"]
-    commands = [
-        item["command"]
-        for item in effective["spec"]
-        .get("collectors", {})
-        .get("nxos", {})
-        .get("commands", [])
-        if item["id"] != "running_config"
-    ]
+    role_config = None
+    role_source: Path | None = None
+    fixed_roles_path = workspace.operation_root / "health" / "resolved-roles.yaml"
+    if fixed_roles_path.exists():
+        fixed_roles = _load_resolved_roles(fixed_roles_path)
+        candidate = Path(fixed_roles["spec"]["source"]["path"])
+        if candidate.is_file() and not candidate.is_symlink():
+            role_config, role_source = load_role_config(candidate)
+            if source_sha256(role_source) != fixed_roles["spec"]["source"]["sha256"]:
+                error = RoleResolutionError(
+                    "roles file changed after the before role resolution"
+                )
+                error.code = "ROLE_RESOLUTION_MISMATCH"
+                raise error
+    else:
+        candidate = Path(getattr(args, "roles", None) or DEFAULT_ROLES_PATH)
+        if candidate.is_file() and not candidate.is_symlink():
+            role_config, role_source = load_role_config(candidate)
+        elif getattr(args, "roles", None):
+            raise RoleResolutionError(f"roles file is missing or unsafe: {candidate}")
+    command_groups = build_role_command_groups(effective, role_config)
     attempt_id = getattr(args, "_health_attempt_id", None)
     phase_root = workspace.operation_root / "health" / phase
     if phase in {"before", "rollback"} and attempt_id:
@@ -9889,17 +10012,13 @@ def _direct_health_collect(
     atomic_write_bytes(
         workspace.operation_root,
         command_path,
-        (
-            "[device_type:nxos]\n"
-            + "\n".join(commands).rstrip()
-            + "\n"
-        ).encode("utf-8"),
+        render_role_command_groups(command_groups).encode("utf-8"),
     )
     collect_args = argparse.Namespace(
         command="collect",
         hosts=args.hosts,
         policy=args.policy,
-        roles=None,
+        roles=str(role_source) if role_source is not None else None,
         username=args.username,
         password=args.password,
         ask_pass=args.ask_pass,
@@ -11133,6 +11252,14 @@ def cmd_health_check_compare(args: argparse.Namespace) -> int:
             workspace.operation_root / "health" / "resolved-profiles.yaml"
         )
         resolved_profiles = load_resolved_profiles(resolved_path)
+        resolved_roles_path = (
+            workspace.operation_root / "health" / "resolved-roles.yaml"
+        )
+        resolved_roles = (
+            _load_resolved_roles(resolved_roles_path)
+            if resolved_roles_path.exists()
+            else None
+        )
         started_at = now_in_timezone(workspace.timezone)
         if args.profile:
             requested = resolve_profiles(
@@ -11191,6 +11318,7 @@ def cmd_health_check_compare(args: argparse.Namespace) -> int:
                     resolved_profiles,
                     started_at=started_at,
                     completed_at=completed_at,
+                    resolved_roles=resolved_roles,
                 )
                 result["artifacts"] = {
                     "before_snapshot": str(expected_before),
@@ -12415,6 +12543,13 @@ def build_parser() -> argparse.ArgumentParser:
                 "network-baseline-nxos; after/rollback inherit before)"
             ),
         )
+        phase_parser.add_argument(
+            "--roles",
+            help=(
+                "Versioned role policy YAML; before defaults to ./roles.yaml "
+                "when present, after/rollback reuse the policy fixed by before"
+            ),
+        )
         if phase_name == "before":
             phase_parser.add_argument(
                 "--revision-reason",
@@ -12529,6 +12664,13 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "Profile reference recorded in the Snapshot (repeatable; "
             "before default: network-baseline-nxos)"
+        ),
+    )
+    p_health_snapshot.add_argument(
+        "--roles",
+        help=(
+            "Versioned role policy YAML; before defaults to ./roles.yaml "
+            "when present, after reuses the policy fixed by before"
         ),
     )
     _add_logging_time_range_arguments(p_health_snapshot)

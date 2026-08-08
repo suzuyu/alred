@@ -3,14 +3,16 @@
 from __future__ import annotations
 
 import hashlib
+import ipaddress
 import re
+from datetime import datetime
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from .overlay import parse_overlay_running_config
 from ..logging_check import parse_nxos_log_records
 
-NXOS_PARSER_VERSION = "1.2"
+NXOS_PARSER_VERSION = "1.11"
 
 
 class ParserError(ValueError):
@@ -175,6 +177,304 @@ def _parse_reload_pending(output: str) -> tuple[dict[str, Any], dict[str, Any]]:
             "commands": commands,
         }
     }, {}
+
+
+def _parse_clock(output: str, *, timezone: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    text = _require_output(output)
+    match = re.search(
+        r"(\d{1,2}:\d{2}:\d{2}(?:\.\d+)?)\s+\S+\s+"
+        r"(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+"
+        r"([A-Z][a-z]{2})\s+(\d{1,2})\s+(\d{4})",
+        text,
+    )
+    if not match:
+        raise ParserError("device clock was not recognized")
+    try:
+        zone = ZoneInfo(timezone)
+        parsed = datetime.strptime(
+            f"{match.group(4)} {match.group(2)} {match.group(3)} {match.group(1)}",
+            "%Y %b %d %H:%M:%S.%f" if "." in match.group(1) else "%Y %b %d %H:%M:%S",
+        ).replace(tzinfo=zone)
+    except (ValueError, ZoneInfoNotFoundError) as exc:
+        raise ParserError("device clock or timezone was not recognized") from exc
+    clock = {"timestamp": parsed.isoformat(), "timezone": timezone}
+    time_source = re.search(
+        r"^Time source is\s+(.+)$",
+        text,
+        re.MULTILINE | re.IGNORECASE,
+    )
+    if time_source:
+        clock["time_source"] = time_source.group(1).strip()
+    return {"clock": clock}, {}
+
+
+def _parse_ntp_status(output: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    text = _require_output(output)
+    lowered = text.lower()
+    if "ntp is not configured" in lowered or "no ntp" in lowered:
+        return {"ntp": {"configured": False, "synchronized": False}}, {}
+    if (
+        "distribution : disabled" in lowered
+        or "last operational state: no session" in lowered
+    ):
+        operational_state = re.search(
+            r"Last operational state:\s*(.+)$", text, re.IGNORECASE | re.MULTILINE
+        )
+        return {
+            "ntp": {
+                "synchronized": False,
+                "operational_state": (
+                    operational_state.group(1).strip()
+                    if operational_state
+                    else None
+                ),
+            }
+        }, {}
+    synchronized = "clock is synchronized" in lowered
+    unsynchronized = "clock is unsynchronized" in lowered
+    if not synchronized and not unsynchronized:
+        raise ParserError("NTP synchronization status was not recognized")
+    stratum = re.search(r"stratum\s+(\d+)", text, re.IGNORECASE)
+    reference = re.search(r"reference is\s+(\S+)", text, re.IGNORECASE)
+    return {
+        "ntp": {
+            "configured": True,
+            "synchronized": synchronized,
+            "stratum": int(stratum.group(1)) if stratum else None,
+            "reference": reference.group(1).rstrip(",") if reference else None,
+        }
+    }, {}
+
+
+def _parse_ntp_peers(output: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    text = output.strip()
+    if not text:
+        return {"ntp": {"peers": {}}}, {}
+    text = _require_output(text)
+    if "no ntp" in text.lower() or "not configured" in text.lower():
+        return {"ntp": {"peers": {}}}, {}
+    peers: dict[str, Any] = {}
+    for line in text.splitlines():
+        match = re.match(r"^\s*([*+x#~-]?)\s*([0-9A-Fa-f:.]+)\s+", line)
+        if not match:
+            continue
+        marker, address = match.groups()
+        peers[address] = {"selected": marker == "*", "marker": marker or None}
+    if not peers:
+        raise ParserError("NTP peer rows were not recognized")
+    return {"ntp": {"peers": peers}}, {}
+
+
+def _parse_ntp_peer_status(
+    output: str,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    text = _require_output(output)
+    total_match = re.search(r"Total peers\s*:\s*(\d+)", text, re.IGNORECASE)
+    total = int(total_match.group(1)) if total_match else None
+    peers: dict[str, Any] = {}
+    markers = {"*", "+", "-", "="}
+    modes = {
+        "*": "selected",
+        "+": "active",
+        "-": "passive",
+        "=": "client",
+    }
+    for line in text.splitlines():
+        fields = line.split()
+        if len(fields) < 6:
+            continue
+        marker = ""
+        remote = fields[0]
+        if remote in markers:
+            if len(fields) < 7:
+                continue
+            marker = remote
+            remote = fields[1]
+            fields = fields[1:]
+        elif remote[0] in markers:
+            marker = remote[0]
+            remote = remote[1:]
+        if not remote or not re.fullmatch(r"[0-9A-Fa-f:.]+", remote):
+            continue
+        try:
+            local = fields[1]
+            stratum = int(fields[2])
+            poll = int(fields[3])
+            reach = int(fields[4])
+            delay = float(fields[5])
+        except (IndexError, ValueError):
+            continue
+        peers[remote] = {
+            "selected": marker == "*",
+            "mode": modes.get(marker, "unspecified"),
+            "marker": marker or None,
+            "local": local,
+            "stratum": stratum,
+            "poll": poll,
+            "reach": reach,
+            "delay": delay,
+            "vrf": fields[6] if len(fields) > 6 else None,
+        }
+    if total == 0:
+        return {
+            "ntp": {
+                "peer_status": {
+                    "applicable": False,
+                    "total_peers": 0,
+                    "peers": {},
+                }
+            }
+        }, {}
+    if not peers:
+        raise ParserError("NTP peer-status rows were not recognized")
+    return {
+        "ntp": {
+            "peer_status": {
+                "applicable": True,
+                "total_peers": total if total is not None else len(peers),
+                "peers": peers,
+            }
+        }
+    }, {}
+
+
+def _parse_interface_status(output: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    text = _require_output(output)
+    interfaces: dict[str, Any] = {}
+    status_values = {"connected", "notconnect", "disabled", "err-disabled", "inactive", "sfpAbsent"}
+    for line in text.splitlines():
+        fields = line.split()
+        if len(fields) < 2 or not re.match(r"^(?:Eth|Ethernet|Po|port-channel|mgmt|Vlan|Lo|loopback)\S+", fields[0], re.IGNORECASE):
+            continue
+        status = next((value for value in fields[1:] if value in status_values), None)
+        if status is None:
+            continue
+        admin_up = status != "disabled"
+        operational_up = status == "connected"
+        interfaces[fields[0]] = {
+            "admin_state": "up" if admin_up else "down",
+            "operational_state": "up" if operational_up else "down",
+            "status": status,
+        }
+    if not interfaces:
+        raise ParserError("interface status rows were not recognized")
+    return {"interfaces": interfaces}, {}
+
+
+def _parse_interface_brief(output: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Parse the SVI Status and Reason columns in ``show interface brief``."""
+    text = _require_output(output)
+    svis: dict[str, Any] = {}
+    for line in text.splitlines():
+        match = re.match(
+            r"^\s*(Vlan\d+)\s+\S+\s+(up|down)\s*(.*?)\s*$",
+            line,
+            re.IGNORECASE,
+        )
+        if not match:
+            continue
+        name = "Vlan" + re.search(r"\d+", match.group(1)).group()
+        status = match.group(2).lower()
+        reason = match.group(3).strip()
+        svis[name] = {
+            "admin_state": (
+                "down"
+                if "administratively down" in reason.lower()
+                else "up"
+            ),
+            "operational_state": status,
+            "status": status,
+            "reason": reason or None,
+        }
+    if not svis:
+        raise ParserError("SVI rows in interface brief were not recognized")
+    return {}, {"nxos-overlay": {"svis": {"interfaces": svis}}}
+
+
+def _parse_vlan_brief(output: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    text = _require_output(output)
+    vlans: dict[str, Any] = {}
+    row = re.compile(
+        r"^\s*(\d+)\s+(.+?)\s+(active|act/lshut|sus/lshut|suspended)"
+        r"(?:[ \t]+.*)?$",
+        re.MULTILINE | re.IGNORECASE,
+    )
+    for match in row.finditer(text):
+        vlan, name, status = match.groups()
+        vlans[vlan] = {"name": name.strip(), "status": status.lower()}
+    if not vlans:
+        raise ParserError("VLAN brief rows were not recognized")
+    return {}, {"nxos-overlay": {"vlans": {"vlans": vlans}}}
+
+
+def _parse_vrf(output: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    text = _require_output(output)
+    vrfs: dict[str, Any] = {}
+    row = re.compile(
+        r"^[ \t]*(\S+)[ \t]+(\d+)[ \t]+(Up|Down)(?:[ \t]+(.*?))?[ \t]*$",
+        re.MULTILINE | re.IGNORECASE,
+    )
+    for match in row.finditer(text):
+        name, vrf_id, state, reason = match.groups()
+        vrfs[name] = {
+            "vrf_id": int(vrf_id),
+            "state": state,
+            "reason": reason or None,
+        }
+    if not vrfs:
+        raise ParserError("VRF rows were not recognized")
+    return {}, {"nxos-overlay": {"vrfs": {"vrfs": vrfs}}}
+
+
+def _parse_interface_errors(output: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    text = _require_output(output)
+    lines = [line.split() for line in text.splitlines() if line.strip()]
+    header = next((fields for fields in lines if fields and fields[0].lower() == "port"), None)
+    if not header:
+        raise ParserError("interface error counter header was not recognized")
+    counters: dict[str, Any] = {}
+    for fields in lines[lines.index(header) + 1 :]:
+        if len(fields) != len(header) or not re.match(r"^(?:Eth|Ethernet|Po|port-channel|mgmt)\S+", fields[0], re.IGNORECASE):
+            continue
+        try:
+            counters[fields[0]] = {
+                name: int(value.replace(",", ""))
+                for name, value in zip(header[1:], fields[1:])
+            }
+        except ValueError:
+            continue
+    return {"interface_errors": counters}, {}
+
+
+def _parse_port_channel_summary(output: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    text = output.strip()
+    if not text:
+        return {"port_channels": {"applicable": False, "channels": {}}}, {}
+    text = _require_output(text)
+    if "no port-channel" in text.lower() or "not configured" in text.lower():
+        return {"port_channels": {"applicable": False, "channels": {}}}, {}
+    channels: dict[str, Any] = {}
+    row = re.compile(
+        r"^\s*\d+\s+(Po\d+)\(([A-Za-z]+)\)\s+\S+\s+(\S+)\s*(.*)$",
+        re.MULTILINE,
+    )
+    for match in row.finditer(text):
+        name, flags, protocol, remainder = match.groups()
+        members = {
+            member: member_flags
+            for member, member_flags in re.findall(r"(\S+?)\(([A-Za-z]+)\)", remainder)
+        }
+        channels[name] = {
+            "flags": flags,
+            "up": "U" in flags,
+            "protocol": protocol,
+            "member_check_applicable": protocol.upper() not in {"NONE", "--"},
+            "members": members,
+            "bundled_members": sorted(member for member, value in members.items() if "P" in value),
+        }
+    if not channels:
+        raise ParserError("port-channel summary rows were not recognized")
+    return {"port_channels": {"applicable": True, "channels": channels}}, {}
 
 
 def _parse_route_summary_ipv4(
@@ -388,6 +688,29 @@ def _parse_nve_interface(output: str) -> tuple[dict[str, Any], dict[str, Any]]:
     return {}, {"nxos-overlay": {"nve_interface": nve}}
 
 
+def _parse_nve_peers(output: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    text = _require_output(output)
+    if "nve interface is not configured" in text.lower():
+        return {}, {"nxos-overlay": {"nve_peers": {"applicable": False, "peers": {}}}}
+    peers: dict[str, Any] = {}
+    row = re.compile(
+        r"^\s*(nve\d+)\s+([0-9A-Fa-f:.]+)\s+(Up|Down)\s+"
+        r"(\S+)(?:\s+(\S+))?.*$",
+        re.MULTILINE | re.IGNORECASE,
+    )
+    for match in row.finditer(text):
+        interface, address, state, learn_type, uptime = match.groups()
+        peers[address] = {
+            "interface": interface,
+            "state": state,
+            "learn_type": learn_type,
+            "uptime": uptime,
+        }
+    if not peers:
+        raise ParserError("NVE peer table rows were not recognized")
+    return {}, {"nxos-overlay": {"nve_peers": {"applicable": True, "peers": peers}}}
+
+
 def _parse_nve_vni(output: str) -> tuple[dict[str, Any], dict[str, Any]]:
     text = _require_output(output)
     if "nve interface is not configured" in text.lower():
@@ -475,6 +798,160 @@ def _parse_bgp_evpn_summary(output: str) -> tuple[dict[str, Any], dict[str, Any]
     }
 
 
+def _parse_bgp_evpn_routes(output: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    text = _require_output(output)
+    if "bgp" in text.lower() and "not configured" in text.lower():
+        return {}, {"nxos-overlay": {"evpn_routes": {"applicable": False}}}
+    routes: set[str] = set()
+    entries: list[dict[str, Any]] = []
+    counts: dict[str, int] = {"2": 0, "3": 0, "5": 0}
+    current_rd: str | None = None
+    current_l3vni: int | None = None
+    pending: dict[str, Any] | None = None
+    pending_status = ""
+
+    def add_path(entry: dict[str, Any], status: str, next_hop: str) -> None:
+        normalized_status = re.sub(r"\s+", "", status).lower()
+        path = {
+            "next_hop": next_hop,
+            "best": ">" in normalized_status,
+            "local": "l" in normalized_status,
+            "status": normalized_status,
+        }
+        if path not in entry["paths"]:
+            entry["paths"].append(path)
+        entry.setdefault("next_hop", next_hop)
+        entry["best"] = bool(entry.get("best") or path["best"])
+        entry["local"] = bool(entry.get("local") or path["local"])
+
+    for line in text.splitlines():
+        rd_match = re.match(
+            r"^Route Distinguisher:\s+(\S+)(?:\s+\(L3VNI\s+(\d+)\))?",
+            line,
+            re.IGNORECASE,
+        )
+        if rd_match:
+            current_rd = rd_match.group(1)
+            current_l3vni = int(rd_match.group(2)) if rd_match.group(2) else None
+            pending = None
+            pending_status = ""
+            continue
+        match = re.search(r"\[(2|3|5)\]:(.+)$", line)
+        if not match:
+            if pending is not None:
+                direct = re.match(r"^\s*([0-9A-Fa-f:.]+)\s+", line)
+                continued = re.match(
+                    r"^\s*([*><a-zA-Z ]*[*><a-zA-Z])\s+"
+                    r"([0-9A-Fa-f:.]+)\s+",
+                    line,
+                )
+                if direct:
+                    add_path(pending, pending_status, direct.group(1))
+                    pending_status = ""
+                elif continued:
+                    add_path(pending, continued.group(1), continued.group(2))
+            continue
+        if not re.search(r"(?:\*>|\*|>)", line[: match.start()]):
+            continue
+        route_type = match.group(1)
+        normalized = re.sub(r"\s+", " ", match.group(0).strip())
+        key = f"type-{route_type}:{normalized}"
+        if key not in routes:
+            routes.add(key)
+            counts[route_type] += 1
+        status = line[: match.start()]
+        entry: dict[str, Any] = {
+            "route_type": int(route_type),
+            "route_key": key,
+            "rd": current_rd,
+            "l3vni": current_l3vni,
+            "best": ">" in status,
+            "local": "l" in status.lower(),
+            "paths": [],
+        }
+        if route_type == "5":
+            prefix_match = re.search(
+                r"\[5\]:\[\d+\]:\[\d+\]:\[(\d+)\]:\[([^\]]+)\]",
+                match.group(0),
+            )
+            if prefix_match:
+                entry["prefix"] = str(
+                    ipaddress.ip_network(
+                        f"{prefix_match.group(2)}/{prefix_match.group(1)}",
+                        strict=False,
+                    )
+                )
+        entries.append(entry)
+        pending = entry
+        pending_status = status
+    if not routes:
+        # A valid empty table still carries the standard route distinguisher header.
+        if "route distinguisher" not in text.lower() and "network" not in text.lower():
+            raise ParserError("EVPN route table was not recognized")
+    return {}, {
+        "nxos-overlay": {
+            "evpn_routes": {
+                "applicable": True,
+                "route_count": len(routes),
+                "route_type_counts": counts,
+                "route_keys": sorted(routes),
+                "routes": entries,
+            }
+        }
+    }
+
+
+def _parse_vrf_routes(
+    output: str, *, family: str
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    text = _require_output(output)
+    routes: list[dict[str, Any]] = []
+    current_vrf: str | None = None
+    pending: dict[str, Any] | None = None
+    for line in text.splitlines():
+        vrf_match = re.search(
+            r"(?:IP Route|IPv6 Routing) Table for VRF [\"']?([^\"'\s]+)",
+            line,
+            re.IGNORECASE,
+        )
+        if vrf_match:
+            current_vrf = vrf_match.group(1)
+            pending = None
+            continue
+        prefix_match = re.match(
+            r"^\s*([0-9A-Fa-f:.]+/\d+)(?:,|\s)", line
+        )
+        if prefix_match and current_vrf:
+            try:
+                prefix = str(ipaddress.ip_network(prefix_match.group(1), strict=False))
+            except ValueError:
+                pending = None
+                continue
+            pending = {"vrf": current_vrf, "family": family, "prefix": prefix}
+            routes.append(pending)
+            continue
+        if pending is not None and (via := re.match(r"^\s*\*?via\s+(\S+)", line)):
+            pending["next_hop"] = via.group(1).rstrip(",")
+            lowered = line.lower()
+            if "bgp" in lowered:
+                pending["protocol"] = "bgp"
+            elif "attached" in lowered or "direct" in lowered:
+                pending["protocol"] = "connected"
+    if not routes:
+        if "route not found" in text.lower() or "no routes" in text.lower():
+            return {}, {"nxos-overlay": {"vrf_routes": {family: {"routes": []}}}}
+        raise ParserError(f"{family} VRF route table was not recognized")
+    return {}, {"nxos-overlay": {"vrf_routes": {family: {"routes": routes}}}}
+
+
+def _parse_ipv4_vrf_routes(output: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    return _parse_vrf_routes(output, family="ipv4")
+
+
+def _parse_ipv6_vrf_routes(output: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    return _parse_vrf_routes(output, family="ipv6")
+
+
 def _parse_show_logging(
     output: str,
     *,
@@ -540,14 +1017,27 @@ PARSERS = {
     "system_resources": _parse_system_resources,
     "environment": _parse_environment,
     "reload_pending": _parse_reload_pending,
+    "ntp_status": _parse_ntp_status,
+    "ntp_peers": _parse_ntp_peers,
+    "ntp_peer_status": _parse_ntp_peer_status,
+    "interface_status": _parse_interface_status,
+    "interface_brief": _parse_interface_brief,
+    "interface_errors": _parse_interface_errors,
+    "port_channel_summary": _parse_port_channel_summary,
     "route_summary_ipv4": _parse_route_summary_ipv4,
     "ospf_neighbors": _parse_ospf_neighbors,
     "bgp_ipv4_summary": _parse_bgp_ipv4_summary,
     "vpc_brief": _parse_vpc_brief,
     "nve_interface": _parse_nve_interface,
+    "nve_peers": _parse_nve_peers,
     "nve_vni": _parse_nve_vni,
     "nve_vni_ingress_replication": _parse_nve_vni_ingress_replication,
+    "vlan_brief": _parse_vlan_brief,
+    "vrf": _parse_vrf,
     "bgp_l2vpn_evpn_summary": _parse_bgp_evpn_summary,
+    "bgp_l2vpn_evpn": _parse_bgp_evpn_routes,
+    "route_ipv4_all_vrfs": _parse_ipv4_vrf_routes,
+    "route_ipv6_all_vrfs": _parse_ipv6_vrf_routes,
 }
 
 
@@ -561,6 +1051,8 @@ def parse_nxos_command(
     parser = PARSERS.get(identifier)
     if identifier == "show_logging":
         return _parse_show_logging(output, timezone=timezone)
+    if identifier == "clock":
+        return _parse_clock(output, timezone=timezone)
     if parser is None:
         raise KeyError(identifier)
     return parser(output)

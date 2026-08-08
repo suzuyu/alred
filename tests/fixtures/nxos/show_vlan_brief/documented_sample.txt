@@ -1,0 +1,5 @@
+VLAN Name                             Status    Ports
+---- -------------------------------- --------- -------------------------------
+1    default                          active
+10   TENANT-A-WEB                     active
+3001 TENANT-A-L3VNI                   active

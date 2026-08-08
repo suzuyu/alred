@@ -132,6 +132,26 @@ Phase 5完了後に合意されたdevice group拡張はfollow-upとして実装�
   qualification recordと`overlay-change qualify`で実施する。qualification成功後も
   Capability Matrixは証跡レビュー後に手動更新する。
 
+### 4.8 Role-aware Health Check follow-up
+
+既存 Phase の完了実績を変更せず、次を role-aware Health Check の follow-up として段階的に実施する。各項目の実装状態は [Implementation Status](./IMPLEMENTATION_STATUS.md) を正本とする。
+check ID、command、Snapshot field、判定、実装状態は [NX-OS Overlay Role Health Check Catalog](../design/NXOS_OVERLAY_ROLE_HEALTH_CHECK_CATALOG.md) を正本とする。
+
+1. `roles.yaml` の hostname 規則から 1 つの topology role を解決し、conflict と `other` を区別する。
+2. topology role 配下の `functions` と `function_expectation_rules` を validation し、required / optional / forbidden を解決する。
+3. `resolved-roles.yaml` schema、resolver version、source hash、before / after 固定を実装する。
+4. `network-baseline-nxos` を topology role にかかわらず NX-OS host 全体へ適用する。
+5. `nxos-overlay` を `leaf`、`border-gateway`、`spine`、`super-spine` に限定する。
+6. `network-functions` と `other` でも対応 OS の baseline を実行し、`server` には NX-OS profile を実行しない。
+7. `other` の read-only を `UNKNOWN`、compare、plan、apply を `ROLE_SCOPE_INVALID` で停止する。
+8. NX-OS BGP の `template peer` と neighbor／dynamic neighbor prefix の `inherit peer` を展開し、直接定義と同じ実効 RR client model へ正規化する。未知 template、循環、矛盾は `RR_TEMPLATE_UNRESOLVED` として `UNKNOWN` にし、未設定 `FAIL` と区別する。
+9. running config から function の実在を確認した後、必要な show command を条件付き収集する。
+10. Checklist を device → profile → topology role / function の順に表示し、未実行 host を理由付き一覧へ集約する。
+11. EVPN RR は before regression を初期判定とし、underlay 一般項目は baseline の結果を参照する。
+12. role/function policy の正常系、競合、証跡欠落、partial attempt、後方互換テストを追加する。
+
+完了時に `CONFIG.md` と配布 sample を実装済み schema へ更新する。未実装の nested function 設定を現行利用可能な設定として配布しない。
+
 ## 5. PhaseごとのCodex依頼テンプレート
 
 ```text

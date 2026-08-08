@@ -10,6 +10,9 @@ spec:
   collectors:
     nxos:
       commands:
+        - id: clock
+          command: show clock
+          required: false
         - id: show_version
           command: show version
           required: true
@@ -22,6 +25,24 @@ spec:
         - id: environment
           command: show environment
           required: true
+        - id: ntp_status
+          command: show ntp status
+          required: false
+        - id: ntp_peers
+          command: show ntp peers
+          required: false
+        - id: ntp_peer_status
+          command: show ntp peer-status
+          required: false
+        - id: interface_status
+          command: show interface status
+          required: false
+        - id: interface_errors
+          command: show interface counters errors non-zero
+          required: false
+        - id: port_channel_summary
+          command: show port-channel summary
+          required: false
         - id: reload_pending
           command: show system config reload-pending
           required: true
@@ -56,6 +77,21 @@ spec:
     - id: environment_health
       evaluator: environment_health
       severity: fail
+    - id: clock_health
+      evaluator: clock_health
+      severity: fail
+    - id: ntp_health
+      evaluator: ntp_health
+      severity: fail
+    - id: interface_health
+      evaluator: interface_health
+      severity: fail
+    - id: interface_error_health
+      evaluator: interface_error_health
+      severity: warn
+    - id: port_channel_health
+      evaluator: port_channel_health
+      severity: fail
     - id: reload_pending
       evaluator: reload_pending
       severity: fail
@@ -88,6 +124,14 @@ spec:
     memory:
       warn_percent: 85
       fail_percent: 95
+    clock:
+      warn_offset_seconds: 60
+      fail_offset_seconds: 300
+    ntp:
+      required: false
+    interface_errors:
+      warn_delta: 1
+      fail_delta: 100
     route_count:
       warn_decrease_percent: 10
       fail_decrease_percent: 30

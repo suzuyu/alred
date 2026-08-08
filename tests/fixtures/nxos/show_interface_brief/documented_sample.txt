@@ -1,0 +1,4 @@
+Interface Secondary VLAN(Type)                    Status Reason
+Vlan1     --                                      down   Administratively down
+Vlan10    --                                      up     --
+Vlan3001  --                                      up     --

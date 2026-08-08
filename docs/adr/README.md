@@ -27,6 +27,7 @@ Accepted ADRの内容を変更する場合は本文を上書きせず、新し�
 | [ADR-0005](./0005-initial-nxos-support-scope.md) | 初期NX-OS対応範囲と検証Levelを限定する | Accepted |
 | [ADR-0006](./0006-external-hierarchical-device-groups.md) | device groupを外部化し階層参照を許可する | Accepted |
 | [ADR-0007](./0007-limit-device-validation-to-nexus-9000v.md) | 動作検証をNexus 9000vに限定しhardwareは文書確認とする | Accepted |
+| [ADR-0008](./0008-use-canonical-multi-role-resolution.md) | canonical な複数 role 解決を利用機能間で共有する | Accepted |
 
 ## 追加基準
 

@@ -108,6 +108,7 @@ def _build_collect_snapshot(tmp_path):
         started_at=JST_NOW,
         completed_at=JST_NOW,
         timezone="Asia/Tokyo",
+        host_addresses={"leaf01": "192.0.2.11"},
     )
     snapshot = build_health_snapshot(
         manifest,
@@ -122,7 +123,9 @@ def test_collect_adapter_and_nxos_parsers_build_canonical_snapshot(tmp_path):
     manifest, snapshot = _build_collect_snapshot(tmp_path)
 
     assert manifest["spec"]["hosts"]["leaf01"]["status"] == "success"
+    assert manifest["spec"]["hosts"]["leaf01"]["address"] == "192.0.2.11"
     leaf = snapshot["hosts"]["leaf01"]
+    assert leaf["address"] == "192.0.2.11"
     assert leaf["collection_status"] == "success"
     assert leaf["common"]["system"]["version"] == "10.5(4)"
     assert leaf["common"]["cpu"] == {

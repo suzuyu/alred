@@ -3,9 +3,10 @@
 この章では、EVPN/VXLAN FabricへL2VNIまたはL3VNIを追加する前後に、
 `network-baseline-nxos`と`nxos-overlay`を併用して正常性を確認する手順を説明します。
 
-このシナリオでは、既存L2VNI 10010が稼働している2台のLeafへ、新しいL2VNI 10020を追加します。
-VLANは機器ごとに異なり、`leaf01`では20、`leaf02`では120を使用する想定です。設定投入は
-alred外の手動作業または別システムで行います。
+このシナリオでは、既存L2VNI 10010が稼働している2台のLeafへ、VRF `TENANT-B`、
+L3VNI 50002、新しいL2VNI 10020を追加します。VLANは機器ごとに異なり、
+`leaf01`では20、`leaf02`では120を使用する想定です。設定投入はalred外の手動作業または
+別システムで行います。
 alred自身でVNI設定を生成・投入する場合は
 [Overlay ChangeSet作成ガイド](./07_OVERLAY_CHANGESET_GUIDE.md)で入力を準備し、
 [alredによるVNI設定投入](./08_ALRED_OVERLAY_CHANGE_APPLY.md)を使用してください。
@@ -29,12 +30,28 @@ alred自身でVNI設定を生成・投入する場合は
 |---|---|---:|---|
 | `running_config` | `show running-config` | はい | VLAN、VNI、VRF、SVI、NVE、BGP設定の正規化 |
 | `nve_interface` | `show nve interface` | いいえ | NVE interfaceの状態 |
+| `nve_peers` | `show nve peers` | いいえ | NVE peer の状態と learn type |
 | `nve_vni` | `show nve vni` | いいえ | L2/L3VNIの存在とUp/Down |
 | `nve_vni_ingress_replication` | `show nve vni ingress-replication` | いいえ | BGP ingress replication peer |
 | `bgp_l2vpn_evpn_summary` | `show bgp l2vpn evpn summary` | いいえ | EVPN BGP peer |
+| `bgp_l2vpn_evpn` | `show bgp l2vpn evpn` | いいえ | EVPN Type-2/3/5 route の保存と比較 |
 
 任意コマンドでも、対象機器で機能が設定されているのに出力を取得・解析できなければ、
 正常と推測せず`UNKNOWN`になる場合があります。
+
+`schema_version: 2` の `roles.yaml` を指定した直接収集では、共通 baseline command に加えて、device の topology role と function に必要な Overlay command だけを収集します。たとえば spine に `evpn-route-reflector` function があれば EVPN summary／route を収集しますが、`vtep` function がなければ NVE command は収集しません。version 省略／v1 は後方互換性のため従来どおり全 command を収集します。
+
+```bash
+alred health-check before \
+  --collect \
+  --hosts ./hosts.lab.yaml \
+  --roles ./roles.yaml \
+  --profile network-baseline-nxos \
+  --profile nxos-overlay \
+  --ask-pass
+```
+
+function の `required`／`optional`／`forbidden` と running config の実在を比較し、`vtep_function_expectation`、`vpc_function_expectation`、`evpn_rr_config_health`、`underlay_rr_config_health` を出力します。EVPN RR neighbor は `evpn_rr_neighbor_health`、border gateway の EVPN neighbor は `border_evpn_bgp_health` として表示します。underlay neighbor と vPC の運用状態は baseline check を再利用し、同じ異常を重複計上しません。
 
 ## 3. シナリオ固有の事前確認
 
@@ -68,10 +85,10 @@ change IDを省略すると自動採番されます。端末出力例:
 Change ID : HC-20260802T140000-p1234-a1b2c3
 Phase     : before
 Input     : alred-collect
-Hosts     : 2
+Hosts     : 3
 Warnings  : 0
 Result    : PASS
-Checks    : PASS=22 WARN=0 FAIL=0 UNKNOWN=0 N/A=4
+Checks    : PASS=49 WARN=0 FAIL=0 UNKNOWN=0 N/A=5
 Manifest  : operations/HC-20260802T140000-p1234-a1b2c3/health/before/collection-manifest.yaml
 Snapshot  : operations/HC-20260802T140000-p1234-a1b2c3/health/before/snapshot.json
 Checklist : operations/HC-20260802T140000-p1234-a1b2c3/health/before/checklist.md
@@ -86,25 +103,34 @@ operations/HC-20260802T140000-p1234-a1b2c3/health/before/
 └── vni-map.csv
 ```
 
-beforeのVNI map例:
+beforeのChecklist・VNI map例:
 
+- [before-checklist.md](./examples/nxos-overlay/before-checklist.md)
+- [before-overlay-state.yaml](./examples/nxos-overlay/before-overlay-state.yaml)
 - [before-vni-map.md](./examples/nxos-overlay/before-vni-map.md)
 - [before-vni-map.csv](./examples/nxos-overlay/before-vni-map.csv)
 
 例では既存L2VNI 10010とL3VNI 50001が両LeafでUpです。VLANが10と110で異なるため
 `DEVICE_VARIANT`ですが、これは意図した機器差分であり異常ではありません。
+`spine01`はEVPN route reflectorとして共通baselineとEVPN BGPを確認し、VTEPではないため
+`nve_interface_health`は`NOT_APPLICABLE`です。
 
 ## 5. beforeで確認する内容
 
 ChecklistではbaselineとOverlayの両方を確認します。
 
 ```text
-### Device: `leaf01`
+### Device: `leaf01` (192.0.2.11)
+
+#### Profile: `network-baseline-nxos`
 
 - [x] `collection_complete`: PASS - All required command outputs were parsed
 - [x] `reload_pending`: PASS - No reload-pending configuration exists
 - [x] `ospf_neighbor_health`: PASS - All observed OSPF neighbors are FULL
 - [x] `vpc_health`: PASS - vPC peer and consistency are healthy
+
+#### Profile: `nxos-overlay`
+
 - [x] `nve_interface_health`: PASS - NVE interface state is Up
 - [x] `evpn_bgp_health`: PASS - All observed EVPN BGP peers are established
 ```
@@ -129,11 +155,15 @@ beforeでFAILまたはUNKNOWNがある場合は、変更前から存在する事
 |---|---:|---:|
 | L2VNI | 10020 | 10020 |
 | VLAN | 20 | 120 |
-| VLAN name | TENANT-A-APP | TENANT-A-APP |
-| VRF | TENANT-A | TENANT-A |
+| VLAN name | TENANT-B-APP | TENANT-B-APP |
+| VRF | TENANT-B | TENANT-B |
 | Gateway IPv4 | 198.51.100.1/24 | 198.51.100.1/24 |
 | MTU | 9216 | 9216 |
 | NVE state | Up | Up |
+
+L3VNI 50002では、両機器にVRF `TENANT-B`、RD `auto`、BGP VRF address-familyの
+`advertise l2vpn evpn`、`interface nve 1`の`member vni 50002 associate-vrf`が追加され、
+NVE operational stateがUpになることを期待します。
 
 設定を手動や別システムで投入する場合も、alredへ投入configを入力する必要はありません。
 beforeとafterの観測結果から新しいVNIと付随情報を抽出します。
@@ -155,17 +185,19 @@ after出力例:
 Change ID : HC-20260802T140000-p1234-a1b2c3
 Phase     : after
 Input     : alred-collect
-Hosts     : 2
+Hosts     : 3
 Warnings  : 0
 Result    : PASS
-Checks    : PASS=22 WARN=0 FAIL=0 UNKNOWN=0 N/A=4
+Checks    : PASS=49 WARN=0 FAIL=0 UNKNOWN=0 N/A=5
 Manifest  : operations/HC-20260802T140000-p1234-a1b2c3/health/after/collection-manifest.yaml
 Snapshot  : operations/HC-20260802T140000-p1234-a1b2c3/health/after/snapshot.json
 Checklist : operations/HC-20260802T140000-p1234-a1b2c3/health/after/checklist.md
 ```
 
-afterのVNI map例:
+afterのChecklist・VNI map例:
 
+- [after-checklist.md](./examples/nxos-overlay/after-checklist.md)
+- [after-overlay-state.yaml](./examples/nxos-overlay/after-overlay-state.yaml)
 - [after-vni-map.md](./examples/nxos-overlay/after-vni-map.md)
 - [after-vni-map.csv](./examples/nxos-overlay/after-vni-map.csv)
 
@@ -187,14 +219,23 @@ operations/HC-20260802T140000-p1234-a1b2c3/health/report/
 
 人が最初に確認する差分例:
 
+- [vni-map-diff.json](./examples/nxos-overlay/vni-map-diff.json)
 - [vni-map-diff.md](./examples/nxos-overlay/vni-map-diff.md)
 - [vni-map-diff.csv](./examples/nxos-overlay/vni-map-diff.csv)
 
 `vni-map-diff.json`はfield単位の全変更とbefore/after evidenceを保持する機械処理用の正本です。
-MarkdownとCSVはその派生表現です。
+MarkdownとCSVはその派生表現です。各形式ともVNIの昇順で、同じVNIの変更が連続します。
+Markdownは同じfield・before・after・statusを持つdeviceを1行へまとめます。deviceごとに値が
+異なる場合は別行になるため、機器固有の差異も確認できます。VNIを持たないOverlay全体の
+`CONFLICT` / `UNKNOWN`は末尾に出力されます。
+差分tableの後にある`Field Source List`ではfieldの取得元と再確認用コマンド、`Evidence Files`では
+device別のbefore / after証跡pathを確認できます。Verification commandはそのままNX-OSで
+実行できる形式です。
 
-この例では新規L2VNIの各fieldが`ADDED` / `OBSERVED`として表示されます。変更件数が1では
-ないのは、VNI、VLAN、NVE state、SVI、Gatewayなどを機器・field単位で追跡するためです。
+この例では新規L2VNI 10020と新規L3VNI 50002の各fieldが`ADDED` / `OBSERVED`として
+表示されます。L3VNIのsectionでは、VRF名に加えてBGP設定、RD、NVE associate-vrf、
+operational stateを確認できます。field変更件数が1ではないのは、VNI、VLAN、
+NVE state、SVI、Gatewayなどを機器・field単位で追跡するためです。
 
 ## 9. 作業完了条件
 
@@ -206,6 +247,8 @@ MarkdownとCSVはその派生表現です。
 - 新規L2VNI 10020が対象機器すべてで存在し、NVE stateがUp
 - VLAN 20/120の差分が計画どおり
 - 既存L2VNI 10010とL3VNI 50001が維持されている
+- VRF `TENANT-B`とL3VNI 50002が両機器に追加されている
+- L3VNI 50002のBGP設定とNVE `associate-vrf`が両機器に追加され、Upになっている
 - VNI mapの`Conflicts`と`Unknowns`が0
 - diffに計画外のREMOVED、MODIFIED、CONFLICT、UNKNOWNがない
 - logging、route、OSPF、BGP、vPC、reload-pendingに新規異常がない

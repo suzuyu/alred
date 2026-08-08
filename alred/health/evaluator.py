@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 from copy import deepcopy
+import ipaddress
+import re
 from typing import Any, Callable, Mapping
+
+from .roles import overlay_profile_scope
 
 from ..logging_check import classify_logging_record
 from ..schema import SCHEMA_VERSION, validate_document
@@ -542,6 +546,182 @@ def _evaluate_environment(
     )
 
 
+def _optional_uncollected(
+    snapshot: Mapping[str, Any], host: str, identifiers: tuple[str, ...]
+) -> bool:
+    sources = snapshot["hosts"][host].get("sources", {})
+    return not any(identifier in sources for identifier in identifiers)
+
+
+def _evaluate_clock(snapshot, host, definition, effective):
+    value = snapshot["hosts"][host]["common"].get("clock")
+    evidence = _source_evidence(snapshot, host, "clock")
+    if value is None:
+        if _optional_uncollected(snapshot, host, ("clock",)):
+            return _unknown(definition, host, "Device clock was not collected", [], resource="system/clock")
+        return _unknown(definition, host, "Device clock is unavailable", evidence, resource="system/clock")
+    try:
+        device_time = datetime.fromisoformat(value["timestamp"])
+        collected_at = (
+            snapshot["hosts"][host].get("sources", {}).get("clock", {}).get("collected_at")
+            or snapshot["created_at"]
+        )
+        collected_time = datetime.fromisoformat(collected_at)
+        offset = abs((device_time - collected_time).total_seconds())
+    except (KeyError, ValueError, TypeError):
+        return _unknown(definition, host, "Device clock timestamp is invalid", evidence, resource="system/clock")
+    policy = effective["spec"].get("thresholds", {}).get("clock", {})
+    warn = float(policy.get("warn_offset_seconds", 60))
+    fail = float(policy.get("fail_offset_seconds", 300))
+    result = "FAIL" if offset > fail else "WARN" if offset > warn else "PASS"
+    return _check(check_id=definition["id"], profile=definition["profile"], host=host, result=result, classification="pre_existing" if result != "PASS" else "normal", message=f"Device clock offset is {offset:g} seconds (warn: {warn:g}, fail: {fail:g})", evidence=evidence, resource="system/clock", after={**value, "offset_seconds": offset})
+
+
+def _evaluate_ntp(snapshot, host, definition, effective):
+    value = snapshot["hosts"][host]["common"].get("ntp")
+    evidence = [
+        *_source_evidence(snapshot, host, "ntp_status"),
+        *_source_evidence(snapshot, host, "ntp_peers"),
+        *_source_evidence(snapshot, host, "ntp_peer_status"),
+        *_source_evidence(snapshot, host, "clock"),
+    ]
+    if value is None:
+        if _optional_uncollected(snapshot, host, ("ntp_status", "ntp_peers")):
+            return _unknown(definition, host, "NTP was not collected", [], resource="system/ntp")
+        return _unknown(definition, host, "NTP state is unavailable", evidence, resource="system/ntp")
+    sources = snapshot["hosts"][host].get("sources", {})
+    failed_sources = [
+        identifier
+        for identifier in ("ntp_status", "ntp_peers")
+        if identifier in sources and sources[identifier].get("parse_status") != "parsed"
+    ]
+    if failed_sources:
+        return _unknown(
+            definition,
+            host,
+            "NTP evidence is unavailable: " + ", ".join(failed_sources),
+            evidence,
+            resource="system/ntp",
+        )
+    required = bool(effective["spec"].get("thresholds", {}).get("ntp", {}).get("required", False))
+    peers = value.get("peers", {})
+    peer_status = value.get("peer_status", {})
+    detailed_peers = (
+        peer_status.get("peers", {})
+        if peer_status.get("applicable", True)
+        else {}
+    )
+    configured = value.get("configured")
+    if configured is None:
+        configured = bool(peers or detailed_peers)
+    normalized = {**value, "configured": configured}
+    clock_source = str(
+        snapshot["hosts"][host]["common"].get("clock", {}).get(
+            "time_source", ""
+        )
+    ).strip()
+    if clock_source:
+        normalized["clock_time_source"] = clock_source
+    if not configured:
+        result = "FAIL" if required else "NOT_APPLICABLE"
+        message = "NTP is not configured"
+    elif value.get("synchronized"):
+        selected = sorted(
+            address
+            for address, peer in (detailed_peers or peers).items()
+            if peer.get("selected")
+        )
+        unhealthy_selected = sorted(
+            address
+            for address in selected
+            if detailed_peers
+            and (
+                int(detailed_peers[address].get("reach", 0)) < 1
+                or not 1 <= int(detailed_peers[address].get("stratum", 16)) <= 15
+            )
+        )
+        result = "PASS" if selected and not unhealthy_selected else "WARN"
+        message = "NTP is synchronized"
+        if selected:
+            message += f" to {', '.join(selected)}"
+        if unhealthy_selected:
+            message += "; unhealthy selected peer: " + ", ".join(
+                unhealthy_selected
+            )
+        elif not selected:
+            message += "; no selected peer was observed"
+    else:
+        result = "FAIL" if required else "WARN"
+        message = "NTP is configured but unsynchronized"
+        details = []
+        if value.get("operational_state"):
+            details.append(f"operational state: {value['operational_state']}")
+        if peers and not any(peer.get("selected") for peer in peers.values()):
+            details.append("no selected peer")
+        if detailed_peers:
+            unhealthy = sorted(
+                address
+                for address, peer in detailed_peers.items()
+                if int(peer.get("reach", 0)) < 1
+                or not 1 <= int(peer.get("stratum", 16)) <= 15
+            )
+            if unhealthy:
+                details.append("unhealthy peer-status: " + ", ".join(unhealthy))
+        if clock_source:
+            details.append(f"clock time source: {clock_source}")
+        if details:
+            message += " (" + "; ".join(details) + ")"
+    return _check(check_id=definition["id"], profile=definition["profile"], host=host, result=result, classification="pre_existing" if result in {"WARN", "FAIL"} else "normal", message=message, evidence=evidence, resource="system/ntp", after=normalized)
+
+
+def _evaluate_interfaces(snapshot, host, definition, _effective):
+    value = snapshot["hosts"][host]["common"].get("interfaces")
+    evidence = _source_evidence(snapshot, host, "interface_status")
+    if value is None:
+        if _optional_uncollected(snapshot, host, ("interface_status",)):
+            return _unknown(definition, host, "Interface status was not collected", [], resource="interfaces")
+        return _unknown(definition, host, "Interface status is unavailable", evidence, resource="interfaces")
+    down = sorted(name for name, item in value.items() if item.get("admin_state") == "up" and item.get("operational_state") != "up")
+    result = "FAIL" if down else "PASS"
+    message = "Admin-up interfaces are operationally up" if not down else "Admin-up interfaces are down: " + ", ".join(down)
+    return _check(check_id=definition["id"], profile=definition["profile"], host=host, result=result, classification="target_not_ready" if down else "normal", message=message, evidence=evidence, resource="interfaces", after={"interfaces": value, "admin_up_oper_down": down})
+
+
+def _evaluate_interface_errors(snapshot, host, definition, effective):
+    value = snapshot["hosts"][host]["common"].get("interface_errors")
+    evidence = _source_evidence(snapshot, host, "interface_errors")
+    if value is None:
+        if _optional_uncollected(snapshot, host, ("interface_errors",)):
+            return _unknown(definition, host, "Interface error counters were not collected", [], resource="interfaces/errors")
+        return _unknown(definition, host, "Interface error counters are unavailable", evidence, resource="interfaces/errors")
+    total = sum(sum(counters.values()) for counters in value.values())
+    result = "WARN" if total else "PASS"
+    return _check(check_id=definition["id"], profile=definition["profile"], host=host, result=result, classification="pre_existing" if total else "normal", message=f"Interface error counter total is {total}", evidence=evidence, resource="interfaces/errors", after=value)
+
+
+def _evaluate_port_channels(snapshot, host, definition, _effective):
+    value = snapshot["hosts"][host]["common"].get("port_channels")
+    evidence = _source_evidence(snapshot, host, "port_channel_summary")
+    if value is None:
+        if _optional_uncollected(snapshot, host, ("port_channel_summary",)):
+            return _unknown(definition, host, "Port-channel status was not collected", [], resource="port-channels")
+        return _unknown(definition, host, "Port-channel status is unavailable", evidence, resource="port-channels")
+    if not value.get("applicable", True):
+        return _check(check_id=definition["id"], profile=definition["profile"], host=host, result="NOT_APPLICABLE", classification="normal", message="Port-channel is not configured", evidence=evidence, resource="port-channels", after=value)
+    unhealthy = sorted(
+        name
+        for name, channel in value.get("channels", {}).items()
+        if not channel.get("up")
+        or (
+            channel.get("member_check_applicable", True)
+            and not channel.get("bundled_members")
+        )
+    )
+    result = "FAIL" if unhealthy else "PASS"
+    message = "Port-channels and members are bundled" if not unhealthy else "Unhealthy port-channels: " + ", ".join(unhealthy)
+    return _check(check_id=definition["id"], profile=definition["profile"], host=host, result=result, classification="target_not_ready" if unhealthy else "normal", message=message, evidence=evidence, resource="port-channels", after=value)
+
+
 def _evaluate_reload(
     snapshot: Mapping[str, Any],
     host: str,
@@ -915,6 +1095,782 @@ def _evaluate_evpn_bgp(
     )
 
 
+def _evaluate_nve_peers(snapshot, host, definition, _effective):
+    value = snapshot["hosts"][host]["profiles"].get("nxos-overlay", {}).get(
+        "nve_peers"
+    )
+    evidence = _source_evidence(snapshot, host, "nve_peers")
+    if value is None:
+        return _unknown(definition, host, "NVE peer state is unavailable", evidence, resource="nve/peers")
+    if not value.get("applicable", True):
+        return _check(check_id=definition["id"], profile=definition["profile"], host=host, result="NOT_APPLICABLE", classification="normal", message="NVE is not configured", evidence=evidence, resource="nve/peers")
+    unhealthy = sorted(
+        address
+        for address, peer in value.get("peers", {}).items()
+        if str(peer.get("state", "")).lower() != "up"
+    )
+    result = "FAIL" if unhealthy else "PASS"
+    message = "All observed NVE peers are up" if not unhealthy else "Unhealthy NVE peers: " + ", ".join(unhealthy)
+    return _check(check_id=definition["id"], profile=definition["profile"], host=host, result=result, classification="normal" if result == "PASS" else "target_not_ready", message=message, evidence=evidence, resource="nve/peers", after=value)
+
+
+def _evaluate_nve_vnis(snapshot, host, definition, _effective):
+    value = snapshot["hosts"][host]["profiles"].get("nxos-overlay", {}).get(
+        "nve_vnis"
+    )
+    evidence = _source_evidence(snapshot, host, "nve_vni")
+    if value is None:
+        return _unknown(definition, host, "NVE VNI state is unavailable", evidence, resource="nve/vnis")
+    if not value.get("applicable", True):
+        return _check(check_id=definition["id"], profile=definition["profile"], host=host, result="NOT_APPLICABLE", classification="normal", message="NVE is not configured", evidence=evidence, resource="nve/vnis")
+    unhealthy = sorted(
+        vni
+        for vni, item in value.get("vnis", {}).items()
+        if str(item.get("state", "")).lower() != "up"
+    )
+    result = "FAIL" if unhealthy else "PASS"
+    message = "All observed NVE VNIs are up" if not unhealthy else "Unhealthy NVE VNIs: " + ", ".join(unhealthy)
+    return _check(check_id=definition["id"], profile=definition["profile"], host=host, result=result, classification="normal" if result == "PASS" else "target_not_ready", message=message, evidence=evidence, resource="nve/vnis", after=value)
+
+
+def _overlay_operational_scope(config: Mapping[str, Any]) -> tuple[set[str], set[str], set[str]]:
+    """Derive device-local VLAN, VRF, and SVI expectations from running config."""
+    vlans = {
+        str(vlan)
+        for vlan, value in config.get("vlans", {}).items()
+        if value.get("vni") is not None
+    }
+    vrfs = {
+        str(vrf)
+        for vrf, value in config.get("vrfs", {}).items()
+        if value.get("l3vni") is not None
+    }
+    svis: set[str] = set()
+    for vlan, value in config.get("svis", {}).items():
+        vrf = str(value.get("vrf", "default"))
+        if str(vlan) in vlans or vrf in vrfs:
+            svis.add(str(vlan))
+            if vrf != "default":
+                vrfs.add(vrf)
+    return vlans, vrfs, svis
+
+
+def _evaluate_overlay_resource_state(
+    snapshot: Mapping[str, Any],
+    host: str,
+    definition: Mapping[str, Any],
+    *,
+    kind: str,
+    command_id: str,
+) -> dict[str, Any]:
+    profile = snapshot["hosts"][host]["profiles"].get("nxos-overlay", {})
+    config = profile.get("config")
+    evidence = [
+        *_source_evidence(snapshot, host, "running_config"),
+        *_source_evidence(snapshot, host, command_id),
+    ]
+    if config is None:
+        return _unknown(definition, host, "Overlay running-config evidence is unavailable", evidence, resource=f"overlay/{kind}")
+    expected = dict(zip(("vlan", "vrf", "svi"), _overlay_operational_scope(config)))[kind]
+    if not expected:
+        return _check(check_id=definition["id"], profile=definition["profile"], host=host, result="NOT_APPLICABLE", classification="normal", message=f"No overlay {kind.upper()} is configured", evidence=evidence, resource=f"overlay/{kind}")
+
+    field = {"vlan": "vlans", "vrf": "vrfs", "svi": "svis"}[kind]
+    value = profile.get(field)
+    if value is None:
+        return _unknown(definition, host, f"{kind.upper()} operational state is unavailable", evidence, resource=f"overlay/{kind}")
+    member = "interfaces" if kind == "svi" else field
+    observed = value.get(member, {})
+    failures: list[str] = []
+    for name in sorted(expected, key=lambda item: (not item.isdigit(), int(item) if item.isdigit() else item)):
+        key = f"Vlan{name}" if kind == "svi" else name
+        item = observed.get(key if kind == "svi" else name)
+        if item is None:
+            failures.append(f"{key}=missing")
+        elif kind == "vlan" and str(item.get("status", "")).lower() != "active":
+            failures.append(f"{name}={item.get('status', 'unknown')}")
+        elif kind == "vrf" and str(item.get("state", "")).lower() != "up":
+            failures.append(f"{name}={item.get('state', 'unknown')}")
+        elif kind == "svi":
+            configured = config.get("svis", {}).get(name, {})
+            admin = str(item.get("admin_state", "unknown")).lower()
+            operational = str(
+                item.get("operational_state", item.get("protocol_state", "unknown"))
+            ).lower()
+            if not configured.get("admin_enabled", True):
+                failures.append(f"{key}=configured shutdown")
+            elif admin != "up" or operational != "up":
+                failures.append(f"{key}={admin}/{operational}")
+    result = "FAIL" if failures else "PASS"
+    label = {"vlan": "VLAN", "vrf": "VRF", "svi": "SVI"}[kind]
+    message = (
+        f"All {len(expected)} expected overlay {label}(s) are operational"
+        if not failures
+        else f"Unhealthy overlay {label}(s): " + ", ".join(failures)
+    )
+    return _check(check_id=definition["id"], profile=definition["profile"], host=host, result=result, classification="normal" if result == "PASS" else "target_not_ready", message=message, evidence=evidence, resource=f"overlay/{kind}", after={"expected": sorted(expected), "failures": failures})
+
+
+def _evaluate_vlan_operational(snapshot, host, definition, _effective):
+    return _evaluate_overlay_resource_state(snapshot, host, definition, kind="vlan", command_id="vlan_brief")
+
+
+def _evaluate_vrf_operational(snapshot, host, definition, _effective):
+    return _evaluate_overlay_resource_state(snapshot, host, definition, kind="vrf", command_id="vrf")
+
+
+def _evaluate_svi_operational(snapshot, host, definition, _effective):
+    return _evaluate_overlay_resource_state(snapshot, host, definition, kind="svi", command_id="interface_brief")
+
+
+def _evaluate_evpn_routes(snapshot, host, definition, _effective):
+    value = snapshot["hosts"][host]["profiles"].get("nxos-overlay", {}).get(
+        "evpn_routes"
+    )
+    evidence = _source_evidence(snapshot, host, "bgp_l2vpn_evpn")
+    if value is None:
+        return _unknown(definition, host, "EVPN route state is unavailable", evidence, resource="bgp/evpn/routes")
+    if not value.get("applicable", True):
+        return _check(check_id=definition["id"], profile=definition["profile"], host=host, result="NOT_APPLICABLE", classification="normal", message="EVPN BGP is not configured", evidence=evidence, resource="bgp/evpn/routes")
+    count = int(value.get("route_count", 0))
+    result = "PASS" if count else "WARN"
+    return _check(check_id=definition["id"], profile=definition["profile"], host=host, result=result, classification="normal" if result == "PASS" else "pre_existing", message=f"Observed EVPN route count is {count}", evidence=evidence, resource="bgp/evpn/routes", after=value)
+
+
+def _prefix_list_decision(
+    config: Mapping[str, Any], name: str, prefix: str
+) -> bool | None:
+    entries = config.get("prefix_lists", {}).get(name)
+    if not entries:
+        return None
+    candidate = ipaddress.ip_network(prefix, strict=False)
+    for entry in entries:
+        base = ipaddress.ip_network(entry["prefix"], strict=False)
+        if candidate.version != base.version or not candidate.subnet_of(base):
+            continue
+        minimum = int(entry.get("ge", base.prefixlen))
+        maximum = int(
+            entry.get(
+                "le",
+                candidate.max_prefixlen if "ge" in entry else base.prefixlen,
+            )
+        )
+        if minimum <= candidate.prefixlen <= maximum:
+            return entry["action"] == "permit"
+    return False
+
+
+def _route_map_decision(
+    config: Mapping[str, Any], name: str, prefix: str
+) -> bool | None:
+    sequences = config.get("route_map_policies", {}).get(name)
+    if not sequences:
+        return None
+    for sequence in sequences:
+        if sequence.get("unsupported_matches"):
+            return None
+        names = sequence.get("match_ip_prefix_lists", [])
+        if names:
+            decisions = [
+                _prefix_list_decision(config, prefix_list, prefix)
+                for prefix_list in names
+            ]
+            if any(decision is None for decision in decisions):
+                return None
+            if not any(decisions):
+                continue
+        return sequence["action"] == "permit"
+    return False
+
+
+def _type5_expectations(
+    config: Mapping[str, Any],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    expected: list[dict[str, Any]] = []
+    unknown: list[dict[str, Any]] = []
+    for local_as, process in config.get("bgp_processes", {}).items():
+        for vrf, vrf_bgp in process.get("vrfs", {}).items():
+            vrf_config = config.get("vrfs", {}).get(vrf, {})
+            l3vni = vrf_config.get("l3vni")
+            for family, af in vrf_bgp.get("address_families", {}).items():
+                commands = af.get("commands", [])
+                redistributions = [
+                    command
+                    for command in commands
+                    if command.startswith("redistribute direct")
+                ]
+                if not redistributions:
+                    continue
+                for vlan, svi in config.get("svis", {}).items():
+                    if svi.get("vrf") != vrf:
+                        continue
+                    addresses = svi.get(
+                        "ipv4_addresses" if family == "ipv4" else "ipv6_addresses",
+                        [],
+                    )
+                    for address in addresses:
+                        prefix = str(ipaddress.ip_interface(address).network)
+                        decisions: list[bool | None] = []
+                        for command in redistributions:
+                            match = re.match(
+                                r"redistribute direct(?: route-map (\S+))?$", command
+                            )
+                            if not match:
+                                decisions.append(None)
+                            elif match.group(1):
+                                decisions.append(
+                                    _route_map_decision(config, match.group(1), prefix)
+                                )
+                            else:
+                                decisions.append(True)
+                        item = {
+                            "vrf": vrf,
+                            "family": family,
+                            "prefix": prefix,
+                            "vlan": int(vlan),
+                            "l3vni": l3vni,
+                            "local_as": local_as,
+                        }
+                        if any(decision is True for decision in decisions):
+                            expected.append(item)
+                        elif any(decision is None for decision in decisions):
+                            unknown.append(item)
+    unique = {
+        (item["vrf"], item["family"], item["prefix"]): item for item in expected
+    }
+    unknown_unique = {
+        (item["vrf"], item["family"], item["prefix"]): item for item in unknown
+        if (item["vrf"], item["family"], item["prefix"]) not in unique
+    }
+    return list(unique.values()), list(unknown_unique.values())
+
+
+def _build_type5_route_indexes(
+    snapshot: Mapping[str, Any],
+) -> dict[str, dict[str, Any]]:
+    """Build reusable presence indexes without duplicating them in artifacts."""
+    evpn: dict[str, Any] = {}
+    vrf: dict[str, Any] = {}
+    for host, host_data in snapshot["hosts"].items():
+        overlay = host_data["profiles"].get("nxos-overlay", {})
+        evpn_routes = overlay.get("evpn_routes")
+        if evpn_routes is None or not evpn_routes.get("applicable", True):
+            evpn[host] = None
+        else:
+            by_prefix: dict[str, list[Mapping[str, Any]]] = {}
+            for route in evpn_routes.get("routes", []):
+                if route.get("route_type") != 5 or not route.get("prefix"):
+                    continue
+                by_prefix.setdefault(str(route["prefix"]), []).append(route)
+            evpn[host] = by_prefix
+
+        vrf_routes = overlay.get("vrf_routes")
+        if vrf_routes is None:
+            vrf[host] = None
+            continue
+        family_indexes: dict[str, set[tuple[str, str]]] = {}
+        for family in ("ipv4", "ipv6"):
+            if family not in vrf_routes:
+                continue
+            family_value = vrf_routes.get(family, {})
+            routes = family_value.get(
+                "routes", family_value if isinstance(family_value, list) else []
+            )
+            family_indexes[family] = {
+                (str(route.get("vrf", "")), str(route.get("prefix", "")))
+                for route in routes
+                if route.get("vrf") and route.get("prefix")
+            }
+        vrf[host] = family_indexes
+    return {"evpn": evpn, "vrf": vrf}
+
+
+def _has_type5(
+    snapshot: Mapping[str, Any],
+    host: str,
+    prefix: str,
+    route_indexes: Mapping[str, Any] | None = None,
+) -> bool | None:
+    if route_indexes is not None:
+        routes_by_prefix = route_indexes["evpn"].get(host)
+        return None if routes_by_prefix is None else prefix in routes_by_prefix
+    routes = snapshot["hosts"][host]["profiles"].get("nxos-overlay", {}).get(
+        "evpn_routes"
+    )
+    if routes is None or not routes.get("applicable", True):
+        return None
+    return any(
+        route.get("route_type") == 5 and route.get("prefix") == prefix
+        for route in routes.get("routes", [])
+    )
+
+
+def _type5_origin_scope(
+    snapshot: Mapping[str, Any], host: str
+) -> tuple[list[str], set[str]] | None:
+    origin_nve = snapshot["hosts"][host]["profiles"].get("nxos-overlay", {}).get(
+        "nve_interface"
+    )
+    if not origin_nve or not origin_nve.get("applicable", True):
+        return None
+    secondary = origin_nve.get("secondary_address")
+    members: list[str] = []
+    next_hops: set[str] = set()
+    for candidate, data in snapshot["hosts"].items():
+        nve = data["profiles"].get("nxos-overlay", {}).get("nve_interface")
+        if not nve or not nve.get("applicable", True):
+            continue
+        same_origin = candidate == host or (
+            secondary is not None and nve.get("secondary_address") == secondary
+        )
+        if not same_origin:
+            continue
+        members.append(candidate)
+        for key in ("primary_address", "secondary_address"):
+            if nve.get(key):
+                next_hops.add(str(nve[key]))
+    return sorted(members), next_hops
+
+
+def _has_origin_type5(
+    snapshot: Mapping[str, Any],
+    host: str,
+    prefix: str,
+    next_hops: set[str],
+    route_indexes: Mapping[str, Any] | None = None,
+) -> bool | None:
+    if route_indexes is not None:
+        routes_by_prefix = route_indexes["evpn"].get(host)
+        if routes_by_prefix is None:
+            return None
+        matching = routes_by_prefix.get(prefix, [])
+        return any(
+            route.get("local") is True
+            or route.get("next_hop") in next_hops
+            or any(
+                path.get("local") is True or path.get("next_hop") in next_hops
+                for path in route.get("paths", [])
+            )
+            for route in matching
+        )
+    routes = snapshot["hosts"][host]["profiles"].get("nxos-overlay", {}).get(
+        "evpn_routes"
+    )
+    if routes is None or not routes.get("applicable", True):
+        return None
+    matching = [
+        route
+        for route in routes.get("routes", [])
+        if route.get("route_type") == 5 and route.get("prefix") == prefix
+    ]
+    return any(
+        route.get("local") is True
+        or route.get("next_hop") in next_hops
+        or any(
+            path.get("local") is True or path.get("next_hop") in next_hops
+            for path in route.get("paths", [])
+        )
+        for route in matching
+    )
+
+
+def _has_vrf_route(
+    snapshot: Mapping[str, Any],
+    host: str,
+    vrf: str,
+    prefix: str,
+    route_indexes: Mapping[str, Any] | None = None,
+) -> bool | None:
+    family = "ipv6" if ":" in prefix else "ipv4"
+    if route_indexes is not None:
+        families = route_indexes["vrf"].get(host)
+        if families is None or family not in families:
+            return None
+        return (vrf, prefix) in families[family]
+    value = snapshot["hosts"][host]["profiles"].get("nxos-overlay", {}).get(
+        "vrf_routes"
+    )
+    if value is None:
+        return None
+    if family not in value:
+        return None
+    family_value = value.get(family, value)
+    routes = family_value.get(
+        "routes", family_value if isinstance(family_value, list) else []
+    )
+    return any(
+        route.get("vrf") == vrf and route.get("prefix") == prefix
+        for route in routes
+    )
+
+
+def _evpn_route_targets(
+    vrf_config: Mapping[str, Any], *, direction: str
+) -> set[str]:
+    targets: set[str] = set()
+    for af in vrf_config.get("address_families", {}).values():
+        for command in af.get("commands", []):
+            match = re.match(
+                r"route-target\s+(both|import|export)\s+(\S+)(?:\s+evpn)?$",
+                command,
+            )
+            if match and match.group(1) in {"both", direction}:
+                targets.add(match.group(2))
+    return targets
+
+
+def _imports_type5(
+    origin_vrf: Mapping[str, Any], receiver_vrf: Mapping[str, Any]
+) -> tuple[bool, str]:
+    if origin_vrf.get("l3vni") != receiver_vrf.get("l3vni"):
+        return False, "l3vni-mismatch"
+    exports = _evpn_route_targets(origin_vrf, direction="export")
+    imports = _evpn_route_targets(receiver_vrf, direction="import")
+    if exports and imports:
+        if "auto" in exports and "auto" in imports:
+            return True, "matching-l3vni-auto-rt"
+        return bool(exports & imports), "explicit-rt-intersection"
+    return True, "matching-l3vni-implicit-auto-rt"
+
+
+def _evaluate_type5_prefix_propagation(
+    snapshot: Mapping[str, Any],
+    host: str,
+    definition: Mapping[str, Any],
+    resolved_roles: Mapping[str, Any] | None,
+    route_indexes: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    profile = snapshot["hosts"][host]["profiles"].get("nxos-overlay", {})
+    config = profile.get("config")
+    evidence = [
+        *_source_evidence(snapshot, host, "running_config"),
+        *_source_evidence(snapshot, host, "bgp_l2vpn_evpn"),
+    ]
+    if config is None:
+        return _unknown(
+            definition, host, "Overlay configuration is unavailable", evidence,
+            resource="bgp/evpn/type-5",
+        )
+    expected, unresolved = _type5_expectations(config)
+    if not expected:
+        if unresolved:
+            return _check(
+                check_id=definition["id"], profile=definition["profile"], host=host,
+                result="UNKNOWN", classification="collection_error",
+                message="Type-5 advertisement policy could not be resolved safely",
+                evidence=evidence, resource="bgp/evpn/type-5",
+                after={"unresolved_prefixes": unresolved},
+            )
+        return _check(
+            check_id=definition["id"], profile=definition["profile"], host=host,
+            result="NOT_APPLICABLE", classification="normal",
+            message="No connected prefix is configured for Type-5 advertisement",
+            evidence=evidence, resource="bgp/evpn/type-5",
+        )
+
+    role_devices = (
+        resolved_roles.get("spec", {}).get("devices", {})
+        if resolved_roles is not None else {}
+    )
+    rr_hosts = sorted(
+        candidate for candidate, role in role_devices.items()
+        if "evpn-route-reflector" in role.get("functions", {})
+    )
+    origin_scope = _type5_origin_scope(snapshot, host)
+    origin_members, origin_next_hops = origin_scope or ([], set())
+    findings: list[dict[str, Any]] = []
+    for item in expected:
+        receivers = []
+        for candidate, candidate_data in sorted(snapshot["hosts"].items()):
+            if candidate in origin_members:
+                continue
+            role = role_devices.get(candidate, {})
+            if role and role.get("topology_role") not in {"leaf", "border-gateway"}:
+                continue
+            candidate_config = candidate_data["profiles"].get(
+                "nxos-overlay", {}
+            ).get("config", {})
+            candidate_vrf = candidate_config.get("vrfs", {}).get(item["vrf"], {})
+            origin_vrf = config.get("vrfs", {}).get(item["vrf"], {})
+            imports, _selection_basis = _imports_type5(origin_vrf, candidate_vrf)
+            if imports:
+                receivers.append(candidate)
+        origin_present = (
+            _has_origin_type5(
+                snapshot,
+                host,
+                item["prefix"],
+                origin_next_hops,
+                route_indexes,
+            )
+            if origin_scope is not None
+            else None
+        )
+        rr_state = {
+            rr: _has_type5(snapshot, rr, item["prefix"], route_indexes)
+            for rr in rr_hosts
+        }
+        receiver_state = {
+            receiver: {
+                "type5": _has_type5(
+                    snapshot, receiver, item["prefix"], route_indexes
+                ),
+                "vrf_route": _has_vrf_route(
+                    snapshot,
+                    receiver,
+                    item["vrf"],
+                    item["prefix"],
+                    route_indexes,
+                ),
+            }
+            for receiver in receivers
+        }
+        covered_receivers = sum(
+            state["type5"] is not None and state["vrf_route"] is not None
+            for state in receiver_state.values()
+        )
+        findings.append({
+            **item,
+            "origin_type5": origin_present,
+            "origin_devices": origin_members,
+            "origin_next_hops": sorted(origin_next_hops),
+            "route_reflectors": rr_state,
+            "receivers": receiver_state,
+            "receiver_coverage": f"{covered_receivers}/{len(receivers)}",
+        })
+
+    unknown_state = bool(unresolved) or not rr_hosts or any(
+        finding["origin_type5"] is None
+        or any(value is None for value in finding["route_reflectors"].values())
+        or any(
+            state["type5"] is None or state["vrf_route"] is None
+            for state in finding["receivers"].values()
+        )
+        for finding in findings
+    )
+    failed = any(
+        finding["origin_type5"] is False
+        or any(value is False for value in finding["route_reflectors"].values())
+        or any(
+            state["type5"] is False or state["vrf_route"] is False
+            for state in finding["receivers"].values()
+        )
+        for finding in findings
+    )
+    result = "FAIL" if failed else "UNKNOWN" if unknown_state else "PASS"
+    failures: list[dict[str, Any]] = []
+    unknowns: list[dict[str, Any]] = []
+    for finding in findings:
+        context = {"vrf": finding["vrf"], "prefix": finding["prefix"]}
+        if finding["origin_type5"] is False:
+            failures.append({
+                **context,
+                "stage": "ORIGIN",
+                "devices": finding["origin_devices"],
+                "reason": "expected origin path is missing",
+            })
+        elif finding["origin_type5"] is None:
+            unknowns.append({
+                **context, "stage": "ORIGIN", "devices": finding["origin_devices"],
+                "reason": "origin evidence is unavailable",
+            })
+        failed_rr = sorted(
+            device for device, state in finding["route_reflectors"].items()
+            if state is False
+        )
+        unknown_rr = sorted(
+            device for device, state in finding["route_reflectors"].items()
+            if state is None
+        )
+        if failed_rr:
+            failures.append({
+                **context, "stage": "EVPN_RR", "devices": failed_rr,
+                "reason": "Type-5 route is missing",
+            })
+        if unknown_rr:
+            unknowns.append({
+                **context, "stage": "EVPN_RR", "devices": unknown_rr,
+                "reason": "route evidence is unavailable",
+            })
+        for field, stage, reason in (
+            ("type5", "RECEIVER_TYPE5", "Type-5 route is missing"),
+            ("vrf_route", "RECEIVER_VRF_ROUTE", "VRF route is missing"),
+        ):
+            failed_devices = sorted(
+                device for device, state in finding["receivers"].items()
+                if state[field] is False
+            )
+            unknown_devices = sorted(
+                device for device, state in finding["receivers"].items()
+                if state[field] is None
+            )
+            if failed_devices:
+                failures.append({
+                    **context, "stage": stage, "devices": failed_devices,
+                    "reason": reason,
+                })
+            if unknown_devices:
+                unknowns.append({
+                    **context, "stage": stage, "devices": unknown_devices,
+                    "reason": "evidence is unavailable",
+                })
+
+    total_receivers = sum(len(finding["receivers"]) for finding in findings)
+    covered_receivers = sum(
+        sum(
+            state["type5"] is not None and state["vrf_route"] is not None
+            for state in finding["receivers"].values()
+        )
+        for finding in findings
+    )
+    stage_summary = {
+        "prefixes": {
+            "passed": sum(
+                not any(
+                    item["vrf"] == finding["vrf"]
+                    and item["prefix"] == finding["prefix"]
+                    for item in [*failures, *unknowns]
+                )
+                for finding in findings
+            ),
+            "total": len(findings),
+        },
+        "receiver_evidence": {
+            "covered": covered_receivers,
+            "total": total_receivers,
+        },
+    }
+    details = failures if result == "FAIL" else unknowns
+    if details:
+        rendered_details = "; ".join(
+            f"{item['stage']} {item['vrf']} {item['prefix']} on "
+            f"{','.join(item['devices']) or '-'}: {item['reason']}"
+            for item in details
+        )
+        message = (
+            f"Type-5 propagation: {len(details)} issue(s) across "
+            f"{len(findings)} prefix(es); {rendered_details}"
+        )
+    else:
+        receiver_text = (
+            f"receiver evidence {covered_receivers}/{total_receivers}"
+            if total_receivers
+            else "receiver stage NOT_APPLICABLE (0 targets)"
+        )
+        message = (
+            f"Type-5 propagation: {len(findings)}/{len(findings)} "
+            f"prefix(es) passed; {receiver_text}"
+        )
+    return _check(
+        check_id=definition["id"], profile=definition["profile"], host=host,
+        result=result,
+        classification=("normal" if result == "PASS" else
+                        "target_not_ready" if result == "FAIL" else "collection_error"),
+        message=message,
+        evidence=evidence, resource="bgp/evpn/type-5",
+        after={
+            "mode": "full",
+            "failures": failures,
+            "unknowns": unknowns,
+            "stage_summary": stage_summary,
+            "unresolved_prefixes": unresolved,
+        },
+    )
+
+
+def _configured_function(config: Mapping[str, Any] | None, function_name: str) -> bool | None:
+    if config is None:
+        return None
+    if function_name == "vtep":
+        return bool(config.get("nve", {}).get("configured"))
+    if function_name == "vpc":
+        return bool(config.get("vpc", {}).get("configured"))
+    if function_name == "evpn-route-reflector":
+        state = config.get("rr_config", {}).get("evpn", {})
+        if state.get("resolution_status") == "unresolved":
+            return None
+        return bool(state.get("configured"))
+    if function_name == "underlay-route-reflector":
+        state = config.get("rr_config", {}).get("underlay", {})
+        if state.get("resolution_status") == "unresolved":
+            return None
+        return bool(state.get("configured"))
+    return None
+
+
+def _evaluate_function_expectation(
+    snapshot: Mapping[str, Any],
+    host: str,
+    function_name: str,
+    function: Mapping[str, Any],
+) -> dict[str, Any]:
+    check_ids = {
+        "vtep": "vtep_function_expectation",
+        "vpc": "vpc_function_expectation",
+        "evpn-route-reflector": "evpn_rr_config_health",
+        "underlay-route-reflector": "underlay_rr_config_health",
+    }
+    definition = {
+        "id": check_ids.get(
+            function_name, f"{function_name.replace('-', '_')}_config_health"
+        ),
+        "profile": "nxos-overlay",
+    }
+    config = snapshot["hosts"][host]["profiles"].get("nxos-overlay", {}).get("config")
+    configured = _configured_function(config, function_name)
+    evidence = _source_evidence(snapshot, host, "running_config")
+    expectation = str(function["expectation"])
+    if configured is None:
+        rr_family = {
+            "evpn-route-reflector": "evpn",
+            "underlay-route-reflector": "underlay",
+        }.get(function_name)
+        rr_state = (
+            config.get("rr_config", {}).get(rr_family, {})
+            if config is not None and rr_family is not None
+            else {}
+        )
+        reason_code = (
+            "RR_TEMPLATE_UNRESOLVED"
+            if rr_state.get("resolution_status") == "unresolved"
+            else "CONFIG_EVIDENCE_UNAVAILABLE"
+        )
+        return _check(
+            check_id=definition["id"],
+            profile=definition["profile"],
+            host=host,
+            result="UNKNOWN",
+            classification="collection_error",
+            message=f"{reason_code}: {function_name} configuration could not be resolved safely",
+            evidence=evidence,
+            resource=f"functions/{function_name}",
+            after={
+                "expectation": expectation,
+                "configured": None,
+                "source": function["source"],
+                "reason_code": reason_code,
+                "resolution_errors": rr_state.get("resolution_errors", []),
+            },
+        )
+    if expectation == "required":
+        result = "PASS" if configured else "FAIL"
+    elif expectation == "forbidden":
+        result = "FAIL" if configured else "PASS"
+    else:
+        result = "PASS" if configured else "NOT_APPLICABLE"
+    return _check(
+        check_id=definition["id"],
+        profile=definition["profile"],
+        host=host,
+        result=result,
+        classification="normal" if result in {"PASS", "NOT_APPLICABLE"} else "target_not_ready",
+        message=f"{function_name} is {'configured' if configured else 'not configured'} (expectation: {expectation})",
+        evidence=evidence,
+        resource=f"functions/{function_name}",
+        after={"expectation": expectation, "configured": configured, "source": function["source"]},
+    )
+
+
 SINGLE_EVALUATORS: dict[
     str,
     Callable[
@@ -927,6 +1883,11 @@ SINGLE_EVALUATORS: dict[
     "cpu_utilization": _evaluate_cpu,
     "memory_utilization": _evaluate_memory,
     "environment_health": _evaluate_environment,
+    "clock_health": _evaluate_clock,
+    "ntp_health": _evaluate_ntp,
+    "interface_health": _evaluate_interfaces,
+    "interface_error_health": _evaluate_interface_errors,
+    "port_channel_health": _evaluate_port_channels,
     "logging_health": _evaluate_logging,
     "reload_pending": _evaluate_reload,
     "ipv4_route_count": _evaluate_route_count,
@@ -935,6 +1896,12 @@ SINGLE_EVALUATORS: dict[
     "vpc_health": _evaluate_vpc,
     "nve_interface_health": _evaluate_nve,
     "evpn_bgp_health": _evaluate_evpn_bgp,
+    "nve_peer_health": _evaluate_nve_peers,
+    "nve_vni_health": _evaluate_nve_vnis,
+    "evpn_route_health": _evaluate_evpn_routes,
+    "vlan_operational_health": _evaluate_vlan_operational,
+    "vrf_operational_health": _evaluate_vrf_operational,
+    "svi_operational_health": _evaluate_svi_operational,
 }
 
 
@@ -978,19 +1945,136 @@ def _validate_inputs(
     return resolved["effective"]
 
 
+def _overlay_check_applies(
+    snapshot: Mapping[str, Any],
+    host: str,
+    definition: Mapping[str, Any],
+    resolved_roles: Mapping[str, Any],
+) -> bool:
+    if resolved_roles["spec"]["role_schema_version"] == 1:
+        return True
+    evaluator = str(definition["evaluator"])
+    functions = resolved_roles["spec"]["devices"][host]["functions"]
+    config = snapshot["hosts"][host]["profiles"].get("nxos-overlay", {}).get(
+        "config"
+    )
+    if evaluator in {"nve_interface_health", "nve_peer_health", "nve_vni_health", "vlan_operational_health", "vrf_operational_health", "svi_operational_health"}:
+        return "vtep" in functions or _configured_function(config, "vtep") is True
+    if evaluator in {
+        "evpn_bgp_health",
+        "evpn_route_health",
+        "type5_prefix_propagation",
+    }:
+        return (
+            "vtep" in functions
+            or "evpn-route-reflector" in functions
+            or bool(config and config.get("evpn_bgp_configured"))
+        )
+    return True
+
+
 def evaluate_snapshot(
     snapshot: Mapping[str, Any],
     resolved_profiles: Mapping[str, Any],
     *,
     started_at: datetime,
     completed_at: datetime,
+    resolved_roles: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Evaluate one before/after Snapshot without prompting."""
     effective = _validate_inputs(snapshot, resolved_profiles)
+    type5_route_indexes = (
+        _build_type5_route_indexes(snapshot)
+        if any(
+            definition.get("evaluator") == "type5_prefix_propagation"
+            for definition in effective["spec"]["checks"]
+        )
+        else None
+    )
     checks: list[dict[str, Any]] = []
+    unexecuted_hosts: list[dict[str, Any]] = []
     for host in sorted(snapshot["hosts"]):
         for definition in effective["spec"]["checks"]:
-            evaluator = SINGLE_EVALUATORS.get(definition["evaluator"])
+            profile_name = str(definition.get("profile", ""))
+            if resolved_roles is not None:
+                role_data = resolved_roles["spec"]["devices"][host]
+                if profile_name == "nxos-overlay":
+                    execute, profile_result, reason_code = overlay_profile_scope(
+                        resolved_roles,
+                        host,
+                    )
+                    if not execute:
+                        if not any(
+                            item["host"] == host
+                            and item["profile"] == profile_name
+                            for item in unexecuted_hosts
+                        ):
+                            unexecuted_hosts.append(
+                                {
+                                    "host": host,
+                                    "platform": "nxos",
+                                    "topology_role": role_data["topology_role"],
+                                    "profile": profile_name,
+                                    "profile_result": profile_result,
+                                    "reason_code": reason_code,
+                                    "message": (
+                                        "Topology role is outside the nxos-overlay scope."
+                                        if reason_code == "PROFILE_ROLE_EXCLUDED"
+                                        else "Topology role could not be resolved safely."
+                                    ),
+                                }
+                            )
+                        continue
+                    if not _overlay_check_applies(
+                        snapshot, host, definition, resolved_roles
+                    ):
+                        continue
+                elif (
+                    profile_name == "network-baseline-nxos"
+                    and role_data["topology_role"] == "server"
+                ):
+                    if not any(
+                        item["host"] == host and item["profile"] == profile_name
+                        for item in unexecuted_hosts
+                    ):
+                        unexecuted_hosts.append(
+                            {
+                                "host": host,
+                                "platform": "nxos",
+                                "topology_role": "server",
+                                "profile": profile_name,
+                                "profile_result": "NOT_APPLICABLE",
+                                "reason_code": "PROFILE_ROLE_EXCLUDED",
+                                "message": "Server role is outside the NX-OS profile scope.",
+                            }
+                        )
+                    continue
+            evaluator_name = definition["evaluator"]
+            evaluator = SINGLE_EVALUATORS.get(evaluator_name)
+            if (
+                resolved_roles is not None
+                and profile_name == "nxos-overlay"
+                and evaluator_name == "evpn_bgp_health"
+                and resolved_roles["spec"]["role_schema_version"] == 2
+            ):
+                definition = deepcopy(definition)
+                functions = resolved_roles["spec"]["devices"][host]["functions"]
+                topology_role = resolved_roles["spec"]["devices"][host]["topology_role"]
+                if "evpn-route-reflector" in functions:
+                    definition["id"] = "evpn_rr_neighbor_health"
+                elif topology_role == "border-gateway":
+                    definition["id"] = "border_evpn_bgp_health"
+            if evaluator_name == "type5_prefix_propagation":
+                checks.append(
+                    _evaluate_type5_prefix_propagation(
+                        snapshot,
+                        host,
+                        definition,
+                        resolved_roles,
+                        type5_route_indexes,
+                    )
+                )
+                continue
             if evaluator is None:
                 checks.append(
                     _unknown(
@@ -1002,6 +2086,23 @@ def evaluate_snapshot(
                 )
                 continue
             checks.append(evaluator(snapshot, host, definition, effective))
+        if (
+            resolved_roles is not None
+            and resolved_roles["spec"]["role_schema_version"] == 2
+        ):
+            role_data = resolved_roles["spec"]["devices"][host]
+            execute, _profile_result, _reason_code = overlay_profile_scope(
+                resolved_roles, host
+            )
+            if execute:
+                for function_name, function in sorted(
+                    role_data["functions"].items()
+                ):
+                    checks.append(
+                        _evaluate_function_expectation(
+                            snapshot, host, function_name, function
+                        )
+                    )
     gate_reasons = [
         {
             "code": (
@@ -1026,6 +2127,10 @@ def evaluate_snapshot(
         for reason in gate_reasons
         if reason["code"] in {"SUSTAINED_HIGH_CPU", "RELOAD_PENDING_CONFIG_EXISTS"}
     ]
+    overall = _overall(checks)
+    if any(item["profile_result"] == "UNKNOWN" for item in unexecuted_hosts):
+        if overall in {"PASS", "WARN", "NOT_APPLICABLE"}:
+            overall = "UNKNOWN"
     result = {
         "schema_version": SCHEMA_VERSION,
         "change_id": snapshot["change_id"],
@@ -1035,9 +2140,15 @@ def evaluate_snapshot(
         "started_at": started_at.isoformat(timespec="seconds"),
         "completed_at": completed_at.isoformat(timespec="seconds"),
         "profiles": resolved_profiles["spec"]["resolved"]["profile_names"],
-        "result": _overall(checks),
+        "device_addresses": {
+            host: str(host_data["address"])
+            for host, host_data in sorted(snapshot["hosts"].items())
+            if host_data.get("address")
+        },
+        "result": overall,
         "counts": _counts(checks),
         "checks": checks,
+        "unexecuted_hosts": unexecuted_hosts,
         "operation_gate": {
             "required": bool(blocking_gate_reasons),
             "reasons": gate_reasons,
@@ -1266,6 +2377,102 @@ def _compare_reload(
         before=before_pending,
         after=after_pending,
     )
+
+
+def _compare_interfaces(before, after, host, definition, effective):
+    check = _evaluate_interfaces(after, host, definition, effective)
+    before_value = before["hosts"][host]["common"].get("interfaces")
+    after_value = after["hosts"][host]["common"].get("interfaces")
+    if before_value is None or after_value is None:
+        return check
+    before_up = {name for name, item in before_value.items() if item.get("operational_state") == "up"}
+    after_up = {name for name, item in after_value.items() if item.get("operational_state") == "up"}
+    lost = sorted(before_up - after_up)
+    check = deepcopy(check)
+    check["before"] = before_value
+    if lost:
+        check.update(result="FAIL", classification="regression", message="Interface regression: " + ", ".join(lost))
+    return check
+
+
+def _compare_ntp(before, after, host, definition, effective):
+    check = _evaluate_ntp(after, host, definition, effective)
+    old = before["hosts"][host]["common"].get("ntp")
+    new = after["hosts"][host]["common"].get("ntp")
+    if old is None or new is None:
+        return check
+    def selected(value):
+        detailed = value.get("peer_status", {}).get("peers", {})
+        candidates = detailed or value.get("peers", {})
+        return {
+            address for address, peer in candidates.items() if peer.get("selected")
+        }
+
+    lost_peers = sorted(selected(old) - selected(new))
+    check = deepcopy(check)
+    check["before"] = old
+    if (old.get("synchronized") and not new.get("synchronized")) or lost_peers:
+        check.update(result="FAIL", classification="regression", message="NTP synchronization regression" + (": lost peer " + ", ".join(lost_peers) if lost_peers else ""))
+    return check
+
+
+def _compare_interface_errors(before, after, host, definition, effective):
+    old = before["hosts"][host]["common"].get("interface_errors")
+    new = after["hosts"][host]["common"].get("interface_errors")
+    if old is None or new is None:
+        return _evaluate_interface_errors(after, host, definition, effective)
+    deltas: dict[str, dict[str, int]] = {}
+    reset = False
+    new_counter = False
+    for interface, counters in new.items():
+        for name, value in counters.items():
+            previous = old.get(interface, {}).get(name)
+            if previous is None:
+                if value:
+                    deltas.setdefault(interface, {})[name] = value
+                    new_counter = True
+                continue
+            if value < previous:
+                reset = True
+            elif value > previous:
+                deltas.setdefault(interface, {})[name] = value - previous
+    evidence = [*_combined_evidence(before, after, host, "interface_errors")]
+    if reset:
+        return _unknown(definition, host, "Interface error counter decreased without a proven reset", evidence, resource="interfaces/errors")
+    maximum = max((value for counters in deltas.values() for value in counters.values()), default=0)
+    policy = effective["spec"].get("thresholds", {}).get("interface_errors", {})
+    warn = int(policy.get("warn_delta", 1))
+    fail = int(policy.get("fail_delta", 100))
+    result = (
+        "WARN"
+        if new_counter
+        else "FAIL"
+        if maximum >= fail
+        else "WARN"
+        if maximum >= warn
+        else "PASS"
+    )
+    return _check(check_id=definition["id"], profile=definition["profile"], host=host, result=result, classification="regression" if result != "PASS" else "normal", message=f"Maximum interface error counter delta is {maximum} (warn: {warn}, fail: {fail})", evidence=evidence, resource="interfaces/errors", before=old, after={"counters": new, "deltas": deltas})
+
+
+def _compare_port_channels(before, after, host, definition, effective):
+    check = _evaluate_port_channels(after, host, definition, effective)
+    old = before["hosts"][host]["common"].get("port_channels")
+    new = after["hosts"][host]["common"].get("port_channels")
+    if old is None or new is None:
+        return check
+    lost: list[str] = []
+    for name, channel in old.get("channels", {}).items():
+        old_members = set(channel.get("bundled_members", []))
+        new_channel = new.get("channels", {}).get(name, {})
+        if channel.get("up") and not new_channel.get("up"):
+            lost.append(name)
+        lost.extend(f"{name}/{member}" for member in sorted(old_members - set(new_channel.get("bundled_members", []))))
+    check = deepcopy(check)
+    check["before"] = old
+    if lost:
+        check.update(result="FAIL", classification="regression", message="Port-channel regression: " + ", ".join(lost))
+    return check
 
 
 def _compare_environment(
@@ -1798,6 +3005,7 @@ def compare_snapshots(
     *,
     started_at: datetime,
     completed_at: datetime,
+    resolved_roles: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Compare compatible before/after Snapshots and classify regressions."""
     effective = _validate_inputs(before, resolved_profiles)
@@ -1809,10 +3017,87 @@ def compare_snapshots(
     if set(before["hosts"]) != set(after["hosts"]):
         raise HealthEvaluationError("before/after host set mismatch")
 
+    type5_enabled = any(
+        definition.get("evaluator") == "type5_prefix_propagation"
+        for definition in effective["spec"]["checks"]
+    )
+    before_type5_route_indexes = (
+        _build_type5_route_indexes(before) if type5_enabled else None
+    )
+    after_type5_route_indexes = (
+        _build_type5_route_indexes(after) if type5_enabled else None
+    )
     checks: list[dict[str, Any]] = []
+    unexecuted_hosts: list[dict[str, Any]] = []
     for host in sorted(before["hosts"]):
         for definition in effective["spec"]["checks"]:
+            profile_name = str(definition.get("profile", ""))
+            if resolved_roles is not None:
+                role_data = resolved_roles["spec"]["devices"][host]
+                if profile_name == "nxos-overlay":
+                    execute, profile_result, reason_code = overlay_profile_scope(
+                        resolved_roles,
+                        host,
+                    )
+                    if not execute:
+                        if profile_result == "UNKNOWN":
+                            raise HealthEvaluationError(
+                                f"ROLE_SCOPE_INVALID: {host} topology role is unresolved"
+                            )
+                        if not any(
+                            item["host"] == host and item["profile"] == profile_name
+                            for item in unexecuted_hosts
+                        ):
+                            unexecuted_hosts.append(
+                                {
+                                    "host": host,
+                                    "platform": "nxos",
+                                    "topology_role": role_data["topology_role"],
+                                    "profile": profile_name,
+                                    "profile_result": profile_result,
+                                    "reason_code": reason_code,
+                                    "message": "Topology role is outside the nxos-overlay scope.",
+                                }
+                            )
+                        continue
+                    if not _overlay_check_applies(
+                        after, host, definition, resolved_roles
+                    ):
+                        continue
+                elif (
+                    profile_name == "network-baseline-nxos"
+                    and role_data["topology_role"] == "server"
+                ):
+                    if not any(
+                        item["host"] == host and item["profile"] == profile_name
+                        for item in unexecuted_hosts
+                    ):
+                        unexecuted_hosts.append(
+                            {
+                                "host": host,
+                                "platform": "nxos",
+                                "topology_role": "server",
+                                "profile": profile_name,
+                                "profile_result": "NOT_APPLICABLE",
+                                "reason_code": "PROFILE_ROLE_EXCLUDED",
+                                "message": "Server role is outside the NX-OS profile scope.",
+                            }
+                        )
+                    continue
             evaluator_name = definition["evaluator"]
+            if (
+                resolved_roles is not None
+                and profile_name == "nxos-overlay"
+                and evaluator_name == "evpn_bgp_health"
+                and resolved_roles["spec"]["role_schema_version"] == 2
+            ):
+                definition = deepcopy(definition)
+                functions = resolved_roles["spec"]["devices"][host]["functions"]
+                topology_role = resolved_roles["spec"]["devices"][host]["topology_role"]
+                if "evpn-route-reflector" in functions:
+                    definition["id"] = "evpn_rr_neighbor_health"
+                elif topology_role == "border-gateway":
+                    definition["id"] = "border_evpn_bgp_health"
             if evaluator_name == "system_identity":
                 check = _compare_system(before, after, host, definition)
             elif evaluator_name == "logging_health":
@@ -1821,6 +3106,14 @@ def compare_snapshots(
                 check = _compare_reload(before, after, host, definition)
             elif evaluator_name == "environment_health":
                 check = _compare_environment(before, after, host, definition)
+            elif evaluator_name == "interface_health":
+                check = _compare_interfaces(before, after, host, definition, effective)
+            elif evaluator_name == "ntp_health":
+                check = _compare_ntp(before, after, host, definition, effective)
+            elif evaluator_name == "interface_error_health":
+                check = _compare_interface_errors(before, after, host, definition, effective)
+            elif evaluator_name == "port_channel_health":
+                check = _compare_port_channels(before, after, host, definition, effective)
             elif evaluator_name == "ipv4_route_count":
                 check = _compare_route_count(
                     before,
@@ -1844,6 +3137,80 @@ def compare_snapshots(
                 check = _compare_nve(before, after, host, definition)
             elif evaluator_name == "evpn_bgp_health":
                 check = _compare_evpn(before, after, host, definition)
+            elif evaluator_name in {"nve_peer_health", "nve_vni_health"}:
+                evaluator = SINGLE_EVALUATORS[evaluator_name]
+                check = evaluator(after, host, definition, effective)
+                field = "nve_peers" if evaluator_name == "nve_peer_health" else "nve_vnis"
+                member = "peers" if evaluator_name == "nve_peer_health" else "vnis"
+                before_value = before["hosts"][host]["profiles"].get("nxos-overlay", {}).get(field)
+                after_value = after["hosts"][host]["profiles"].get("nxos-overlay", {}).get(field)
+                if before_value is not None and after_value is not None:
+                    before_up = {
+                        key
+                        for key, value in before_value.get(member, {}).items()
+                        if str(value.get("state", "")).lower() == "up"
+                    }
+                    after_up = {
+                        key
+                        for key, value in after_value.get(member, {}).items()
+                        if str(value.get("state", "")).lower() == "up"
+                    }
+                    lost = sorted(before_up - after_up)
+                    check["before"] = before_value
+                    if lost:
+                        check.update(
+                            result="FAIL",
+                            classification="regression",
+                            message=f"{field} regression: " + ", ".join(lost),
+                        )
+            elif evaluator_name == "evpn_route_health":
+                check = _evaluate_evpn_routes(after, host, definition, effective)
+                before_value = before["hosts"][host]["profiles"].get("nxos-overlay", {}).get("evpn_routes")
+                after_value = after["hosts"][host]["profiles"].get("nxos-overlay", {}).get("evpn_routes")
+                if before_value is not None and after_value is not None:
+                    lost = sorted(set(before_value.get("route_keys", [])) - set(after_value.get("route_keys", [])))
+                    check["before"] = before_value
+                    if lost:
+                        check.update(
+                            result="FAIL" if not after_value.get("route_count") else "WARN",
+                            classification="regression",
+                            message=f"EVPN route regression: {len(lost)} route(s) lost",
+                        )
+            elif evaluator_name == "type5_prefix_propagation":
+                check = _evaluate_type5_prefix_propagation(
+                    after,
+                    host,
+                    definition,
+                    resolved_roles,
+                    after_type5_route_indexes,
+                )
+                before_check = _evaluate_type5_prefix_propagation(
+                    before,
+                    host,
+                    definition,
+                    resolved_roles,
+                    before_type5_route_indexes,
+                )
+                check["before"] = before_check.get("after", {
+                    "result": before_check["result"],
+                    "message": before_check["message"],
+                })
+                if before_check["result"] == "PASS" and check["result"] != "PASS":
+                    check["classification"] = "regression"
+            elif evaluator_name in {
+                "vlan_operational_health",
+                "vrf_operational_health",
+                "svi_operational_health",
+            }:
+                evaluator = SINGLE_EVALUATORS[evaluator_name]
+                before_check = evaluator(before, host, definition, effective)
+                check = evaluator(after, host, definition, effective)
+                check["before"] = before_check.get("after", {
+                    "result": before_check["result"],
+                    "message": before_check["message"],
+                })
+                if before_check["result"] == "PASS" and check["result"] != "PASS":
+                    check["classification"] = "regression"
             else:
                 evaluator = SINGLE_EVALUATORS.get(evaluator_name)
                 if evaluator is None:
@@ -1885,6 +3252,34 @@ def compare_snapshots(
                         elif before_check["result"] in {"WARN", "FAIL"}:
                             check["classification"] = "improvement"
             checks.append(check)
+        if (
+            resolved_roles is not None
+            and resolved_roles["spec"]["role_schema_version"] == 2
+        ):
+            role_data = resolved_roles["spec"]["devices"][host]
+            execute, _profile_result, _reason_code = overlay_profile_scope(
+                resolved_roles, host
+            )
+            if execute:
+                for function_name, function in sorted(role_data["functions"].items()):
+                    check = _evaluate_function_expectation(
+                        after, host, function_name, function
+                    )
+                    before_config = before["hosts"][host]["profiles"].get("nxos-overlay", {}).get("config")
+                    after_config = after["hosts"][host]["profiles"].get("nxos-overlay", {}).get("config")
+                    before_configured = _configured_function(before_config, function_name)
+                    after_configured = _configured_function(after_config, function_name)
+                    check["before"] = {
+                        "expectation": function["expectation"],
+                        "configured": before_configured,
+                    }
+                    if before_configured is True and after_configured is False:
+                        check.update(
+                            result="FAIL",
+                            classification="regression",
+                            message=f"{function_name} configuration was removed",
+                        )
+                    checks.append(check)
 
     result = {
         "schema_version": SCHEMA_VERSION,
@@ -1895,9 +3290,15 @@ def compare_snapshots(
         "started_at": started_at.isoformat(timespec="seconds"),
         "completed_at": completed_at.isoformat(timespec="seconds"),
         "profiles": resolved_profiles["spec"]["resolved"]["profile_names"],
+        "device_addresses": {
+            host: str(host_data["address"])
+            for host, host_data in sorted(after["hosts"].items())
+            if host_data.get("address")
+        },
         "result": _overall(checks),
         "counts": _counts(checks),
         "checks": checks,
+        "unexecuted_hosts": unexecuted_hosts,
         "operation_gate": {"required": False, "reasons": [], "decision": None},
         "artifacts": {},
     }

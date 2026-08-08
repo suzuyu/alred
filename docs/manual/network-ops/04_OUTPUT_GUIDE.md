@@ -53,7 +53,9 @@ UNKNOWNは「異常がない」という意味ではありません。判定に�
 ## 4. Checklist
 
 ```text
-### Device: `leaf01`
+### Device: `leaf01` (192.0.2.11)
+
+#### Profile: `network-baseline-nxos`
 
 - [x] `collection_complete`: PASS - All required command outputs were parsed
 - [x] `system_identity`: PASS - NX-OS 10.5(4) model Nexus9000 C9300v was identified
@@ -72,6 +74,7 @@ UNKNOWNは「異常がない」という意味ではありません。判定に�
 | `[-]` | NOT_APPLICABLE |
 
 Checklistは概要です。WARNやFAILの全証跡はhealth-result.jsonで確認します。
+完全なChecklistでは、先頭にprofile別件数を表示し、各deviceの配下をprofile単位に分けます。
 
 ## 5. health-result.json
 
@@ -157,7 +160,7 @@ Snapshotは、rawコマンド出力を共通schemaへ正規化した成果物で
   "created_at": "2026-08-02T09:15:00+09:00",
   "timezone": "Asia/Tokyo",
   "parser_versions": {
-    "nxos": "1.2",
+    "nxos": "1.3",
     "snapshot_builder": "1.1"
   },
   "hosts": {
@@ -211,7 +214,10 @@ regressionは作業前に正常だった状態が作業後に失われたこと�
 | `vni-map-diff.csv` | 差分の表計算・連携向け一覧 |
 
 実際のbefore、after、diffの表示例と確認手順は
-[NX-OS Overlay Health Check](./06_NXOS_OVERLAY_HEALTH_CHECK.md)を参照してください。
+[NX-OS Overlay Health Check](./06_NXOS_OVERLAY_HEALTH_CHECK.md)を参照してください。同じVNIに
+属するdiff行は連続して出力されます。Markdownでは同じ結果のdeviceを1行へ集約し、
+VNIを持たないOverlay全体の差分は末尾に並びます。末尾の`Field Source List`と
+`Evidence Files`から、fieldの取得コマンドとbefore / afterの証跡を確認できます。
 
 ## 10. CLI終了code
 

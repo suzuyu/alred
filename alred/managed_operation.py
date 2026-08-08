@@ -11,6 +11,7 @@ from .approval import calculate_approval_artifact_hashes, validate_approval
 from .health.evaluator import compare_snapshots
 from .health.profile import load_resolved_profiles
 from .health.report import render_health_summary
+from .health.roles import load_resolved_roles
 from .managed_config import (
     build_execution_document,
     execute_save_session,
@@ -886,12 +887,15 @@ def verify_approved_rollback(
     profiles = load_resolved_profiles(
         workspace.operation_root / "health/resolved-profiles.yaml"
     )
+    roles_path = workspace.operation_root / "health/resolved-roles.yaml"
+    resolved_roles = load_resolved_roles(roles_path) if roles_path.is_file() else None
     health = compare_snapshots(
         before,
         rollback,
         profiles,
         started_at=verified_at,
         completed_at=verified_at,
+        resolved_roles=resolved_roles,
     )
     health["phase"] = "rollback"
     report = Path(report_dir) if report_dir else (

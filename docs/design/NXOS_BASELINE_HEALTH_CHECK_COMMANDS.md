@@ -188,13 +188,20 @@ show system config reload-pending
 
 ### 6.1 Phase 3実装済み範囲
 
-次の12 commandをC9300v 10.5(4) sanitized fixtureでparser検証済みとする。
+次の19 commandをC9300v 10.5(4) sanitized fixtureでparser検証済みとする。
 
 ```text
 show version
 show processes cpu
 show system resources
 show environment
+show clock
+show ntp status
+show ntp peers
+show ntp peer-status
+show interface status
+show interface counters errors non-zero
+show port-channel summary
 show system config reload-pending
 show logging
 show ip route summary vrf all
@@ -205,8 +212,9 @@ show nve interface
 show bgp l2vpn evpn summary
 ```
 
-共通baselineではCPU、memory、environment、reload-pending、logging、IPv4 route count、
-OSPF、BGP IPv4、vPCを単体判定およびbefore / after比較へ接続した。NVEとEVPN BGPは
+共通baselineではCPU、memory、environment、clock、NTP、interface、error counter、
+port-channel、reload-pending、logging、IPv4 route count、OSPF、BGP IPv4、vPCを単体判定および
+before / after比較へ接続した。NVEとEVPN BGPは
 `nxos-overlay` profileの初期観測判定として接続した。
 
 一覧中のその他の収集済みcommandは`parse_status: unsupported`としてprovenanceへ保持する。
@@ -500,6 +508,115 @@ thresholds:
 ```
 
 
+### 7.9 interface状態
+
+`interface_health`は`show interface status`と`show interface brief`を組み合わせ、admin stateと
+operational / line protocolを区別して判定する。単に`down`である全portを異常にはしない。
+
+| admin | operational | before / after条件 | 結果 | classification |
+|---|---|---|---|---|
+| down | down | 任意 | `NOT_APPLICABLE` | `normal` |
+| up | up | 任意 | `PASS` | `normal` |
+| up | down | before単体またはafterでも継続 | `FAIL` | `target_not_ready`または`pre_existing` |
+| up | down | beforeはup / afterはdown | `FAIL` | `regression` |
+| 任意 | 取得・parse不能 | 任意 | `UNKNOWN` | `collection_error` |
+
+判定対象は物理interface、port-channel、loopback、SVIをresource単位で保持する。profileの
+`required_interfaces`に指定したinterfaceはbeforeからdownでも`FAIL`とする。未指定interfaceでも
+admin up / operational downは異常として表示するが、作業で意図した遷移は7.4の
+`expected_changes.interfaces`により`expected_change`へ分類できる。ignore対象を設定する場合も
+check自体を無効にせず、除外理由を成果物へ記録する。
+
+### 7.10 NTPと装置時刻
+
+NTPは`show ntp status`、`show ntp peers`、`show ntp peer-status`を同一checkの証跡として使用する。
+profileの`thresholds.ntp.required`は既定`false`とし、未設定機器を一律異常にしない。
+NX-OS の `show ntp status` が `Distribution : Disabled` または
+`Last operational state: No session` を返すことだけでは NTP 未設定と判定しない。この出力は
+operational session がない証跡として保持し、`show ntp peers` に configured peer があれば
+`configured: true`、peer が空なら `configured: false` とする。明示的な `NTP is not configured`
+または同等の出力も未設定とする。command 自体の欠落、command error、その他の未認識形式とは
+区別する。
+
+`show clock` の `Time source is NTP` は補助 evidence として保持する。ただし、選択 peer または
+synchronized status がない状態をこの表示だけで `PASS` にしない。configured peer が存在し、
+`No session` または未選択 peer だけが観測された場合は `configured but unsynchronized` として
+`WARN`（`thresholds.ntp.required: true` では `FAIL`）にする。`show ntp peer-status` による詳細確認は
+設計済み・未実装とする。
+
+| 状態 | `required: false` | `required: true` |
+|---|---|---|
+| 未設定 | `NOT_APPLICABLE` | `FAIL` |
+| synchronized、選択peerあり | `PASS` | `PASS` |
+| configuredだがunsynchronized | `WARN` | `FAIL` |
+| before同期済み / after未同期 | `FAIL / regression` | `FAIL / regression` |
+| beforeの選択peerがafterで消失 | `FAIL / regression` | `FAIL / regression` |
+| 必須出力の欠落・parse不能 | `UNKNOWN` | `UNKNOWN` |
+
+`show ntp peer-status` は `syncmode`、remote/local address、stratum、poll、reach、delay、VRF を
+正規化する。判定は次のとおりとする。
+
+| peer-status | 判定 |
+|---|---|
+| status が synchronized、selected peer があり、stratum 1～15、reach 1 以上 | `PASS` |
+| configured peer はあるが selected peer がない、`No session`、reach 0、または stratum 16 | `WARN`。NTP 必須時は `FAIL` |
+| before の selected peer が after で消失、または synchronized から非同期 | `FAIL / regression` |
+| peer-status の command 非対応・parse 不能だが status と peers は解析可能 | primary evidence による判定を継続し、peer-status の不足だけで `UNKNOWN` にしない |
+| status または peers の必須 evidence が欠落・parse 不能 | `UNKNOWN` |
+
+field と command の根拠は [Cisco Nexus 9000 Series NX-OS 10.4(x) Show Command Reference](https://www.cisco.com/c/en/us/td/docs/dcn/nx-os/nexus9000/104x/command-reference/show/b_n9k_show_commands_104x/m_n_showcmds.html#wp2274317467) と [Cisco Nexus 9000 Series NX-API CLI Reference - NTP Commands](https://developer.cisco.com/docs/cisco-nexus-9000-series-nx-api-cli-reference/latest/ntp-commands/) とする。
+
+profile が check を定義しているにもかかわらず対応 command が Collection Manifest にない場合は、
+機能が対象外とは判定せず `UNKNOWN / collection_error` とする。`NOT_APPLICABLE` は、収集済み出力、
+running config、platform capability のいずれかから機能未設定または非対応を確認できた場合だけ使用する。
+
+`clock_health`は`show clock`のdevice時刻をcollection開始・完了時刻の範囲と比較し、timezoneを
+正規化してoffsetを記録する。初期既定は60秒超を`WARN`、300秒超を`FAIL`とし、profileで変更可能
+とする。安全にtimezoneまたは時刻を解釈できない場合は`UNKNOWN`とする。`show version`のuptimeが
+beforeより短くなった場合は、明示した再起動作業を除き`FAIL / regression`とする。
+
+```yaml
+thresholds:
+  clock:
+    warn_offset_seconds: 60
+    fail_offset_seconds: 300
+  ntp:
+    required: false
+```
+
+### 7.11 interface error counter
+
+`interface_error_health`は`show interface counters errors non-zero`を使用し、afterの絶対値ではなく
+beforeからの増加量を基本判定値とする。既定は増加1以上を`WARN`、100以上を`FAIL`とし、counter
+種別およびinterface roleごとにprofileで上書き可能とする。
+
+- counterが減少し、同期間にuptime減少がある場合は再起動後resetとして扱い、単純差分を出さない
+- counterが減少し、resetを説明できない場合は`UNKNOWN`とする
+- wrapを安全に識別できるcounter幅がない場合は増加量を推測しない
+- 新規interfaceはbefore値がないためabsolute値を証跡として保持し、既定`WARN`とする
+- diagnosticの`show interface`は原因確認用であり、取得失敗だけで元checkを`UNKNOWN`にしない
+
+### 7.12 port-channel / LACP
+
+port-channelが設定されている場合、`show port-channel summary`を必須証跡として
+`port_channel_health`を実行する。`show lacp internal info`はmember状態の補完証跡とする。
+収集成功かつ出力が空の場合は port-channel 未設定として `NOT_APPLICABLE` とする。NX-OS の
+virtual vPC peer-link のように protocol が `NONE` で physical member を持たない Up port-channel は、
+member 欠落を異常とせず channel の Up 状態を確認する。LACP など member を持つ protocol では、
+従来どおり bundled member がない状態を異常とする。
+
+| 状態 | 結果 |
+|---|---|
+| port-channelと期待memberがUp / bundled | `PASS` |
+| configured port-channelがdown | `FAIL` |
+| beforeよりbundled memberが減少 | `FAIL / regression` |
+| member状態を安全に解析できない | `UNKNOWN` |
+| port-channel未設定 | `NOT_APPLICABLE` |
+
+期待member数をprofileで宣言した場合はその値を優先し、未宣言時はbeforeのbundled member集合を
+baselineとする。意図したmember追加・削除は7.4のexpected changeとして宣言し、計画外のmember
+変化を隠さない。
+
 ## 8. 閾値の初期案
 
 固定値をコードへ埋め込まずprofileで変更可能にする。
@@ -524,6 +641,9 @@ thresholds:
   interface_errors:
     warn_delta: 1
     fail_delta: 100
+  clock:
+    warn_offset_seconds: 60
+    fail_offset_seconds: 300
   route_count:
     warn_decrease_percent: 10
     fail_decrease_percent: 30
@@ -556,6 +676,10 @@ spec:
     bfd: true
     ospf: true
     bgp_unicast: true
+
+  thresholds:
+    ntp:
+      required: false
 
   checks:
     logging:

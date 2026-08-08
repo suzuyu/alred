@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://alred.local/schemas/v1/resolved-roles.schema.json",
+  "title": "ResolvedRoles",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["api_version", "kind", "metadata", "spec"],
+  "properties": {
+    "api_version": {"const": "alred/v1"},
+    "kind": {"const": "ResolvedRoles"},
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["change_id", "resolved_at", "timezone", "resolver_version"],
+      "properties": {
+        "change_id": {"type": "string", "minLength": 1},
+        "resolved_at": {"type": "string", "format": "date-time"},
+        "timezone": {"type": "string", "minLength": 1},
+        "resolver_version": {"type": "string", "minLength": 1}
+      }
+    },
+    "spec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role_schema_version", "source", "policy_sha256", "devices"],
+      "properties": {
+        "role_schema_version": {"enum": [1, 2]},
+        "source": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["path", "sha256"],
+          "properties": {
+            "path": {"type": "string", "minLength": 1},
+            "sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+          }
+        },
+        "policy_sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "devices": {
+          "type": "object",
+          "additionalProperties": {"$ref": "#/$defs/device"}
+        }
+      }
+    }
+  },
+  "$defs": {
+    "device": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "detected_topology_roles", "topology_role", "functions"],
+      "properties": {
+        "status": {"enum": ["legacy", "resolved", "fallback", "conflict"]},
+        "detected_topology_roles": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1},
+          "uniqueItems": true
+        },
+        "topology_role": {"type": ["string", "null"]},
+        "functions": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["expectation", "source"],
+            "properties": {
+              "expectation": {"enum": ["required", "optional", "forbidden"]},
+              "source": {"enum": ["topology_role_default", "function_expectation_rule"]}
+            }
+          }
+        }
+      }
+    }
+  }
+}

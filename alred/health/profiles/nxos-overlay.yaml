@@ -16,6 +16,9 @@ spec:
         - id: nve_interface
           command: show nve interface
           required: false
+        - id: nve_peers
+          command: show nve peers
+          required: false
         - id: nve_vni
           command: show nve vni
           required: false
@@ -25,12 +28,51 @@ spec:
         - id: bgp_l2vpn_evpn_summary
           command: show bgp l2vpn evpn summary
           required: false
+        - id: bgp_l2vpn_evpn
+          command: show bgp l2vpn evpn
+          required: false
+        - id: route_ipv4_all_vrfs
+          command: show ip route vrf all
+          required: false
+        - id: route_ipv6_all_vrfs
+          command: show ipv6 route vrf all
+          required: false
+        - id: vlan_brief
+          command: show vlan brief
+          required: false
+        - id: vrf
+          command: show vrf
+          required: false
+        - id: interface_brief
+          command: show interface brief
+          required: false
   checks:
     - id: nve_interface_health
       evaluator: nve_interface_health
       severity: fail
     - id: evpn_bgp_health
       evaluator: evpn_bgp_health
+      severity: fail
+    - id: nve_peer_regression
+      evaluator: nve_peer_health
+      severity: fail
+    - id: nve_vni_health
+      evaluator: nve_vni_health
+      severity: fail
+    - id: evpn_route_health
+      evaluator: evpn_route_health
+      severity: fail
+    - id: type5_prefix_propagation
+      evaluator: type5_prefix_propagation
+      severity: fail
+    - id: vlan_operational_health
+      evaluator: vlan_operational_health
+      severity: fail
+    - id: vrf_operational_health
+      evaluator: vrf_operational_health
+      severity: fail
+    - id: svi_operational_health
+      evaluator: svi_operational_health
       severity: fail
   convergence:
     interval_seconds: 15

@@ -1,0 +1,37 @@
+api_version: alred/v1
+kind: OverlayState
+metadata:
+  change_id: HC-20260802T140000-p1234-a1b2c3
+  phase: before
+  generated_at: '2026-08-02T14:00:31+09:00'
+  timezone: Asia/Tokyo
+  profile_sha256: sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+  parser_versions: {nxos: '1.1'}
+  generator_version: '1.0'
+spec:
+  scope: {included_hosts: [leaf01, leaf02]}
+  summary: {l2vnis: 1, l3vnis: 1, conflicts: 0, unknowns: 0}
+  l2vnis:
+    - vni: 10010
+      vrf: TENANT-A
+      vlan_name: TENANT-A-WEB
+      status: DEVICE_VARIANT
+      devices:
+        leaf01: {vlan: 10, vlan_name: TENANT-A-WEB, nve_member: true, operational_state: Up, replication: UnicastBGP, svi: {vrf: TENANT-A, mtu: 9216, ipv4_addresses: [192.0.2.1/24], ipv6_addresses: ['2001:db8:10::1/64'], ipv6_link_local: 'fe80::1', anycast_gateway: true}}
+        leaf02: {vlan: 110, vlan_name: TENANT-A-WEB, nve_member: true, operational_state: Up, replication: UnicastBGP, svi: {vrf: TENANT-A, mtu: 9216, ipv4_addresses: [192.0.2.1/24], ipv6_addresses: ['2001:db8:10::1/64'], ipv6_link_local: 'fe80::1', anycast_gateway: true}}
+  l3vnis:
+    - vni: 50001
+      vrf: TENANT-A
+      status: CONSISTENT
+      devices:
+        leaf01: {local_as: ['65000'], rd: auto, nve_associate_vrf: true, operational_state: Up}
+        leaf02: {local_as: ['65000'], rd: auto, nve_associate_vrf: true, operational_state: Up}
+  conflicts: []
+  unknowns: []
+  evidence:
+    leaf01:
+      - {command: show running-config, file: health/before/raw/leaf01/config.txt, sha256: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa, parse_status: parsed, source_id: running_config}
+      - {command: show nve vni, file: health/before/raw/leaf01/shows.log, sha256: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb, parse_status: parsed, source_id: nve_vni}
+    leaf02:
+      - {command: show running-config, file: health/before/raw/leaf02/config.txt, sha256: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa, parse_status: parsed, source_id: running_config}
+      - {command: show nve vni, file: health/before/raw/leaf02/shows.log, sha256: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb, parse_status: parsed, source_id: nve_vni}

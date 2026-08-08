@@ -5,7 +5,7 @@
 現行alredに実装済みの機能について、As-Is解析、レビュー、正式設計書への反映状況を管理する。
 本書は機能の実装有無を判定する一覧ではなく、「既存実装をどこまで設計書化できたか」を示す。
 
-最終更新日: 2026-07-26
+最終更新日: 2026-08-08
 
 ## 2. 状態の定義
 
@@ -42,6 +42,7 @@
 | config push / save | `alred/cli.py`、`alred/constants.py` | `as_is_documented` | 未反映 | mock fixtureあり | 高。既存transportをOverlay applyで再利用 |
 | transform | `alred/transform.py`、transform用Jinja2 | `not_started` | 未反映 | あり | 中 |
 | topology / link normalization | `alred/topology.py`、`alred/design.py` | `not_started` | 未反映 | 一部あり | 中 |
+| role 検出・解決 | `roles.yaml`、`alred/topology.py`、`alred/cli.py` | `reviewed` | 正式設計へ反映。canonical resolver は未実装 | matcher・role 別収集の既存 test あり。新設計 test は未実装 | 高。legacy RR の意味を分離して移行 |
 | diagram生成 | `alred/render.py` | `not_started` | 未反映 | 一部あり | 低 |
 | configuration / resources | `alred/constants.py`、`alred/resources.py`、`CONFIG.md` | `not_started` | 未反映 | 要監査 | 中 |
 | logging / parsing共通処理 | `alred/logging_check.py`、`alred/parsing.py` | `not_started` | 未反映 | 要監査 | 中 |

@@ -43,6 +43,12 @@ health failure、warningの順にoperationの代表終了codeを選ぶ。
 | `REFERENCE_STATE_STALE` | 2 | no | 未開始 | より新しい正常状態を取得 |
 | `PLAN_CONFLICT` | 2 | no | 未開始 | beforeまたはChangeSetを確認 |
 | `PLAN_STALE` | 2 | no | 未開始 | 再収集・再plan・再承認 |
+| `ROLE_INPUT_ERROR` | 2 | no | 未開始 | `roles.yaml` の topology role、function、matcher rule を修正 |
+| `ROLE_CONFLICT` | 2 | no | 未開始 | hostname が複数 topology role に一致する規則を修正 |
+| `FUNCTION_EXPECTATION_CONFLICT` | 2 | no | 未開始 | 同一優先順位の function expectation rule を修正 |
+| `TOPOLOGY_ROLE_UNRESOLVED` | 3 | conditional | 不変 | hostname の命名規則または `roles.yaml` を確認 |
+| `ROLE_SCOPE_INVALID` | 2 | no | 未開始 | compare、plan、apply 対象から未解決 role を除くか規則を修正 |
+| `ROLE_RESOLUTION_MISMATCH` | 2 | no | 未開始 | before で固定した `roles.yaml` と解決結果を使用 |
 | `APPROVAL_REQUIRED` | 2 | no | 未開始 | 対話承認 |
 | `APPROVAL_INVALID` | 2 | no | 未開始 | hash/期限を確認し再承認 |
 | `OPERATION_LOCKED` | 2 | later | 不変 | 実行中operationを確認 |

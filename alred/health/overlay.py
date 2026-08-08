@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from datetime import datetime
+import ipaddress
 import re
 from typing import Any, Mapping
 
@@ -41,6 +42,150 @@ def _blocks(lines: list[str], pattern: str) -> list[tuple[str, list[str]]]:
     if current_name is not None:
         result.append((current_name, current_lines))
     return result
+
+
+def _parse_bgp_rr_config(body: list[str]) -> dict[str, Any]:
+    """Resolve direct and peer-template BGP RR client configuration."""
+    templates: dict[str, Any] = {}
+    neighbors: dict[str, Any] = {}
+    cluster_id: str | None = None
+    current_kind: str | None = None
+    current_name: str | None = None
+    current_af: str | None = None
+
+    def entry(container: dict[str, Any], name: str) -> dict[str, Any]:
+        return container.setdefault(
+            name, {"inherited_peer_templates": [], "address_families": {}}
+        )
+
+    for line in body:
+        indent = len(line) - len(line.lstrip())
+        stripped = line.strip()
+        if indent == 2 and (match := re.match(r"cluster-id\s+(\S+)$", stripped)):
+            cluster_id = match.group(1)
+            continue
+        if indent == 2 and (match := re.match(r"template peer\s+(\S+)$", stripped)):
+            current_kind, current_name, current_af = "template", match.group(1), None
+            entry(templates, current_name)
+            continue
+        if indent == 2 and (
+            match := re.match(r"neighbor\s+(\S+)(?:\s+inherit peer\s+(\S+))?$", stripped)
+        ):
+            current_kind, current_name, current_af = "neighbor", match.group(1), None
+            item = entry(neighbors, current_name)
+            if match.group(2) and match.group(2) not in item["inherited_peer_templates"]:
+                item["inherited_peer_templates"].append(match.group(2))
+            continue
+        if current_kind is None or current_name is None:
+            continue
+        container = templates if current_kind == "template" else neighbors
+        item = entry(container, current_name)
+        if indent == 4 and (match := re.match(r"inherit peer\s+(\S+)$", stripped)):
+            if match.group(1) not in item["inherited_peer_templates"]:
+                item["inherited_peer_templates"].append(match.group(1))
+            current_af = None
+        elif indent == 4 and (
+            match := re.match(
+                r"address-family\s+(l2vpn\s+evpn|ipv[46]\s+unicast)$",
+                stripped,
+            )
+        ):
+            current_af = match.group(1).lower().replace(" ", "-")
+            item["address_families"].setdefault(current_af, {})
+        elif indent == 6 and current_af and stripped == "route-reflector-client":
+            item["address_families"].setdefault(current_af, {})[
+                "route_reflector_client"
+            ] = True
+
+    errors: list[dict[str, Any]] = []
+    resolved_templates: dict[str, Any] = {}
+
+    def resolve_template(name: str, chain: tuple[str, ...] = ()) -> dict[str, Any] | None:
+        if name in resolved_templates:
+            return resolved_templates[name]
+        if name in chain:
+            errors.append(
+                {"code": "RR_TEMPLATE_UNRESOLVED", "template": name, "path": [*chain, name], "reason": "cycle"}
+            )
+            return None
+        raw = templates.get(name)
+        if raw is None:
+            errors.append(
+                {"code": "RR_TEMPLATE_UNRESOLVED", "template": name, "path": [*chain, name], "reason": "not_found"}
+            )
+            return None
+        effective: dict[str, Any] = {"address_families": {}}
+        for parent in raw["inherited_peer_templates"]:
+            inherited = resolve_template(parent, (*chain, name))
+            if inherited is None:
+                return None
+            for af, values in inherited["address_families"].items():
+                effective["address_families"][af] = dict(values)
+        for af, values in raw["address_families"].items():
+            effective["address_families"].setdefault(af, {}).update(values)
+            if values.get("route_reflector_client"):
+                effective["address_families"][af]["source"] = f"template:{name}"
+        resolved_templates[name] = effective
+        return effective
+
+    effective_neighbors: dict[str, Any] = {}
+    for neighbor, raw in neighbors.items():
+        effective = {
+            "inherited_peer_templates": list(raw["inherited_peer_templates"]),
+            "address_families": {},
+        }
+        unresolved = False
+        for template in raw["inherited_peer_templates"]:
+            inherited = resolve_template(template)
+            if inherited is None:
+                unresolved = True
+                continue
+            for af, values in inherited["address_families"].items():
+                effective["address_families"][af] = dict(values)
+        for af, values in raw["address_families"].items():
+            effective["address_families"].setdefault(af, {}).update(values)
+            if values.get("route_reflector_client"):
+                effective["address_families"][af]["source"] = "direct"
+        if unresolved:
+            effective["resolution_status"] = "unresolved"
+        else:
+            effective["resolution_status"] = "resolved"
+        effective_neighbors[neighbor] = effective
+
+    families: dict[str, Any] = {}
+    for family, af_names in {
+        "evpn": {"l2vpn-evpn"},
+        "underlay": {"ipv4-unicast", "ipv6-unicast"},
+    }.items():
+        family_neighbors: dict[str, Any] = {}
+        for neighbor, values in effective_neighbors.items():
+            selected = {
+                af: dict(item)
+                for af, item in values["address_families"].items()
+                if af in af_names and item.get("route_reflector_client")
+            }
+            if selected or values["resolution_status"] == "unresolved":
+                family_neighbors[neighbor] = {
+                    **values,
+                    "address_families": selected,
+                }
+        families[family] = {
+            "configured": any(
+                values["address_families"] for values in family_neighbors.values()
+            ),
+            "cluster_id": cluster_id,
+            "resolution_status": "unresolved" if errors else "resolved",
+            "resolution_errors": list(errors),
+            "peer_templates": {
+                name: {
+                    "inherited_peer_templates": list(raw["inherited_peer_templates"]),
+                    **(resolved_templates.get(name) or {"address_families": {}}),
+                }
+                for name, raw in templates.items()
+            },
+            "neighbors": family_neighbors,
+        }
+    return families
 
 
 def parse_overlay_running_config(text: str) -> dict[str, Any]:
@@ -83,6 +228,7 @@ def parse_overlay_running_config(text: str) -> dict[str, Any]:
             "ipv4_addresses": [],
             "ipv6_addresses": [],
             "ipv6_nd_suppress_ra": False,
+            "admin_enabled": True,
         }
         for line in body:
             if match := re.match(r"^\s+vrf member\s+(\S+)\s*$", line):
@@ -108,6 +254,10 @@ def parse_overlay_running_config(text: str) -> dict[str, Any]:
                 item["ip_forward"] = True
             elif re.match(r"^\s+fabric forwarding mode anycast-gateway\s*$", line):
                 item["anycast_gateway"] = True
+            elif re.match(r"^\s+shutdown\s*$", line):
+                item["admin_enabled"] = False
+            elif re.match(r"^\s+no shutdown\s*$", line):
+                item["admin_enabled"] = True
         svis[vlan] = item
 
     interfaces: dict[str, Any] = {}
@@ -170,8 +320,31 @@ def parse_overlay_running_config(text: str) -> dict[str, Any]:
 
     bgp_processes: dict[str, Any] = {}
     evpn_bgp_configured = False
+    rr_config: dict[str, Any] = {
+        "evpn": {"configured": False, "cluster_id": None, "resolution_status": "resolved", "resolution_errors": [], "peer_templates": {}, "neighbors": {}, "processes": {}},
+        "underlay": {"configured": False, "cluster_id": None, "resolution_status": "resolved", "resolution_errors": [], "peer_templates": {}, "neighbors": {}, "processes": {}},
+    }
     for local_as, body in _blocks(lines, r"^router bgp\s+(\S+)\s*$"):
         bgp_processes[local_as] = {"vrfs": {}}
+        process_rr = _parse_bgp_rr_config(body)
+        for family in ("evpn", "underlay"):
+            rr_config[family]["processes"][local_as] = process_rr[family]
+            rr_config[family]["configured"] = bool(
+                rr_config[family]["configured"] or process_rr[family]["configured"]
+            )
+            if process_rr[family]["cluster_id"] is not None:
+                rr_config[family]["cluster_id"] = process_rr[family]["cluster_id"]
+            if process_rr[family]["resolution_status"] == "unresolved":
+                rr_config[family]["resolution_status"] = "unresolved"
+            rr_config[family]["resolution_errors"].extend(
+                process_rr[family]["resolution_errors"]
+            )
+            rr_config[family]["peer_templates"].update(
+                process_rr[family]["peer_templates"]
+            )
+            rr_config[family]["neighbors"].update(
+                process_rr[family]["neighbors"]
+            )
         current_vrf: str | None = None
         current_af: str | None = None
         for line in body:
@@ -207,6 +380,57 @@ def parse_overlay_running_config(text: str) -> dict[str, Any]:
             if (match := re.match(r"^route-map\s+(\S+)\s+", line))
         }
     )
+    prefix_lists: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for line in lines:
+        match = re.match(
+            r"^(?:ip|ipv6) prefix-list\s+(\S+)(?:\s+seq\s+(\d+))?\s+"
+            r"(permit|deny)\s+(\S+)(?:\s+(ge|le)\s+(\d+))?"
+            r"(?:\s+(ge|le)\s+(\d+))?\s*$",
+            line,
+        )
+        if not match:
+            continue
+        name, sequence, action, prefix, op1, value1, op2, value2 = match.groups()
+        entry: dict[str, Any] = {
+            "sequence": int(sequence or 10),
+            "action": action,
+            "prefix": str(ipaddress.ip_network(prefix, strict=False)),
+        }
+        for operator, value in ((op1, value1), (op2, value2)):
+            if operator and value:
+                entry[operator] = int(value)
+        prefix_lists[name].append(entry)
+    for entries in prefix_lists.values():
+        entries.sort(key=lambda item: item["sequence"])
+
+    route_map_policies: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    current_route_map: dict[str, Any] | None = None
+    for line in lines:
+        match = re.match(r"^route-map\s+(\S+)\s+(permit|deny)(?:\s+(\d+))?\s*$", line)
+        if match:
+            name, action, sequence = match.groups()
+            current_route_map = {
+                "sequence": int(sequence or 10),
+                "action": action,
+                "match_ip_prefix_lists": [],
+                "unsupported_matches": [],
+            }
+            route_map_policies[name].append(current_route_map)
+            continue
+        if current_route_map is None:
+            continue
+        if line and not line.startswith(" "):
+            current_route_map = None
+            continue
+        stripped = line.strip()
+        if match := re.match(
+            r"match (?:ip|ipv6) address prefix-list\s+(.+)$", stripped
+        ):
+            current_route_map["match_ip_prefix_lists"].extend(match.group(1).split())
+        elif stripped.startswith("match "):
+            current_route_map["unsupported_matches"].append(stripped)
+    for entries in route_map_policies.values():
+        entries.sort(key=lambda item: item["sequence"])
     evpn_l2vnis: dict[str, Any] = {}
     for _evpn, body in _blocks(lines, r"^(evpn)\s*$"):
         current_vni: str | None = None
@@ -224,7 +448,15 @@ def parse_overlay_running_config(text: str) -> dict[str, Any]:
         "nve": nve,
         "bgp_processes": bgp_processes,
         "evpn_bgp_configured": evpn_bgp_configured,
+        "vpc": {
+            "configured": bool(
+                re.search(r"^vpc domain\s+\S+\s*$", text, re.MULTILINE)
+            )
+        },
+        "rr_config": rr_config,
         "route_maps": route_maps,
+        "route_map_policies": dict(route_map_policies),
+        "prefix_lists": dict(prefix_lists),
         "evpn_l2vnis": evpn_l2vnis,
     }
 

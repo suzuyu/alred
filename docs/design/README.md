@@ -23,6 +23,16 @@ Overlay Change Management、NX-OS Overlay Config Renderingの目標仕様、Supp
 
 ## 文書一覧
 
+### [Role Definition and Resolution Design](./ROLE_DEFINITION_AND_RESOLUTION_DESIGN.md)
+
+device の topology role と feature role、複数 role 解決、provenance、利用機能別の規則、
+`evpn-route-reflector` / `underlay-route-reflector` の意味と移行を定める。
+
+### [NX-OS Overlay Role Health Check Catalog](./NXOS_OVERLAY_ROLE_HEALTH_CHECK_CATALOG.md)
+
+`nxos-overlay` の topology role / function 別 check ID、command、Snapshot field、判定、
+before / after 比較、実装状態を定める。
+
 ### [Health Check Framework Design](./HEALTH_CHECK_FRAMEWORK_DESIGN.md)
 
 作業種別に依存しない共通正常性確認基盤の設計。

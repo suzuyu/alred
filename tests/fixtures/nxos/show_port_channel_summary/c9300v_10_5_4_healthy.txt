@@ -1,0 +1,3 @@
+Flags: D - Down P - Up in port-channel S - Switched U - Up
+Group Port-Channel Type Protocol Member Ports
+1 Po1(SU) Eth LACP Eth1/1(P) Eth1/2(P)

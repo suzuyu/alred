@@ -35,6 +35,7 @@ from .managed_config import (
 from .health.evaluator import compare_snapshots
 from .health.profile import load_resolved_profiles
 from .health.report import render_health_summary
+from .health.roles import load_resolved_roles
 from .overlay_render import normalize_nxos_model
 from .schema import (
     API_VERSION,
@@ -1330,12 +1331,15 @@ def verify_qualification_rollback(
     resolved_profiles = load_resolved_profiles(
         workspace.operation_root / "health" / "resolved-profiles.yaml"
     )
+    roles_path = workspace.operation_root / "health" / "resolved-roles.yaml"
+    resolved_roles = load_resolved_roles(roles_path) if roles_path.is_file() else None
     health_result = compare_snapshots(
         before,
         rollback,
         resolved_profiles,
         started_at=verified_at,
         completed_at=verified_at,
+        resolved_roles=resolved_roles,
     )
     health_result["phase"] = "rollback"
     report_dir = Path(report_dir) if report_dir else (
