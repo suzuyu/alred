@@ -30,6 +30,10 @@
       "type": "array",
       "items": {"type": "string", "minLength": 1}
     },
+    "device_addresses": {
+      "type": "object",
+      "additionalProperties": {"type": "string", "format": "ip-address"}
+    },
     "result": {
       "enum": ["PASS", "WARN", "FAIL", "UNKNOWN", "NOT_APPLICABLE", "PLAN_ERROR"]
     },
@@ -49,10 +53,36 @@
       "type": "array",
       "items": {"$ref": "#/$defs/check"}
     },
+    "unexecuted_hosts": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/unexecutedHost"}
+    },
     "operation_gate": {"type": "object"},
     "artifacts": {"type": "object"}
   },
   "$defs": {
+    "unexecutedHost": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "host",
+        "platform",
+        "topology_role",
+        "profile",
+        "profile_result",
+        "reason_code",
+        "message"
+      ],
+      "properties": {
+        "host": {"type": "string", "minLength": 1},
+        "platform": {"type": "string", "minLength": 1},
+        "topology_role": {"type": ["string", "null"]},
+        "profile": {"type": "string", "minLength": 1},
+        "profile_result": {"enum": ["NOT_APPLICABLE", "UNKNOWN"]},
+        "reason_code": {"type": "string", "minLength": 1},
+        "message": {"type": "string", "minLength": 1}
+      }
+    },
     "check": {
       "type": "object",
       "additionalProperties": false,

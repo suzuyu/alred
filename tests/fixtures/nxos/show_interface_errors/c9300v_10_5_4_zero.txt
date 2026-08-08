@@ -1,0 +1,2 @@
+Port Align-Err FCS-Err Xmit-Err Rcv-Err
+Eth1/1 0 0 0 0

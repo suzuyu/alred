@@ -115,6 +115,14 @@ def build_health_snapshot(
                     "processes_cpu",
                     "system_resources",
                     "environment",
+                    "clock",
+                    "ntp_status",
+                    "ntp_peers",
+                    "ntp_peer_status",
+                    "interface_status",
+                    "interface_brief",
+                    "interface_errors",
+                    "port_channel_summary",
                     "reload_pending",
                     "show_logging",
                     "route_summary_ipv4",
@@ -122,9 +130,15 @@ def build_health_snapshot(
                     "bgp_ipv4_summary",
                     "vpc_brief",
                     "nve_interface",
+                    "nve_peers",
                     "nve_vni",
                     "nve_vni_ingress_replication",
                     "bgp_l2vpn_evpn_summary",
+                    "bgp_l2vpn_evpn",
+                    "route_ipv4_all_vrfs",
+                    "route_ipv6_all_vrfs",
+                    "vlan_brief",
+                    "vrf",
                 }
                 else None
             )
@@ -174,6 +188,8 @@ def build_health_snapshot(
             "sources": sources,
             "parse_warnings": warnings,
         }
+        if "address" in host_record:
+            hosts[hostname]["address"] = host_record["address"]
 
     snapshot = {
         "schema_version": SCHEMA_VERSION,

@@ -17,6 +17,7 @@ from alred.health.evaluator import (
     compare_snapshots,
     evaluate_snapshot,
 )
+from alred.health.commands import command_id
 from alred.health.profile import (
     ProfileResolutionError,
     resolve_profiles,
@@ -28,31 +29,43 @@ from alred.health.report import render_health_checklist
 JST_NOW = datetime.fromisoformat("2026-08-02T10:02:03+09:00")
 
 
-def test_health_checklist_starts_with_times_and_groups_checks_by_device():
+def test_health_checklist_groups_checks_by_device_then_profile():
     result = {
         "change_id": "CHG-1",
         "phase": "before",
         "started_at": "2026-08-02T10:00:00+09:00",
         "completed_at": "2026-08-02T10:02:03+09:00",
         "result": "WARN",
+        "profiles": [
+            "network-baseline-nxos",
+            "logging-excludes-example",
+            "nxos-overlay",
+        ],
+        "device_addresses": {
+            "leaf01": "192.0.2.11",
+            "leaf02": "2001:db8::12",
+        },
         "checks": [
             {
                 "host": "leaf02",
                 "check_id": "cpu_utilization",
                 "result": "WARN",
                 "message": "CPU warning",
+                "profile": "network-baseline-nxos",
             },
             {
                 "host": "leaf01",
                 "check_id": "system_identity",
                 "result": "PASS",
                 "message": "System is healthy",
+                "profile": "network-baseline-nxos",
             },
             {
                 "host": "leaf01",
                 "check_id": "logging_health",
                 "result": "PASS",
                 "message": "No new logs",
+                "profile": "nxos-overlay",
             },
         ],
     }
@@ -62,6 +75,12 @@ def test_health_checklist_starts_with_times_and_groups_checks_by_device():
 
     assert lines[2] == "- Started at: 2026-08-02T10:00:00+09:00"
     assert lines[3] == "- Completed at: 2026-08-02T10:02:03+09:00"
+    assert "| network-baseline-nxos | 1 | 1 | 0 | 0 | 0 |" in checklist
+    assert "| nxos-overlay | 1 | 0 | 0 | 0 | 0 |" in checklist
+    assert "| logging-excludes-example |" not in checklist
+    assert "#### Profile: `logging-excludes-example`" not in checklist
+    assert "### Device: `leaf01` (192.0.2.11)" in checklist
+    assert "### Device: `leaf02` (2001:db8::12)" in checklist
     assert checklist.index("### Device: `leaf01`") < checklist.index(
         "### Device: `leaf02`"
     )
@@ -70,11 +89,37 @@ def test_health_checklist_starts_with_times_and_groups_checks_by_device():
     )[0]
     assert "`system_identity`" in leaf01
     assert "`logging_health`" in leaf01
+    assert leaf01.index("#### Profile: `network-baseline-nxos`") < leaf01.index(
+        "#### Profile: `nxos-overlay`"
+    )
     assert "leaf01 /" not in leaf01
 
 
 NXOS_FIXTURES = Path(__file__).parent / "fixtures" / "nxos"
 BASELINE_COMMAND_FIXTURES = {
+    "show clock": (NXOS_FIXTURES / "show_clock" / "c9300v_10_5_4.txt"),
+    "show ntp status": (
+        NXOS_FIXTURES / "show_ntp_status" / "c9300v_10_5_4_synchronized.txt"
+    ),
+    "show ntp peers": (
+        NXOS_FIXTURES / "show_ntp_peers" / "c9300v_10_5_4_selected.txt"
+    ),
+    "show ntp peer-status": (
+        NXOS_FIXTURES
+        / "show_ntp_peer_status"
+        / "c9300v_10_5_4_selected.txt"
+    ),
+    "show interface status": (
+        NXOS_FIXTURES / "show_interface_status" / "c9300v_10_5_4.txt"
+    ),
+    "show interface counters errors non-zero": (
+        NXOS_FIXTURES / "show_interface_errors" / "c9300v_10_5_4_zero.txt"
+    ),
+    "show port-channel summary": (
+        NXOS_FIXTURES
+        / "show_port_channel_summary"
+        / "c9300v_10_5_4_healthy.txt"
+    ),
     "show version": (NXOS_FIXTURES / "show_version" / "c9300v_10_5_4.txt"),
     "show processes cpu": (NXOS_FIXTURES / "show_processes_cpu" / "c9300v_10_5_4.txt"),
     "show system resources": (
@@ -162,6 +207,17 @@ def _snapshot(resolved, *, phase="before"):
                         "healthy": True,
                         "alarms": [],
                     },
+                    "clock": {"timestamp": JST_NOW.isoformat(), "timezone": "Asia/Tokyo"},
+                    "ntp": {
+                        "configured": True,
+                        "synchronized": True,
+                        "peers": {"192.0.2.123": {"selected": True, "marker": "*"}},
+                    },
+                    "interfaces": {
+                        "Eth1/1": {"admin_state": "up", "operational_state": "up", "status": "connected"}
+                    },
+                    "interface_errors": {},
+                    "port_channels": {"applicable": False, "channels": {}},
                     "reload_pending": {
                         "required": False,
                         "commands": [],
@@ -186,6 +242,12 @@ def _snapshot(resolved, *, phase="before"):
                     "processes_cpu",
                     "system_resources",
                     "environment",
+                    "clock",
+                    "ntp_status",
+                    "ntp_peers",
+                    "interface_status",
+                    "interface_errors",
+                    "port_channel_summary",
                     "reload_pending",
                     "show_logging",
                     "route_summary_ipv4",
@@ -250,12 +312,26 @@ def test_builtin_profiles_resolve_deterministically():
         "route_summary_ipv4",
         "ospf_neighbors",
         "bgp_ipv4_summary",
-        "nve_interface",
-        "nve_vni",
+            "nve_interface",
+            "nve_peers",
+            "nve_vni",
         "nve_vni_ingress_replication",
-        "bgp_l2vpn_evpn_summary",
-        "running_config",
-    }
+            "bgp_l2vpn_evpn_summary",
+                "bgp_l2vpn_evpn",
+                "route_ipv4_all_vrfs",
+                "route_ipv6_all_vrfs",
+                "running_config",
+            "clock",
+            "ntp_status",
+            "ntp_peers",
+            "ntp_peer_status",
+            "interface_status",
+                "interface_errors",
+                "port_channel_summary",
+                "vlan_brief",
+                "vrf",
+                "interface_brief",
+        }
 
 
 def test_explicit_profile_replaces_default_profile():
@@ -406,11 +482,11 @@ def test_single_snapshot_evaluates_baseline_and_cpu_threshold_inclusively():
     )
     assert healthy["result"] == "PASS"
     assert healthy["counts"] == {
-        "pass": 7,
+        "pass": 11,
         "warn": 0,
         "fail": 0,
         "unknown": 0,
-        "not_applicable": 4,
+        "not_applicable": 5,
     }
 
     snapshot["hosts"]["leaf01"]["common"]["cpu"]["one_minute_percent"] = 80
@@ -437,6 +513,276 @@ def test_single_snapshot_evaluates_baseline_and_cpu_threshold_inclusively():
     assert sustained["operation_gate"]["required"] is True
     assert sustained["operation_gate"]["reasons"][0]["code"] == ("SUSTAINED_HIGH_CPU")
 
+
+def test_additional_baseline_parsers_and_evaluators_cover_device_health():
+    clock, _ = parse_nxos_command(
+        "clock",
+        "10:02:03.000 JST Sun Aug 2 2026",
+        timezone="Asia/Tokyo",
+    )
+    ntp, _ = parse_nxos_command(
+        "ntp_status",
+        "Clock is synchronized, stratum 3, reference is 192.0.2.123",
+    )
+    peers, _ = parse_nxos_command(
+        "ntp_peers",
+        "*192.0.2.123  .GPS.  1 u 20 64 377 0.123 0.100 0.050",
+    )
+    interfaces, _ = parse_nxos_command(
+        "interface_status",
+        "Eth1/1 uplink connected trunk full 10G\nEth1/2 server notconnect 10 full 10G",
+    )
+    errors, _ = parse_nxos_command(
+        "interface_errors",
+        "Port Align-Err FCS-Err Xmit-Err Rcv-Err\nEth1/1 0 0 0 0",
+    )
+    channels, _ = parse_nxos_command(
+        "port_channel_summary",
+        "1 Po1(SU) Eth LACP Eth1/1(P) Eth1/2(P)",
+    )
+    ntp_disabled, _ = parse_nxos_command(
+        "ntp_status",
+        "Distribution : Disabled\nLast operational state: No session",
+    )
+    ntp_clock, _ = parse_nxos_command(
+        "clock",
+        "10:02:03.000 JST Sun Aug 2 2026\nTime source is NTP",
+        timezone="Asia/Tokyo",
+    )
+    no_peers, _ = parse_nxos_command("ntp_peers", "")
+    peer_status, _ = parse_nxos_command(
+        "ntp_peer_status",
+        (
+            NXOS_FIXTURES
+            / "show_ntp_peer_status"
+            / "c9300v_10_5_4_selected.txt"
+        ).read_text(encoding="utf-8"),
+    )
+    virtual_peer_link, _ = parse_nxos_command(
+        "port_channel_summary",
+        "1 Po1(SU) Eth NONE --",
+    )
+    no_channels, _ = parse_nxos_command("port_channel_summary", "")
+
+    assert clock["clock"]["timestamp"] == JST_NOW.isoformat()
+    assert ntp["ntp"]["synchronized"] is True
+    assert peers["ntp"]["peers"]["192.0.2.123"]["selected"] is True
+    assert interfaces["interfaces"]["Eth1/2"]["operational_state"] == "down"
+    assert errors["interface_errors"]["Eth1/1"]["FCS-Err"] == 0
+    assert channels["port_channels"]["channels"]["Po1"]["bundled_members"] == [
+        "Eth1/1",
+        "Eth1/2",
+    ]
+    assert ntp_disabled["ntp"] == {
+        "synchronized": False,
+        "operational_state": "No session",
+    }
+    assert ntp_clock["clock"]["time_source"] == "NTP"
+    assert no_peers["ntp"]["peers"] == {}
+    assert peer_status["ntp"]["peer_status"]["peers"][
+        "192.168.129.254"
+    ] == {
+        "selected": True,
+        "mode": "selected",
+        "marker": "*",
+        "local": "192.168.129.81",
+        "stratum": 3,
+        "poll": 64,
+        "reach": 377,
+        "delay": 0.123,
+        "vrf": "management",
+    }
+    assert virtual_peer_link["port_channels"]["channels"]["Po1"] == {
+        "flags": "SU",
+        "up": True,
+        "protocol": "NONE",
+        "member_check_applicable": False,
+        "members": {},
+        "bundled_members": [],
+    }
+    assert no_channels["port_channels"] == {
+        "applicable": False,
+        "channels": {},
+    }
+
+    resolved = _resolved()
+    snapshot = _snapshot(resolved)
+    snapshot["hosts"]["leaf01"]["common"].update(
+        {
+            **clock,
+            **ntp,
+            "ntp": {
+                **ntp["ntp"],
+                **peers["ntp"],
+                **peer_status["ntp"],
+            },
+            **interfaces,
+            **errors,
+            **channels,
+        }
+    )
+    result = evaluate_snapshot(snapshot, resolved, started_at=JST_NOW, completed_at=JST_NOW)
+    findings = {item["check_id"]: item for item in result["checks"]}
+    assert findings["clock_health"]["result"] == "PASS"
+    assert findings["ntp_health"]["result"] == "PASS"
+    assert findings["interface_health"]["result"] == "FAIL"
+    assert findings["interface_error_health"]["result"] == "PASS"
+    assert findings["port_channel_health"]["result"] == "PASS"
+
+    configured_no_session = _snapshot(resolved)
+    configured_host = configured_no_session["hosts"]["leaf01"]
+    configured_host["common"]["ntp"] = {
+        **ntp_disabled["ntp"],
+        "peers": {
+            "192.168.129.254": {"selected": False, "marker": None}
+        },
+    }
+    configured_host["common"]["clock"] = ntp_clock["clock"]
+    configured_result = evaluate_snapshot(
+        configured_no_session,
+        resolved,
+        started_at=JST_NOW,
+        completed_at=JST_NOW,
+    )
+    configured_check = next(
+        check
+        for check in configured_result["checks"]
+        if check["check_id"] == "ntp_health"
+    )
+    assert configured_check["result"] == "WARN"
+    assert configured_check["after"]["configured"] is True
+    assert configured_check["after"]["clock_time_source"] == "NTP"
+    assert configured_check["message"] == (
+        "NTP is configured but unsynchronized "
+        "(operational state: No session; no selected peer; clock time source: NTP)"
+    )
+
+
+def test_baseline_command_ids_connect_collected_health_outputs() -> None:
+    assert {
+        command: command_id(command)
+        for command in (
+            "show clock",
+            "show ntp status",
+            "show ntp peers",
+            "show ntp peer-status",
+            "show interface status",
+            "show interface counters errors non-zero",
+            "show port-channel summary",
+        )
+    } == {
+        "show clock": "clock",
+        "show ntp status": "ntp_status",
+        "show ntp peers": "ntp_peers",
+        "show ntp peer-status": "ntp_peer_status",
+        "show interface status": "interface_status",
+        "show interface counters errors non-zero": "interface_errors",
+        "show port-channel summary": "port_channel_summary",
+    }
+
+
+def test_uncollected_baseline_health_evidence_is_unknown() -> None:
+    resolved = _resolved()
+    snapshot = _snapshot(resolved)
+    host = snapshot["hosts"]["leaf01"]
+    for field in (
+        "clock",
+        "ntp",
+        "interfaces",
+        "interface_errors",
+        "port_channels",
+    ):
+        host["common"].pop(field, None)
+    for identifier in (
+        "clock",
+        "ntp_status",
+        "ntp_peers",
+        "ntp_peer_status",
+        "interface_status",
+        "interface_errors",
+        "port_channel_summary",
+    ):
+        host["sources"].pop(identifier, None)
+
+    result = evaluate_snapshot(
+        snapshot,
+        resolved,
+        started_at=JST_NOW,
+        completed_at=JST_NOW,
+    )
+    checks = {check["check_id"]: check for check in result["checks"]}
+
+    for check_id in (
+        "clock_health",
+        "ntp_health",
+        "interface_health",
+        "interface_error_health",
+        "port_channel_health",
+    ):
+        assert checks[check_id]["result"] == "UNKNOWN"
+        assert checks[check_id]["classification"] == "collection_error"
+
+
+def test_ntp_peer_status_unsupported_falls_back_to_primary_evidence() -> None:
+    resolved = _resolved()
+    snapshot = _snapshot(resolved)
+    snapshot["hosts"]["leaf01"]["sources"]["ntp_peer_status"] = {
+        "status": "success",
+        "parse_status": "unknown",
+        "parse_warning": "NX-OS command returned an error",
+    }
+
+    result = evaluate_snapshot(
+        snapshot,
+        resolved,
+        started_at=JST_NOW,
+        completed_at=JST_NOW,
+    )
+    check = next(
+        item for item in result["checks"] if item["check_id"] == "ntp_health"
+    )
+
+    assert check["result"] == "PASS"
+    assert check["message"] == "NTP is synchronized to 192.0.2.123"
+
+
+def test_additional_baseline_compare_detects_device_health_regressions():
+    resolved = _resolved()
+    before = _snapshot(resolved)
+    after = deepcopy(before)
+    after["phase"] = "after"
+    after["collection_id"] = "CHG-1-after-001"
+    before_common = before["hosts"]["leaf01"]["common"]
+    after_common = after["hosts"]["leaf01"]["common"]
+    before_common["port_channels"] = {
+        "applicable": True,
+        "channels": {"Po1": {"up": True, "bundled_members": ["Eth1/1", "Eth1/2"]}},
+    }
+    before_common["interface_errors"] = {"Eth1/1": {"FCS-Err": 0}}
+    after_common["interfaces"]["Eth1/1"]["operational_state"] = "down"
+    after_common["ntp"]["synchronized"] = False
+    after_common["interface_errors"] = {"Eth1/1": {"FCS-Err": 100}}
+    after_common["port_channels"] = {
+        "applicable": True,
+        "channels": {"Po1": {"up": True, "bundled_members": ["Eth1/1"]}},
+    }
+
+    result = compare_snapshots(
+        before,
+        after,
+        resolved,
+        started_at=JST_NOW,
+        completed_at=JST_NOW,
+    )
+    findings = {item["check_id"]: item for item in result["checks"]}
+    for check_id in (
+        "interface_health",
+        "ntp_health",
+        "interface_error_health",
+        "port_channel_health",
+    ):
+        assert findings[check_id]["result"] == "FAIL"
+        assert findings[check_id]["classification"] == "regression"
 
 def test_logging_before_warns_and_honors_include_exclude_patterns():
     resolved = _resolved()

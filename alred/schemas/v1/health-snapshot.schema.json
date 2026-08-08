@@ -34,6 +34,7 @@
         "additionalProperties": false,
         "required": ["common", "profiles", "sources"],
         "properties": {
+          "address": {"type": "string", "format": "ip-address"},
           "collection_status": {
             "enum": ["success", "partial", "failed"]
           },

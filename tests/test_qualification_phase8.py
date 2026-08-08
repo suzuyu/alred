@@ -1084,9 +1084,22 @@ def test_normal_approved_rollback_runs_reverse_order(tmp_path, monkeypatch):
         "alred.managed_operation.load_resolved_profiles",
         lambda _path: {},
     )
+    roles_path = workspace.operation_root / "health/resolved-roles.yaml"
+    roles_path.write_text("{}\n", encoding="utf-8")
+    resolved_roles = {"kind": "ResolvedRoles", "spec": {}}
+    monkeypatch.setattr(
+        "alred.managed_operation.load_resolved_roles",
+        lambda _path: resolved_roles,
+    )
+    compare_kwargs = {}
+
+    def compare_with_roles(*_args, **kwargs):
+        compare_kwargs.update(kwargs)
+        return dict(comparison)
+
     monkeypatch.setattr(
         "alred.managed_operation.compare_snapshots",
-        lambda *_args, **_kwargs: dict(comparison),
+        compare_with_roles,
     )
     with OperationLock(workspace, "rollback-verify", now=JST_NOW) as lock:
         verification = verify_approved_rollback(
@@ -1098,6 +1111,7 @@ def test_normal_approved_rollback_runs_reverse_order(tmp_path, monkeypatch):
         )
 
     assert verification["status"]["snapshot_fresh"] is True
+    assert compare_kwargs["resolved_roles"] is resolved_roles
     assert verification["status"]["result"] == "ROLLED_BACK_AND_VERIFIED"
     checklist = workspace.operation_root / "rollback/verification-checklist.md"
     assert checklist.is_file()
@@ -1455,9 +1469,22 @@ def test_qualification_rollback_verification_requires_raw_and_semantic_match(
         "alred.qualification.load_resolved_profiles",
         lambda _path: {},
     )
+    roles_path = workspace.operation_root / "health/resolved-roles.yaml"
+    roles_path.write_text("{}\n", encoding="utf-8")
+    resolved_roles = {"kind": "ResolvedRoles", "spec": {}}
+    monkeypatch.setattr(
+        "alred.qualification.load_resolved_roles",
+        lambda _path: resolved_roles,
+    )
+    compare_kwargs = {}
+
+    def compare_with_roles(*_args, **kwargs):
+        compare_kwargs.update(kwargs)
+        return dict(comparison)
+
     monkeypatch.setattr(
         "alred.qualification.compare_snapshots",
-        lambda *_args, **_kwargs: dict(comparison),
+        compare_with_roles,
     )
 
     with OperationLock(
@@ -1474,6 +1501,7 @@ def test_qualification_rollback_verification_requires_raw_and_semantic_match(
         )
 
     assert verification["status"]["result"] == "ROLLED_BACK_AND_VERIFIED"
+    assert compare_kwargs["resolved_roles"] is resolved_roles
     assert verification["status"]["snapshot_fresh"] is True
     assert verification["status"]["raw_config_equal"] is True
     assert verification["status"]["semantic_config_equal"] is True

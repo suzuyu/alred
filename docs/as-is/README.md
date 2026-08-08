@@ -89,3 +89,4 @@ As-Is記録をIntegratedとして完了
 - [Collect Output](./COLLECT_OUTPUT_AS_IS.md)
 - [VNI Config Renderer](./VNI_CONFIG_RENDERER_AS_IS.md)
 - [Config Push / Save](./PUSH_CONFIG_AS_IS.md)
+- [Role Detection and Resolution](./ROLE_RESOLUTION_AS_IS.md)

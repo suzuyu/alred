@@ -56,6 +56,7 @@ SCHEMA_FILES = {
     "QualificationSaveExecution": "qualification-save-execution.schema.json",
     "RollbackPlan": "rollback-plan.schema.json",
     "ResolvedHealthCheckProfiles": "resolved-health-check-profiles.schema.json",
+    "ResolvedRoles": "resolved-roles.schema.json",
     "SupportBundleManifest": "support-bundle-manifest.schema.json",
     "SupportBundleIndex": "support-bundle-index.schema.json",
     "SupportBundleRedactionPolicy": "support-bundle-redaction-policy.schema.json",

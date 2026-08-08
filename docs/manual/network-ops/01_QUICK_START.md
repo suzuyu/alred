@@ -33,7 +33,7 @@ Input     : alred-collect
 Hosts     : 2
 Warnings  : 0
 Result    : WARN
-Checks    : PASS=18 WARN=2 FAIL=0 UNKNOWN=0 N/A=2
+Checks    : PASS=28 WARN=2 FAIL=0 UNKNOWN=0 N/A=2
 Manifest  : operations/HC-20260802T091500-p1234-a1b2c3/health/before/collection-manifest.yaml
 Snapshot  : operations/HC-20260802T091500-p1234-a1b2c3/health/before/snapshot.json
 Checklist : operations/HC-20260802T091500-p1234-a1b2c3/health/before/checklist.md
@@ -56,9 +56,17 @@ less operations/HC-20260802T091500-p1234-a1b2c3/health/before/checklist.md
 - Phase: before
 - Result: WARN
 
+## Result by Profile
+
+| Profile | PASS | WARN | FAIL | UNKNOWN | N/A |
+|---|---:|---:|---:|---:|---:|
+| network-baseline-nxos | 28 | 2 | 0 | 0 | 2 |
+
 ## Checks
 
-### Device: `leaf01`
+### Device: `leaf01` (192.0.2.11)
+
+#### Profile: `network-baseline-nxos`
 
 - [x] `collection_complete`: PASS - All required command outputs were parsed
 - [x] `cpu_utilization`: PASS - CPU one_minute_percent is 34.0% (warning threshold: 80%)

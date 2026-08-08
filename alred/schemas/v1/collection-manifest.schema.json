@@ -51,6 +51,7 @@
       "required": ["status", "commands"],
       "properties": {
         "status": {"enum": ["success", "partial", "failed", "skipped"]},
+        "address": {"type": "string", "format": "ip-address"},
         "commands": {
           "type": "object",
           "additionalProperties": {"$ref": "#/$defs/command"}

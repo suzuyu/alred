@@ -1,28 +1,45 @@
+schema_version: 2
+
 role_detection:
   border-gateway:
     priority: 0
     contains:
       - bgw
+    functions:
+      vtep:
+        expectation: required
+      vpc:
+        expectation: optional
 
   super-spine:
     priority: 1
     contains:
       - ss
+    functions:
+      evpn-route-reflector:
+        expectation: required
+      underlay-route-reflector:
+        expectation: optional
 
   spine:
     priority: 2
     contains:
       - sp
-
-  underlay-route-reflector:
-    priority: 2
-    contains:
-      - sp
+    functions:
+      evpn-route-reflector:
+        expectation: required
+      underlay-route-reflector:
+        expectation: optional
 
   leaf:
     priority: 3
     contains:
       - lf
+    functions:
+      vtep:
+        expectation: required
+      vpc:
+        expectation: optional
 
   network-functions:
     priority: 4
@@ -37,3 +54,13 @@ role_detection:
       - srv
       - worker
       - control-plane
+
+function_expectation_rules:
+  vpc:
+    required_when:
+      contains:
+        - vpc
+  underlay-route-reflector:
+    required_when:
+      contains:
+        - urr

@@ -246,15 +246,24 @@ exclude_interfaces:
 
 ## 7. ロール定義 (`roles.yaml`)
 
-`generate-clab` / `generate-mermaid` / `generate-tf` / `collect --show-commands-file` で利用します。
+`generate-clab` / `generate-mermaid` / `generate-tf` / `collect --show-commands-file` と `health-check --roles` で利用します。
+
+`topology_role` は、`roles.yaml` に記載した hostname の命名規則から解決する方針です。running config は topology role の決定には使用せず、VTEP や vPC などの function の実在確認に使用します。
 
 ```yaml
+schema_version: 2
+
 role_detection:
   spine:
     priority: 2
     position_matches:
       - pos: 0
         value: sp
+    functions:
+      evpn-route-reflector:
+        expectation: required
+      underlay-route-reflector:
+        expectation: optional
 ```
 
 1 つの role に定義できる主な条件:
@@ -265,27 +274,31 @@ role_detection:
 - `endswith`
 - `contains`
 
-補助 role を追加して、同じ機器に複数 role をマッチさせることもできます。
+`schema_version: 2` では topology role を 1 つだけ解決します。VTEP、vPC、EVPN RR、underlay RR は独立した hostname role にせず、topology role 配下の function として `required`、`optional`、`forbidden` の期待状態を定義します。
 
 ```yaml
-role_detection:
-  spine:
-    priority: 2
-    position_matches:
-      - pos: 0
-        value: sp
+schema_version: 2
 
-  underlay-route-reflector:
-    priority: 2
-    position_matches:
-      - pos: 0
-        value: sp
+role_detection:
+  leaf:
+    contains: [lf]
+    functions:
+      vtep:
+        expectation: required
+      vpc:
+        expectation: optional
+
+function_expectation_rules:
+  vpc:
+    required_when:
+      contains: [vpc]
 ```
 
-この場合:
+version を省略した既存形式は `schema_version: 1` として扱い、既存機能の複数 role 判定を維持します。Health Check の role-aware scope は `schema_version: 2` のときだけ有効です。
 
-- `[spine]` と `[underlay-route-reflector]` の両方の show command が適用されます
-- `generate-mermaid --underlay` / `generate-doc --underlay` では該当ノードのラベル先頭に `(BGP-RR)` を表示します
+完全な例は [roles.example.yaml](alred/sample_configs/roles.example.yaml) を参照してください。
+
+`vtep` や `vpc` は hostname から推測する配置 role ではありません。function の期待状態は `roles.yaml` で定義し、実在と正常性は running config と show command の証跡で確認します。詳細は [Role Definition and Resolution Design](docs/design/ROLE_DEFINITION_AND_RESOLUTION_DESIGN.md) を参照してください。
 
 ## 8. サイト定義 (`sites.yaml`)
 

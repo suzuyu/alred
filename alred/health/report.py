@@ -54,7 +54,7 @@ def render_health_summary(result: Mapping[str, Any]) -> str:
 
 
 def render_health_checklist(result: Mapping[str, Any]) -> str:
-    """Render deterministic checklist sections grouped by device."""
+    """Render deterministic checklist sections grouped by device and profile."""
     lines = [
         "# Health Check Checklist",
         "",
@@ -64,8 +64,10 @@ def render_health_checklist(result: Mapping[str, Any]) -> str:
         f"- Phase: {result['phase']}",
         f"- Result: {result['result']}",
         "",
-        "## Checks",
+        "## Result by Profile",
         "",
+        "| Profile | PASS | WARN | FAIL | UNKNOWN | N/A |",
+        "|---|---:|---:|---:|---:|---:|",
     ]
     markers = {
         "PASS": "x",
@@ -75,20 +77,93 @@ def render_health_checklist(result: Mapping[str, Any]) -> str:
         "UNKNOWN": " ",
         "PLAN_ERROR": " ",
     }
+    resolved_profile_order = list(result.get("profiles", []))
+    profiles_with_checks = {
+        str(check.get("profile") or "unknown") for check in result["checks"]
+    }
+    profile_order = [
+        profile
+        for profile in resolved_profile_order
+        if profile in profiles_with_checks
+    ]
+    for check in result["checks"]:
+        profile = str(check.get("profile") or "unknown")
+        if profile not in profile_order:
+            profile_order.append(profile)
+    for profile in profile_order:
+        profile_checks = [
+            check
+            for check in result["checks"]
+            if str(check.get("profile") or "unknown") == profile
+        ]
+        counts = {
+            status: sum(check["result"] == status for check in profile_checks)
+            for status in ("PASS", "WARN", "FAIL", "UNKNOWN", "NOT_APPLICABLE")
+        }
+        lines.append(
+            f"| {profile} | {counts['PASS']} | {counts['WARN']} | "
+            f"{counts['FAIL']} | {counts['UNKNOWN']} | {counts['NOT_APPLICABLE']} |"
+        )
+
+    lines.extend(["", "## Checks", ""])
     checks_by_host: dict[str, list[Mapping[str, Any]]] = {}
     for check in result["checks"]:
         checks_by_host.setdefault(str(check["host"]), []).append(check)
     if not checks_by_host:
         lines.append("- No checks.")
+    device_addresses = result.get("device_addresses", {})
     for host in sorted(checks_by_host):
-        lines.extend([f"### Device: `{host}`", ""])
-        for check in checks_by_host[host]:
-            marker = markers[check["result"]]
-            message = " ".join(str(check["message"]).splitlines())
-            lines.append(
-                f"- [{marker}] `{check['check_id']}`: {check['result']} - {message}"
-            )
-        lines.append("")
+        address = str(device_addresses.get(host, "")).strip()
+        heading = f"### Device: `{host}`"
+        if address:
+            heading += f" ({address})"
+        lines.extend([heading, ""])
+        for profile in profile_order:
+            profile_checks = [
+                check
+                for check in checks_by_host[host]
+                if str(check.get("profile") or "unknown") == profile
+            ]
+            if not profile_checks:
+                continue
+            lines.extend([f"#### Profile: `{profile}`", ""])
+            for check in profile_checks:
+                marker = markers[check["result"]]
+                message = " ".join(str(check["message"]).splitlines())
+                lines.append(
+                    f"- [{marker}] `{check['check_id']}`: {check['result']} - {message}"
+                )
+            lines.append("")
+    lines.extend(["## Unexecuted Hosts", ""])
+    unexecuted = sorted(
+        result.get("unexecuted_hosts", []),
+        key=lambda item: (
+            str(item["host"]),
+            str(item["profile"]),
+            str(item["reason_code"]),
+        ),
+    )
+    if not unexecuted:
+        lines.append("- None")
+    else:
+        lines.extend(
+            [
+                "| Host | Platform | Topology Role | Profile | Result | Reason Code | Reason |",
+                "|---|---|---|---|---|---|---|",
+            ]
+        )
+        for item in unexecuted:
+            values = [
+                item["host"],
+                item["platform"],
+                item.get("topology_role") or "-",
+                item["profile"],
+                item["profile_result"],
+                item["reason_code"],
+                item["message"],
+            ]
+            escaped = [str(value).replace("|", "\\|") for value in values]
+            lines.append("| " + " | ".join(escaped) + " |")
     return "\n".join(lines).rstrip() + "\n"
 
 

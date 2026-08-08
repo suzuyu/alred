@@ -877,6 +877,16 @@ CSVの列は`change_type,resource_type,vni,vrf,device,field,before,after,status,
 `OVERLAY_STATE`を初期対象とする。複数addressや複合値はJSON配列またはJSON objectを
 CSV field内にエスケープして保持する。
 
+差分行はVNI、resource type、VRF、device、fieldの順に並べ、同じVNIの変更を連続して
+出力する。VNIを持たない`OVERLAY_STATE`の差分はVNI単位の行より後に出力する。
+人間向けMarkdownはVNI / resource type / VRFごとにsection化し、change type、field、before、
+after、statusが同じdeviceを1行へまとめる。field変更件数と集約後の表示行数を併記する。
+deviceごとに値が異なる行は集約せず、差異を隠さない。JSON / CSVの粒度は変更しない。
+Markdown末尾には`Field Source List`としてfield、取得元種別、copy-and-paste可能なNX-OS確認
+コマンドを出力し、`Evidence Files`としてsource / device別のbefore / after証跡pathを出力する。
+config由来fieldは`show running-config`、VNI operational stateとreplicationは`show nve vni`を
+基本sourceとする。複合判定と未知fieldでは変更行に保持された全sourceを表示する。
+
 期待ChangeSetを入力しないHealth Checkでは変更の意図を断定できないため、
 `status` は通常の観測差分を`OBSERVED`、観測値の矛盾を`CONFLICT`、証跡不足を
 `UNKNOWN`とする。`EXPECTED` / `UNEXPECTED`は将来、declared ChangeSetと照合した
@@ -1033,6 +1043,8 @@ L2 / L3 の分類根拠も `status.discovery`に保存する。根拠が矛盾�
 - 複数VTEP構成でEVPN control planeを使用する場合、対象VNIに対応するType-3（IMET）routeが存在
 - 必要に応じてType-2 route / MACを確認
 - SVI対象機器ではSVIが存在しup/up
+- SVI connected prefix が BGP VRF address-family の広報 policy に一致する場合、Type-5 が広報元、
+  EVPN RR、同じ L3VNI と import RT を持つ受信対象 Leaf へ伝搬し、VRF route へ導入されている
 - IPv4 / IPv6 Gatewayが観測値と一致
 - IPv6 SVIではlink-localが解決済み期待値（省略時`fe80::1`）と一致
 - SVI MTUが解決済み期待値と一致
@@ -1054,6 +1066,8 @@ L2 / L3 の分類根拠も `status.discovery`に保存する。根拠が矛盾�
 - 対象BGP VRF AFの`maximum-paths ibgp`が解決済み値（省略時4）と一致する
 - 参照するroute-map本体が存在する
 - IP prefixをEVPNへ広告する構成または期待値がある場合、対象VRFのType-5 routeが存在
+- Type-5 の期待 prefix と受信対象 Leaf は ChangeSet への手動列挙を要求せず、SVI、VRF route、
+  L3VNI、RD/RT、BGP 広報 policy から自動導出する
 - VRF routeを取得できる
 
 ### 10.5 既存環境への影響
@@ -1069,12 +1083,18 @@ L2 / L3 の分類根拠も `status.discovery`に保存する。根拠が矛盾�
 
 以下の出力例はCisco Nexus 9000 NX-OSの代表的な表示形式を基にした設計用サンプルである。NX-OS release、platform、IPv4/IPv6 underlay、Multi-Siteなどにより列、フラグ、コマンド構文が異なる場合がある。そのためparserは固定カラム位置だけに依存せず、releaseごとのfixtureを用意する。利用可能な場合は既存collectのJSON sidecarも優先して利用する。
 
+`nxos-overlay` の対象 topology role は `leaf`、`border-gateway`、`spine`、`super-spine` とする。`network-functions` と `server` には本 profile を実行しない。`other` は正常な対象外とはみなさず、read-only 結果を `UNKNOWN`、compare、plan、apply を `PLAN_ERROR` とする。platform が NX-OS の `network-functions` と `other` には、併用する `network-baseline-nxos` を通常どおり実行する。
+
+role/function 別の check ID、command、Snapshot field、判定、実装状態は [NX-OS Overlay Role Health Check Catalog](./NXOS_OVERLAY_ROLE_HEALTH_CHECK_CATALOG.md) を正本とする。本章は個別 resource の parser 入力、代表出力、詳細な判定規則を定める。
+
+一般的な underlay OSPF/BGP neighbor、route、ECMP、interface、port-channel の判定は `network-baseline-nxos` が所有する。`nxos-overlay` は重複判定せず、VTEP loopback 到達性など Overlay 固有の依存関係から baseline 結果を参照する。
+
 #### 10.6.1 コマンド一覧
 
 | 優先度 | NX-OSコマンド | 主な取得値 | 主な判定 |
 |---|---|---|---|
 | 必須 | `show running-config` | VLAN/VNI、VRF/L3VNI、SVI、NVE、BGP VRF設定 | 新規設定の発見と設定整合性 |
-| 必須（spine/leaf） | `show ip ospf neighbors` | Underlay OSPF neighbor、state、interface | Full neighborの維持、作業後の悪化なし |
+| baseline参照 | `show ip ospf neighbors` | Underlay OSPF neighbor、state、interface | `network-baseline-nxos` の判定を参照 |
 | 必須 | `show nve interface` | NVE state、source-interface、VTEP IP | NVEがUpであり、収集前後で悪化していない |
 | 必須 | `show nve peers` | peer IP、state、learn type | 既存peerの維持、remote VTEPの状態 |
 | 必須 | `show nve vni` | VNI、state、L2/L3、BD/VRF、replication | 新規VNIが正しい種別でUp |
@@ -1089,6 +1109,10 @@ L2 / L3 の分類根拠も `status.discovery`に保存する。根拠が矛盾�
 | 既定（leaf） | `show port-channel summary` | port-channelとmember | Up状態とbundled member数の維持 |
 
 vPC未設定leafではvPC checkを`NOT_APPLICABLE`とし、コマンド出力が空または未設定を示すことだけで`UNKNOWN`や`FAIL`にしない。vPC設定済みなのに出力を解析できない場合は`UNKNOWN`とする。
+
+EVPN RR は `spine` または `super-spine` の `evpn-route-reflector` function で確認する。初期実装では before で Established だった client の消失・downとEVPN routeの異常な減少を regression とし、期待 client 一覧を hostname から生成しない。
+
+`border-gateway` の初期範囲は VTEP、BGP EVPN、VRF route、Type-5 regression、external BGP regression とする。EVPN Multi-Site 固有項目は初期対象外とし、通常の `border-gateway` だけから推測しない。
 | 条件付き | `show bgp l2vpn evpn` | Type-2/3/5 route、next hop | IMET、MAC/IP、IP prefixの伝播 |
 | 条件付き | `show nve vni ingress-replication` | VNIごとのreplication peer | 対象L2VNIのremote VTEP確認 |
 | 条件付き | `show route-map <NAME>` | route-mapの存在、sequence、match/set、可能ならhit情報 | direct/static redistribution参照先の存在確認と証跡保存 |
@@ -1370,6 +1394,11 @@ show ipv6 interface brief vrf all
 
 #### 10.6.10 EVPN route
 
+Route Type ごとの適用条件、Type-5 期待値の自動導出、広報元から EVPN RR および受信対象 Leaf までの
+伝搬確認、`full` / `sampled` mode の正本は
+[NX-OS Overlay Role Health Check Catalog](./NXOS_OVERLAY_ROLE_HEALTH_CHECK_CATALOG.md#62-evpn-route-type-の適用条件)
+とする。本節は parser 入力と Overlay 変更時の補足規則を定める。
+
 基本コマンド:
 
 ```text
@@ -1398,7 +1427,12 @@ Route Distinguisher: 10.0.0.11:50001    (L3VNI 50001)
 
 - L2VNIが複数VTEPに新規出現した場合、対象VNIのroute-targetまたはRDコンテキストと関連付けてremote Type-3を確認する
 - 単一VTEP配置やremote VTEPが存在しないことが許容される構成では、Type-3不在だけでFAILにしない
-- Type-5は、prefix広告が宣言されている場合、またはbefore/afterで対象VRFのType-5広告が観測される場合に評価する
+- Type-5 は、ChangeSet がなくても running config、VRF route、SVI、L3VNI、RD/RT、BGP 広報 policy
+  から広報対象 prefix を安全に導出できる場合に評価する
+- NX-OS で `advertise l2vpn evpn` が明示されず、`redistribute direct` によって Type-5 が生成される
+  構成を許容する。Health Check の期待 prefix 生成では同 command の明示を一律の必須条件にしない
+- 既定では広報元、EVPN RR、収集済みの全受信対象 Leaf を確認する。EVPN RR だけの存在確認を
+  end-to-end の `PASS` にしない
 - `advertise l2vpn evpn`の設定確認PASSとType-5 routeの存在確認は分離する。広告対象prefixがまだない場合、設定が正しくてもType-5 routeが0件になり得る
 - `redistribute direct`の設定確認PASSと、実際にdirect prefixがType-5として広告されていることの確認は分離する。route-mapでdenyされるprefixや存在しないdirect routeを一律FAILにしない
 - `redistribute static`も同様に、設定確認とstatic prefixのType-5広告確認を分離する。対象static routeがない、またはroute-mapでdenyされる場合はroute不在だけでFAILにしない
