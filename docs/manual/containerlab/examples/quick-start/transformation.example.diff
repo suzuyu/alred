@@ -1,0 +1,24 @@
+--- source-config/site1-leaf01_run.example.txt
++++ labconfig/site1-leaf01_run.example.txt
+@@ -1,19 +1,9 @@
+ hostname site1-leaf01
+-username production-monitor role network-operator
+-ntp server 192.0.2.200 prefer use-vrf management
+-logging server 192.0.2.201 6 use-vrf management
+-ip name-server 192.0.2.203 use-vrf management
+-tacacs server PROD-TACACS
+-  address ipv4 192.0.2.202
+-aaa group server tacacs+ PROD
+-  server name PROD-TACACS
+-ip access-list PROD-MGMT
+-  10 permit ip 192.0.2.0/24 any
++ntp server 172.20.20.200 prefer use-vrf management
+ line vty
+-  access-class PROD-MGMT in
+ interface mgmt0
+   vrf member management
+-  ip address 192.0.2.21/24
++  ip address 172.20.20.21/24
+ interface loopback0
+   ip address 10.255.0.21/32
+ interface Ethernet1/1

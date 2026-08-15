@@ -1,0 +1,30 @@
+all:
+  hosts:
+    site1-spine01:
+      ansible_host: 172.20.20.11
+      device_type: nxos
+      os_type: nxos
+      ansible_network_os: cisco.nxos.nxos
+      ansible_connection: network_cli
+      netmiko_device_type: cisco_nxos
+    site1-spine02:
+      ansible_host: 172.20.20.12
+      device_type: nxos
+      os_type: nxos
+      ansible_network_os: cisco.nxos.nxos
+      ansible_connection: network_cli
+      netmiko_device_type: cisco_nxos
+    site1-leaf01:
+      ansible_host: 172.20.20.21
+      device_type: nxos
+      os_type: nxos
+      ansible_network_os: cisco.nxos.nxos
+      ansible_connection: network_cli
+      netmiko_device_type: cisco_nxos
+    site1-leaf02:
+      ansible_host: 172.20.20.22
+      device_type: nxos
+      os_type: nxos
+      ansible_network_os: cisco.nxos.nxos
+      ansible_connection: network_cli
+      netmiko_device_type: cisco_nxos

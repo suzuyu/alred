@@ -3,12 +3,16 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from alred.managed_config import (
+    NXOS_CLAB_SSH_KEY_ALREADY_EXISTS_RULE_ID,
+    build_nxos_clab_cli_error_allowlist,
     build_execution_document,
     execute_config_session,
     execute_save_session,
     execute_serial_devices,
     load_managed_config_commands,
+    load_cli_error_allowlist,
     nxos_cli_error,
+    redact_config_execution_result,
 )
 
 
@@ -117,6 +121,113 @@ def test_managed_session_stops_on_cli_error_and_marks_remaining_not_started():
     ]
     assert len(connection.config_calls) == 2
     assert result["first_failure"]["command_index"] == 2
+
+
+def test_cli_error_allowlist_continues_and_records_rule(tmp_path):
+    allowlist = tmp_path / "allow.yaml"
+    allowlist.write_text(
+        """rules:
+  - id: already-exists
+    command_pattern: '^vlan 10$'
+    response_pattern: 'Invalid command'
+""",
+        encoding="utf-8",
+    )
+    connection = FakeConnection(["% Invalid command", "ok"])
+
+    result = execute_config_session(
+        connection,
+        ["vlan 10", "name SERVERS"],
+        now=_clock(),
+        cli_error_allowlist=load_cli_error_allowlist(allowlist),
+    )
+
+    assert result["status"] == "WARN"
+    assert [item["status"] for item in result["commands"]] == ["WARN", "SUCCESS"]
+    assert result["commands"][0]["allow_rule_id"] == "already-exists"
+
+
+def test_nxos_clab_ssh_key_existing_rule_continues_with_warn():
+    connection = FakeConnection([
+        "ssh key rsa 2048\n"
+        "ERROR: Cannot configure run ssh key without force as the config is "
+        "already existing \n\nleaf01(config)#",
+        "hostname leaf01\nleaf01(config)#",
+    ])
+
+    result = execute_config_session(
+        connection,
+        ["ssh key rsa 2048", "hostname leaf01"],
+        now=_clock(),
+        cli_error_allowlist=build_nxos_clab_cli_error_allowlist(),
+    )
+
+    assert result["status"] == "WARN"
+    assert [item["status"] for item in result["commands"]] == ["WARN", "SUCCESS"]
+    assert result["commands"][0]["allow_rule_id"] == (
+        NXOS_CLAB_SSH_KEY_ALREADY_EXISTS_RULE_ID
+    )
+
+
+@pytest.mark.parametrize(
+    ("command", "response"),
+    [
+        (
+            "ssh key rsa 2048 force",
+            "ERROR: Cannot configure run ssh key without force as the config is already existing",
+        ),
+        (
+            "ssh key rsa 2048",
+            "ERROR: RSA key generation failed for an unrelated reason",
+        ),
+    ],
+)
+def test_nxos_clab_ssh_key_rule_rejects_near_matches(command, response):
+    result = execute_config_session(
+        FakeConnection([response]),
+        [command],
+        now=_clock(),
+        cli_error_allowlist=build_nxos_clab_cli_error_allowlist(),
+    )
+
+    assert result["status"] == "FAILED"
+    assert "allow_rule_id" not in result["commands"][0]
+
+
+def test_ignore_all_cli_errors_detects_and_continues():
+    connection = FakeConnection(["% Invalid command", "ok"])
+
+    result = execute_config_session(
+        connection,
+        ["line one", "line two"],
+        now=_clock(),
+        ignore_all_cli_errors=True,
+    )
+
+    assert result["status"] == "IGNORED_ERROR"
+    assert [item["status"] for item in result["commands"]] == [
+        "IGNORED_ERROR",
+        "SUCCESS",
+    ]
+
+
+def test_config_result_redaction_removes_command_and_echoed_secrets():
+    result = {
+        "status": "SUCCESS",
+        "commands": [{
+            "index": 1,
+            "command": "username lab-admin password 0 VerySecret role network-admin",
+            "response": "username lab-admin password 0 VerySecret role network-admin\nok",
+            "error": None,
+        }],
+        "first_failure": None,
+    }
+
+    redacted = redact_config_execution_result(result)
+
+    assert "VerySecret" not in str(redacted)
+    assert "<redacted>" in redacted["commands"][0]["command"]
+    assert "VerySecret" in str(result)
 
 
 def test_transport_exception_is_unknown_and_is_not_retried():

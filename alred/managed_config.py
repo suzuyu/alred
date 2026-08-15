@@ -6,6 +6,9 @@ from datetime import datetime
 from pathlib import Path
 import re
 from typing import Any, Callable, Iterable, Mapping, Sequence
+from copy import deepcopy
+
+import yaml
 
 from .schema import API_VERSION, validate_document
 
@@ -18,6 +21,68 @@ NXOS_CLI_ERROR_PATTERNS = (
     re.compile(r"(?im)command rejected"),
 )
 
+NXOS_CLAB_SSH_KEY_ALREADY_EXISTS_RULE_ID = "NXOS_CLAB_SSH_KEY_ALREADY_EXISTS"
+_NXOS_CLAB_SSH_KEY_COMMAND_PATTERN = (
+    r"^ssh[ \t]+key[ \t]+rsa[ \t]+[0-9]+[ \t]*$"
+)
+_NXOS_CLAB_SSH_KEY_RESPONSE_PATTERN = (
+    r"^ERROR:[ \t]+Cannot configure run ssh key without force as the config is "
+    r"already existing[ \t]*\r?$"
+)
+
+_CONFIG_SECRET_PATTERNS = (
+    re.compile(r"(?i)^(username\s+\S+\s+(?:password|secret)\s+)(?:\d+\s+)?(\S+)(.*)$"),
+    re.compile(r"(?i)^((?:tacacs|radius)-server\s+host\s+\S+.*?\skey\s+)(?:\d+\s+)?(\S+)(.*)$"),
+    re.compile(r"(?i)^(key\s+)(?:\d+\s+)?(\S+)(.*)$"),
+    re.compile(r"(?i)^(snmp-server\s+community\s+)(\S+)(.*)$"),
+    re.compile(r"(?i)^(snmp-server\s+host\s+\S+.*?\sversion\s+\S+\s+)(\S+)(.*)$"),
+    re.compile(r"(?i)^(ntp\s+authentication-key\s+\S+\s+\S+\s+)(\S+)(.*)$"),
+    re.compile(r"(?i)^(.+\b(?:password|secret|community|token)\s+(?:\d+\s+)?)(\S+)(.*)$"),
+)
+
+
+def redact_config_command(command: str) -> tuple[str, tuple[str, ...]]:
+    """Redact a credential-bearing NX-OS command and return removed values."""
+    for pattern in _CONFIG_SECRET_PATTERNS:
+        match = pattern.match(command.strip())
+        if match:
+            secret = match.group(2)
+            return f"{match.group(1)}<redacted>{match.group(3)}", (secret,)
+    return command, ()
+
+
+def redact_config_execution_result(result: Mapping[str, Any]) -> dict[str, Any]:
+    """Create persistence-safe command evidence without raw credential values."""
+    redacted = deepcopy(dict(result))
+    commands = redacted.get("commands", [])
+    if not isinstance(commands, list):
+        return redacted
+    removed_values: list[str] = []
+    for item in commands:
+        if not isinstance(item, dict):
+            continue
+        command = str(item.get("command", ""))
+        safe_command, removed = redact_config_command(command)
+        removed_values.extend(removed)
+        item["command"] = safe_command
+        response = str(item.get("response", ""))
+        error = str(item.get("error", "")) if item.get("error") is not None else None
+        for secret in removed:
+            if secret:
+                response = response.replace(secret, "<redacted>")
+                if error is not None:
+                    error = error.replace(secret, "<redacted>")
+        item["response"] = response
+        item["error"] = error
+    failure = redacted.get("first_failure")
+    if isinstance(failure, dict):
+        message = str(failure.get("message", ""))
+        for secret in removed_values:
+            if secret:
+                message = message.replace(secret, "<redacted>")
+        failure["message"] = message
+    return redacted
+
 
 def nxos_cli_error(response: str) -> str | None:
     """Return the first matching NX-OS CLI error line."""
@@ -29,6 +94,68 @@ def nxos_cli_error(response: str) -> str | None:
             if line_end == -1:
                 line_end = len(response)
             return response[line_start:line_end].strip()
+    return None
+
+
+def load_cli_error_allowlist(path: str | Path | None) -> list[dict[str, Any]]:
+    """Load bounded command/response regex rules for known acceptable CLI errors."""
+    if path is None:
+        return []
+    candidate = Path(path)
+    if not candidate.is_file() or candidate.is_symlink():
+        raise ValueError(f"CLI error allowlist must be a regular YAML file: {candidate}")
+    document = yaml.safe_load(candidate.read_text(encoding="utf-8")) or {}
+    rules = document.get("rules") if isinstance(document, Mapping) else None
+    if not isinstance(rules, list) or not rules:
+        raise ValueError("CLI error allowlist requires a non-empty rules list")
+    loaded: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
+    for index, rule in enumerate(rules):
+        if not isinstance(rule, Mapping):
+            raise ValueError(f"CLI error allowlist rule {index + 1} must be a mapping")
+        rule_id = str(rule.get("id", "")).strip()
+        command_pattern = str(rule.get("command_pattern", "")).strip()
+        response_pattern = str(rule.get("response_pattern", "")).strip()
+        if not rule_id or rule_id in seen_ids:
+            raise ValueError(f"CLI error allowlist rule ID is empty or duplicate: {rule_id!r}")
+        if not command_pattern or not response_pattern:
+            raise ValueError(f"CLI error allowlist rule {rule_id} requires both patterns")
+        try:
+            loaded.append({
+                "id": rule_id,
+                "command": re.compile(command_pattern, re.IGNORECASE),
+                "response": re.compile(response_pattern, re.IGNORECASE | re.MULTILINE),
+            })
+        except re.error as exc:
+            raise ValueError(f"invalid regex in CLI error allowlist rule {rule_id}: {exc}") from exc
+        seen_ids.add(rule_id)
+    return loaded
+
+
+def build_nxos_clab_cli_error_allowlist() -> list[dict[str, Any]]:
+    """Return the bounded NX-OS 9000v bootstrap compatibility rule."""
+    return [{
+        "id": NXOS_CLAB_SSH_KEY_ALREADY_EXISTS_RULE_ID,
+        "command": re.compile(
+            _NXOS_CLAB_SSH_KEY_COMMAND_PATTERN,
+            re.IGNORECASE,
+        ),
+        "response": re.compile(
+            _NXOS_CLAB_SSH_KEY_RESPONSE_PATTERN,
+            re.IGNORECASE | re.MULTILINE,
+        ),
+    }]
+
+
+def match_cli_error_allowlist(
+    command: str,
+    response: str,
+    rules: Sequence[Mapping[str, Any]],
+) -> str | None:
+    """Return the first rule ID whose command and response patterns both match."""
+    for rule in rules:
+        if rule["command"].search(command) and rule["response"].search(response):
+            return str(rule["id"])
     return None
 
 
@@ -71,6 +198,8 @@ def execute_config_session(
     now: Callable[[], datetime],
     detect_cli_errors: bool = True,
     raise_transport_errors: bool = False,
+    cli_error_allowlist: Sequence[Mapping[str, Any]] = (),
+    ignore_all_cli_errors: bool = False,
 ) -> dict[str, Any]:
     """Send one command at a time and preserve response/unknown state."""
     command_list = list(commands)
@@ -82,6 +211,7 @@ def execute_config_session(
         response = ""
         error = None
         status = "SUCCESS"
+        allow_rule_id = None
         try:
             response = connection.send_config_set(
                 [command],
@@ -92,9 +222,23 @@ def execute_config_session(
             response = str(response).rstrip()
             cli_error = nxos_cli_error(response) if detect_cli_errors else None
             if cli_error is not None:
-                status = "FAILED"
-                error = cli_error
-                state = "FAILED"
+                allow_rule_id = match_cli_error_allowlist(
+                    command, response, cli_error_allowlist
+                )
+                if allow_rule_id is not None:
+                    status = "WARN"
+                    error = cli_error
+                    state = "WARN" if state == "SUCCESS" else state
+                elif ignore_all_cli_errors:
+                    status = "IGNORED_ERROR"
+                    error = cli_error
+                    state = "IGNORED_ERROR"
+                else:
+                    status = "FAILED"
+                    error = cli_error
+                    state = "FAILED"
+            else:
+                allow_rule_id = None
         except Exception as exc:
             if raise_transport_errors:
                 raise
@@ -112,8 +256,10 @@ def execute_config_session(
             "response": response,
             "error": error,
         }
+        if allow_rule_id is not None:
+            record["allow_rule_id"] = allow_rule_id
         results.append(record)
-        if status != "SUCCESS":
+        if status in {"FAILED", "UNKNOWN"}:
             first_failure = {
                 "command_index": index,
                 "message": error or "command failed",

@@ -1,0 +1,43 @@
+schema_version: 2
+
+role_detection:
+  border-gateway:
+    priority: 10
+    contains:
+      - bgw
+  super-spine:
+    priority: 20
+    position_matches:
+      - pos: 4
+        value: ss
+  spine:
+    priority: 30
+    position_matches:
+      - pos: 4
+        value: sp
+    functions:
+      evpn-route-reflector:
+        expectation: required
+  leaf:
+    priority: 40
+    position_matches:
+      - pos: 4
+        value: lf
+    functions:
+      vtep:
+        expectation: required
+      vpc:
+        expectation: optional
+  network-functions:
+    priority: 50
+    position_matches:
+      - pos: 4
+        value: bgrt
+  server:
+    priority: 50
+    contains:
+      - ctsv
+      - t1sv
+      - t2sv
+      - k01
+      - k02

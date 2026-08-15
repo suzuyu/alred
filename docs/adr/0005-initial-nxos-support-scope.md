@@ -26,7 +26,7 @@ Nexus 93180YC-FX3、Nexus 9348GC-FX3、Nexus 9364C-H1とする。10.4(5)M以降�
 
 ## References
 
-- [NX-OS Capability and Fixture Matrix](../design/NXOS_CAPABILITY_AND_FIXTURE_MATRIX.md)
-- [NX-OS Overlay Config Rendering Design](../design/NXOS_OVERLAY_CONFIG_RENDERING_DESIGN.md)
-- [NX-OS Baseline Health Check Commands](../design/NXOS_BASELINE_HEALTH_CHECK_COMMANDS.md)
+- [NX-OS Capability and Fixture Matrix](../design/network-ops/NXOS_CAPABILITY_AND_FIXTURE_MATRIX.md)
+- [NX-OS Overlay Config Rendering Design](../design/network-ops/NXOS_OVERLAY_CONFIG_RENDERING_DESIGN.md)
+- [NX-OS Baseline Health Check Commands](../design/network-ops/NXOS_BASELINE_HEALTH_CHECK_COMMANDS.md)
 - hardwareの検証方法は[ADR-0007](./0007-limit-device-validation-to-nexus-9000v.md)で具体化した。

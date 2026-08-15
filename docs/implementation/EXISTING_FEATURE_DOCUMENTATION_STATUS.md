@@ -5,7 +5,7 @@
 現行alredに実装済みの機能について、As-Is解析、レビュー、正式設計書への反映状況を管理する。
 本書は機能の実装有無を判定する一覧ではなく、「既存実装をどこまで設計書化できたか」を示す。
 
-最終更新日: 2026-08-08
+最終更新日: 2026-08-09
 
 ## 2. 状態の定義
 
@@ -28,25 +28,29 @@
 4. 複数機能から再利用される内部component
 5. 安定しており、今回の変更と独立している機能
 
-設計書化だけを目的とする一括変更は行わず、Phase 0および各機能変更の前提作業として
-段階的に進める。
+通常はPhase 0および各機能変更の前提作業として段階的に進める。領域横断の設計整理を明示的に行う場合も、
+As-Isの証拠、正式設計への統合先、既知の実装差分を機能単位で追跡する。
 
 ## 4. 進捗
 
 | 機能領域 | 主な実装・入口 | As-Is解析 | 設計書反映 | テスト確認 | 優先度・備考 |
 |---|---|---|---|---|---|
-| CLI基盤 | `alred/cli.py`、`alred.py` | `as_is_documented` | 未反映 | Phase 0 fixtureあり | 高。top-level commandと終了codeを固定 |
-| collect | `alred/cli.py`、`alred/collect.py` | `as_is_documented` | 一部参照のみ | syntheticおよびC9300v 10.5(4)選択fixtureあり | 高。manifest/Snapshot連携は未実装 |
-| inventory / hosts | `alred/inventory.py` | `not_started` | 未反映 | 要監査 | 高。対象device解決が依存 |
-| 現行VNI map/config | `alred/templates.py`、`alred/j2/vni_*.j2` | `as_is_documented` | 一部 | 現行goldenあり | 最優先。VNI map側は引き続き要監査 |
-| config push / save | `alred/cli.py`、`alred/constants.py` | `as_is_documented` | 未反映 | mock fixtureあり | 高。既存transportをOverlay applyで再利用 |
-| transform | `alred/transform.py`、transform用Jinja2 | `not_started` | 未反映 | あり | 中 |
-| topology / link normalization | `alred/topology.py`、`alred/design.py` | `not_started` | 未反映 | 一部あり | 中 |
-| role 検出・解決 | `roles.yaml`、`alred/topology.py`、`alred/cli.py` | `reviewed` | 正式設計へ反映。canonical resolver は未実装 | matcher・role 別収集の既存 test あり。新設計 test は未実装 | 高。legacy RR の意味を分離して移行 |
-| diagram生成 | `alred/render.py` | `not_started` | 未反映 | 一部あり | 低 |
-| configuration / resources | `alred/constants.py`、`alred/resources.py`、`CONFIG.md` | `not_started` | 未反映 | 要監査 | 中 |
-| logging / parsing共通処理 | `alred/logging_check.py`、`alred/parsing.py` | `not_started` | 未反映 | 要監査 | 中 |
-| packaging / build | `BUILD.md`、`packaging/`、`scripts/` | `not_started` | 未反映 | 要監査 | 低 |
+| CLI基盤 | `alred/cli.py`、`alred.py` | `integrated` | [Common設計](../design/common/CLI_CONFIGURATION_AND_RESOURCES_DESIGN.md)へ反映 | command/help fixture、CLI testあり | top-level command、parser、終了code境界を記録 |
+| configuration / resources | `alred/constants.py`、`alred/resources.py`、`CONFIG.md` | `reviewed` | Common設計へ反映 | path、sample、resource testあり | cwd探索とpackage dataを記録。全commandの個別defaultは各設計を正本とする |
+| inventory / hosts | `alred/inventory.py` | `reviewed` | [Inventory設計](../design/common/INVENTORY_CREDENTIALS_AND_DEVICE_ACCESS_DESIGN.md)へ反映 | offline inventory／CLI testあり | `hosts.txt`／YAMLとtarget解決を記録 |
+| credential / transport | `alred/utils.py`、`alred/collect.py`、`alred/cli.py` | `reviewed` | Inventory設計へ反映 | mock／offline testあり | NX-API TLS defaultとplatform実機範囲は既知の検討事項 |
+| collect | `alred/cli.py`、`alred/collect.py` | `integrated` | [Collection設計](../design/common/COLLECTION_DESIGN.md)へ反映 | syntheticおよびC9300v 10.5(4)選択fixtureあり | current mirrorのatomicityとstale sidecarは実装差分として追跡 |
+| 現行VNI map | `alred/cli.py`のrunning-config parser／CSV出力 | `reviewed` | [VNI設計](../design/network-ops/VNI_MAP_AND_LEGACY_CSV_DESIGN.md)へ反映 | parser testあり | release別fixture、mapping後衝突、完全schema validationを追跡 |
+| legacy VNI config | `alred/cli.py`、`alred/overlay_render.py`、`alred/j2/vni_*.j2` | `integrated` | VNI設計とrenderer設計へ反映 | goldenあり | legacy CSV互換と共通renderer境界を記録 |
+| config push / save | `alred/cli.py`、`alred/managed_config.py` | `integrated` | [Direct Config Push設計](../design/network-ops/DIRECT_CONFIG_PUSH_AND_SAVE_DESIGN.md)へ反映 | mock fixtureあり | CLI error text非検出などの安全制約を明示 |
+| containerlab transform / generation | `alred/transform.py`、`alred/design.py`、`generate-clab` | `integrated` | [Containerlab設計](../design/containerlab/CONTAINERLAB_WORKFLOW_DESIGN.md)と[Containerlab Manual](../manual/containerlab/README.md)へ反映 | transform、validation、topology testあり | 非NX-OS対応は未承認。startup確認の既知bugを追跡 |
+| topology / link normalization | `alred/parsing.py`、`alred/topology.py` | `reviewed` | [Topology設計](../design/topology/LINK_DISCOVERY_AND_NORMALIZATION_DESIGN.md)と[Topology Manual](../manual/topology/README.md)へ反映 | evidence、normalization testあり | CSV row順の非決定性とschema validation不足を追跡 |
+| canonical role解決 | `roles.yaml`、`alred/health/roles.py`、Health／Overlay | `integrated` | [Role設計](../design/common/ROLE_DEFINITION_AND_RESOLUTION_DESIGN.md)へ反映 | v1/v2、conflict、provenance testあり | Health／Overlayのcanonical resolverを実装済み |
+| legacy role consumer | topology、diagram、containerlab、Terraform | `reviewed` | Role／Topology／Terraform Inventory Generation設計へ反映 | matcher testあり | single-roleからcanonical multi-roleへの移行は未実装 |
+| diagram生成 | `alred/render.py`、`generate-network-diagram`、`generate-mermaid`、`generate-graphviz`、`generate-drawio`、`generate-doc` | `reviewed` | [Rendering設計](../design/topology/TOPOLOGY_RENDERING_DESIGN.md)と[Topology Manual](../manual/topology/README.md)へ反映 | format別testあり | format間metadata parityを追跡 |
+| Terraform inventory生成 | `alred/inventory.py`、`generate-tf` | `reviewed` | [Terraform Inventory Generation設計](../design/common/TERRAFORM_INVENTORY_GENERATION_DESIGN.md)へ反映 | inventory renderer testあり | 固定credential、role衝突、atomic publishを追跡 |
+| logging / feature parser | `alred/logging_check.py`、`alred/parsing.py`、`alred/health/` | `reviewed` | Common、Topology、Health設計へ責務別に反映 | parser fixtureあり | platform別fixture網羅性は継続監査 |
+| packaging / build | `pyproject.toml`、`BUILD.md`、`packaging/`、`scripts/` | `reviewed` | [Development設計](../design/development/DEVELOPMENT_TESTING_AND_PACKAGING_DESIGN.md)へ反映 | packaging test、CI native binary smokeあり | wheel install、glibc定期build、署名は未実装 |
 
 `一部参照のみ`は、新規設計から既存機能を利用する前提が記載されているだけで、既存機能
 そのもののAs-Is仕様が網羅されていることを意味しない。

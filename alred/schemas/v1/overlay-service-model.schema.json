@@ -1,0 +1,172 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://alred.local/schemas/v1/overlay-service-model.schema.json",
+  "title": "OverlayServiceModel",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["api_version", "kind", "metadata", "spec"],
+  "properties": {
+    "api_version": {"const": "alred/v1"},
+    "kind": {"const": "OverlayServiceModel"},
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source"],
+      "properties": {
+        "source": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "value"],
+          "properties": {
+            "type": {"enum": ["evidence-package", "running-config-import", "latest-operation", "operation", "file"]},
+            "value": {"type": "string", "minLength": 1}
+          }
+        },
+        "source_manifest_sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+      }
+    },
+    "spec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "parser_versions", "services", "route_leaks", "diagnostics"],
+      "properties": {
+        "status": {"enum": ["complete", "partial", "insufficient-evidence"]},
+        "parser_versions": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["running_config", "evpn_control_plane", "operational"],
+          "properties": {
+            "running_config": {"type": "string", "minLength": 1},
+            "evpn_control_plane": {"type": "string", "minLength": 1},
+            "operational": {"type": "string", "minLength": 1}
+          }
+        },
+        "services": {"type": "array", "items": {"$ref": "#/$defs/service"}},
+        "route_leaks": {"type": "array", "items": {"$ref": "#/$defs/route_leak"}},
+        "diagnostics": {
+          "type": "array",
+          "items": {"type": "object", "required": ["code"], "properties": {"code": {"type": "string", "minLength": 1}}}
+        }
+      }
+    }
+  },
+  "$defs": {
+    "service": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["service_id", "site", "vrf", "l3vni", "address_families", "route_distinguisher", "import_route_targets", "export_route_targets", "route_target_observations", "l2_services", "l3vni_mode", "l3vni_mode_state", "l3vni_bindings", "placements", "route_type_summary", "status", "conflicts", "evidence_refs"],
+      "properties": {
+        "service_id": {"type": "string", "minLength": 1},
+        "site": {"type": "string", "minLength": 1},
+        "vrf": {"type": ["string", "null"]},
+        "l3vni": {"type": ["integer", "null"], "minimum": 1},
+        "address_families": {"type": "array", "uniqueItems": true, "items": {"enum": ["ipv4", "ipv6"]}},
+        "route_distinguisher": {"type": ["string", "null"]},
+        "import_route_targets": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
+        "export_route_targets": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
+        "route_target_observations": {"type": "array", "items": {"type": "object"}},
+        "l2_services": {"type": "array", "items": {"$ref": "#/$defs/l2_service"}},
+        "l3vni_mode": {"enum": ["new_l3vni", "traditional_vlan_svi", "unknown", "conflict"]},
+        "l3vni_mode_state": {"enum": ["consistent", "partial", "unknown", "conflict"]},
+        "l3vni_bindings": {"type": "array", "items": {"$ref": "#/$defs/l3vni_binding"}},
+        "placements": {"type": "array", "items": {"$ref": "#/$defs/placement"}},
+        "route_type_summary": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type2", "type3", "type5"],
+          "properties": {
+            "type2": {"type": ["integer", "null"], "minimum": 0},
+            "type3": {"type": ["integer", "null"], "minimum": 0},
+            "type5": {"type": ["integer", "null"], "minimum": 0}
+          }
+        },
+        "status": {"enum": ["healthy", "configured", "unknown", "degraded", "conflict"]},
+        "conflicts": {"type": "array", "items": {"type": "object"}},
+        "evidence_refs": {"type": "array", "uniqueItems": true, "items": {"type": "string"}}
+      }
+    },
+    "placement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["node", "placement_type", "vtep_addresses", "vpc_domain", "vpc_shared_vtep_addresses", "nve_l3_member"],
+      "properties": {
+        "node": {"type": "string", "minLength": 1},
+        "placement_type": {"enum": ["evpn-vtep", "l2-only", "service-edge"]},
+        "vtep_addresses": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
+        "vpc_domain": {"type": ["string", "null"]},
+        "vpc_shared_vtep_addresses": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
+        "nve_l3_member": {"type": "boolean"}
+      }
+    },
+    "l2_service": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["l2vni", "vlan", "vlan_state", "svi", "rd", "nodes", "nve_member", "bindings", "gateway_state", "gateway_modes", "ipv4_addresses", "ipv6_addresses"],
+      "properties": {
+        "l2vni": {"type": "integer", "minimum": 1},
+        "vlan": {"type": ["integer", "null"], "minimum": 1},
+        "vlan_state": {"enum": ["common", "per-device", "unknown"]},
+        "svi": {"type": ["string", "null"]},
+        "rd": {"type": ["string", "null"]},
+        "nodes": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "nve_member": {"type": "boolean"},
+        "bindings": {"type": "array", "items": {"$ref": "#/$defs/l2_binding"}},
+        "gateway_state": {"enum": ["yes", "no", "mixed", "unknown"]},
+        "gateway_modes": {"type": "array", "uniqueItems": true, "items": {"enum": ["anycast", "addressed", "none"]}},
+        "ipv4_addresses": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
+        "ipv6_addresses": {"type": "array", "uniqueItems": true, "items": {"type": "string"}}
+      }
+    },
+    "l2_binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["node", "vlan", "svi", "nve_member", "gateway", "gateway_mode", "ipv4_addresses", "ipv6_addresses", "ip_forward"],
+      "properties": {
+        "node": {"type": "string", "minLength": 1},
+        "vlan": {"type": "integer", "minimum": 1},
+        "svi": {"type": ["string", "null"]},
+        "nve_member": {"type": "boolean"},
+        "gateway": {"type": "boolean"},
+        "gateway_mode": {"enum": ["anycast", "addressed", "none"]},
+        "ipv4_addresses": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
+        "ipv6_addresses": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
+        "ip_forward": {"type": "boolean"}
+      }
+    },
+    "l3vni_binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["node", "mode", "vlan", "svi", "svi_behavior", "nve_associate_vrf", "ipv4_addresses", "ipv6_addresses", "ipv6_use_link_local_only"],
+      "properties": {
+        "node": {"type": "string", "minLength": 1},
+        "mode": {"enum": ["new_l3vni", "traditional_vlan_svi", "unknown"]},
+        "vlan": {"type": ["integer", "null"], "minimum": 1},
+        "svi": {"type": ["string", "null"]},
+        "svi_behavior": {"type": ["string", "null"]},
+        "nve_associate_vrf": {"type": "boolean"},
+        "ipv4_addresses": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
+        "ipv6_addresses": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
+        "ipv6_use_link_local_only": {"type": "boolean"}
+      }
+    },
+    "route_leak": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["leak_id", "source_service", "destination_service", "address_families", "scope", "matched_route_targets", "policy_state", "policy_coverage", "operational_state", "verification_scope", "prefix_summary", "evidence_refs"],
+      "properties": {
+        "leak_id": {"type": "string", "minLength": 1},
+        "source_service": {"type": "string", "minLength": 1},
+        "destination_service": {"type": "string", "minLength": 1},
+        "address_families": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"enum": ["ipv4", "ipv6"]}},
+        "scope": {"enum": ["evpn", "vpn"]},
+        "matched_route_targets": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string"}},
+        "policy_state": {"enum": ["configured", "unknown", "degraded", "conflict"]},
+        "policy_coverage": {"type": "object"},
+        "operational_state": {"enum": ["verified", "unknown", "degraded", "not-applicable", "conflict"]},
+        "verification_scope": {"enum": ["full", "sampled", "partial", "unknown"]},
+        "prefix_summary": {"type": "object"},
+        "evidence_refs": {"type": "array", "uniqueItems": true, "items": {"type": "string"}}
+      }
+    }
+  }
+}

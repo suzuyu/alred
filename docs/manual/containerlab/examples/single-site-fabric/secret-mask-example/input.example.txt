@@ -1,0 +1,6 @@
+! Documentation-only fragment. Values below are non-secret sentinel values and are not deployable credentials.
+username sample-admin password 0 DOCS_ONLY_CHANGE_ME role network-admin
+username sample-admin passphrase lifetime 99999 warntime 14 gracetime 3
+snmp-server user sample-monitor network-operator auth sha DOCS_ONLY_AUTH priv aes-128 DOCS_ONLY_PRIV localizedkey
+snmp-server community DOCS_ONLY_COMMUNITY group network-operator
+snmp-server host 192.0.2.10 traps version 2c DOCS_ONLY_TRAP_COMMUNITY

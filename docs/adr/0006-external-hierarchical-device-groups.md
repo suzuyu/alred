@@ -34,6 +34,6 @@ inlineとexternal refは相互排他とする。
 
 ## References
 
-- [Overlay Change Management Design](../design/OVERLAY_CHANGE_MANAGEMENT_DESIGN.md)
-- [Schema and Compatibility Policy](../design/SCHEMA_AND_COMPATIBILITY_POLICY.md)
+- [Overlay Change Management Design](../design/network-ops/OVERLAY_CHANGE_MANAGEMENT_DESIGN.md)
+- [Schema and Compatibility Policy](../design/common/SCHEMA_AND_COMPATIBILITY_POLICY.md)
 - [Overlay ChangeSet作成ガイド](../manual/network-ops/07_OVERLAY_CHANGESET_GUIDE.md)

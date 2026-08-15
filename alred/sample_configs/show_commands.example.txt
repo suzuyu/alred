@@ -42,10 +42,10 @@ show port-channel summary
 show spanning-tree
 show logging
 show system config reload-pending
-show running-config diff
+show running-config diff unified
 
 # These commands duplicate some dedicated collect-all phases intentionally:
-# show running-config and show running-config diff are retained in the
+# show running-config and show running-config diff unified are retained in the
 # consolidated show log as common before/after work evidence.
 
 # Interface and optical diagnostics. Summary and non-zero errors remain enabled.

@@ -23,5 +23,5 @@ Collection Manifest経由で参照し、parser、Snapshot、evaluatorを収集�
 
 ## References
 
-- [Health Check Framework Design](../design/HEALTH_CHECK_FRAMEWORK_DESIGN.md)
-- [Overlay Change Management Design](../design/OVERLAY_CHANGE_MANAGEMENT_DESIGN.md)
+- [Health Check Framework Design](../design/network-ops/HEALTH_CHECK_FRAMEWORK_DESIGN.md)
+- [Overlay Change Management Design](../design/network-ops/OVERLAY_CHANGE_MANAGEMENT_DESIGN.md)

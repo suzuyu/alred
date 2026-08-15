@@ -34,15 +34,18 @@ Hosts     : 2
 Warnings  : 0
 Result    : WARN
 Checks    : PASS=28 WARN=2 FAIL=0 UNKNOWN=0 N/A=2
-Manifest  : operations/HC-20260802T091500-p1234-a1b2c3/health/before/collection-manifest.yaml
-Snapshot  : operations/HC-20260802T091500-p1234-a1b2c3/health/before/snapshot.json
-Checklist : operations/HC-20260802T091500-p1234-a1b2c3/health/before/checklist.md
+Manifest  : operations/live/2026/08/02/HC-20260802T091500-p1234-a1b2c3/health/before/collection-manifest.yaml
+Snapshot  : operations/live/2026/08/02/HC-20260802T091500-p1234-a1b2c3/health/before/snapshot.json
+Checklist : operations/live/2026/08/02/HC-20260802T091500-p1234-a1b2c3/health/before/checklist.md
 ```
+
+成功した最新 Operation は `operations/live/latest` からも参照できる。これは確認用の symbolic link であり、
+script では端末表示の change ID、phase の `current.json`、Manifest を使用する。
 
 この例では処理は完了していますが、2件のWARNがあります。まずChecklistを確認します。
 
 ```bash
-less operations/HC-20260802T091500-p1234-a1b2c3/health/before/checklist.md
+less operations/live/2026/08/02/HC-20260802T091500-p1234-a1b2c3/health/before/checklist.md
 ```
 
 ## 3. Checklistを確認
@@ -71,6 +74,7 @@ less operations/HC-20260802T091500-p1234-a1b2c3/health/before/checklist.md
 - [x] `collection_complete`: PASS - All required command outputs were parsed
 - [x] `cpu_utilization`: PASS - CPU one_minute_percent is 34.0% (warning threshold: 80%)
 - [x] `reload_pending`: PASS - No reload-pending configuration exists
+- [x] `running_config_diff`: PASS - Running-config matches startup-config
 - [ ] `logging_health`: WARN - 12 abnormal log record(s) were observed in the selected time range
 - [x] `ospf_neighbor_health`: PASS - All observed OSPF neighbors are FULL
 - [x] `vpc_health`: PASS - vPC peer and consistency are healthy
@@ -113,9 +117,9 @@ Hosts     : 2
 Warnings  : 0
 Result    : PASS
 Checks    : PASS=20 WARN=0 FAIL=0 UNKNOWN=0 N/A=2
-Manifest  : operations/HC-20260802T091500-p1234-a1b2c3/health/after/collection-manifest.yaml
-Snapshot  : operations/HC-20260802T091500-p1234-a1b2c3/health/after/snapshot.json
-Checklist : operations/HC-20260802T091500-p1234-a1b2c3/health/after/checklist.md
+Manifest  : operations/live/2026/08/02/HC-20260802T091500-p1234-a1b2c3/health/after/collection-manifest.yaml
+Snapshot  : operations/live/2026/08/02/HC-20260802T091500-p1234-a1b2c3/health/after/snapshot.json
+Checklist : operations/live/2026/08/02/HC-20260802T091500-p1234-a1b2c3/health/after/checklist.md
 ```
 
 after単体だけでなく、before / after比較結果も確認してください。生成されている場合は
@@ -151,6 +155,7 @@ alred health-check snapshot \
 - profileの作成: [Profile Guide](./03_PROFILE_GUIDE.md)
 - 出力と判定: [Output Guide](./04_OUTPUT_GUIDE.md)
 - EVPN/VXLAN作業: [NX-OS Overlay Health Check](./06_NXOS_OVERLAY_HEALTH_CHECK.md)
-- alred内でVNI設定投入:
-  [Overlay ChangeSet作成ガイド](./07_OVERLAY_CHANGESET_GUIDE.md) →
-  [alredによるVNI設定投入](./08_ALRED_OVERLAY_CHANGE_APPLY.md)
+- alred で VNI 設定投入:
+  [Overlay Configuration Quick Start](./11_OVERLAY_CONFIGURATION_QUICK_START.md)
+- 既存 config の直接投入:
+  [Direct Config Push Quick Start](./12_DIRECT_CONFIG_PUSH_QUICK_START.md)

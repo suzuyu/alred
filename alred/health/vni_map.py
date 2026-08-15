@@ -12,7 +12,7 @@ from typing import Any, Mapping
 from ..schema import API_VERSION, validate_document
 
 
-VNI_MAP_VERSION = "1.0"
+VNI_MAP_VERSION = "1.1"
 VNI_MAP_CSV_FIELDS = [
     "resource_type",
     "l3vni",
@@ -29,6 +29,17 @@ VNI_MAP_CSV_FIELDS = [
     "nve_member",
     "operational_state",
     "status",
+]
+LEGACY_VNI_GATEWAY_FIELDS = [
+    "l3vni",
+    "vrf",
+    "l2vni",
+    "gateway_ipv4",
+    "gateway_ipv6",
+    "device",
+    "vlan",
+    "vlan_name",
+    "ipv6_link_local",
 ]
 VNI_DIFF_CSV_FIELDS = [
     "change_type",
@@ -125,6 +136,18 @@ def _l2_device(
     }
 
 
+def _ipv6_link_local_display(svi: Mapping[str, Any] | None) -> str:
+    """Return the configured IPv6 link-local address or its observed mode."""
+    if not isinstance(svi, Mapping) or not svi:
+        return ""
+    explicit = svi.get("ipv6_link_local")
+    if explicit:
+        return str(explicit)
+    if svi.get("ipv6_addresses") or svi.get("ipv6_use_link_local_only"):
+        return "auto"
+    return ""
+
+
 def _resource_status(resource: Mapping[str, Any]) -> str:
     devices = resource["devices"]
     if any(not item.get("nve_member", item.get("nve_associate_vrf", False)) for item in devices.values()):
@@ -132,7 +155,37 @@ def _resource_status(resource: Mapping[str, Any]) -> str:
     if any(item.get("operational_state") is None for item in devices.values()):
         return "UNKNOWN"
     vlans = {item.get("vlan") for item in devices.values() if "vlan" in item}
-    return "DEVICE_VARIANT" if len(vlans) > 1 else "CONSISTENT"
+    link_locals = {
+        value
+        for item in devices.values()
+        if (value := _ipv6_link_local_display(item.get("svi")))
+    }
+    return (
+        "DEVICE_VARIANT"
+        if len(vlans) > 1 or len(link_locals) > 1
+        else "CONSISTENT"
+    )
+
+
+def _traditional_l3vni_vlan_bindings(
+    config: Mapping[str, Any],
+) -> set[tuple[str, int]]:
+    """Return VLAN/VNI bindings used by Traditional VLAN/SVI L3VNI mode."""
+    bindings: set[tuple[str, int]] = set()
+    vrfs = config.get("vrfs", {})
+    svis = config.get("svis", {})
+    for vlan, vlan_config in config.get("vlans", {}).items():
+        raw_vni = vlan_config.get("vni")
+        if raw_vni is None:
+            continue
+        svi = svis.get(str(vlan), {})
+        vrf = svi.get("vrf")
+        if not vrf or not svi.get("ip_forward"):
+            continue
+        vrf_vni = vrfs.get(str(vrf), {}).get("l3vni")
+        if vrf_vni is not None and int(vrf_vni) == int(raw_vni):
+            bindings.add((str(vlan), int(raw_vni)))
+    return bindings
 
 
 def build_overlay_state(snapshot: Mapping[str, Any]) -> dict[str, Any]:
@@ -156,12 +209,15 @@ def build_overlay_state(snapshot: Mapping[str, Any]) -> dict[str, Any]:
             )
             continue
 
+        traditional_l3_bindings = _traditional_l3vni_vlan_bindings(config)
         host_l2_vnis: set[int] = set()
         for vlan, vlan_config in sorted(config.get("vlans", {}).items()):
             raw_vni = vlan_config.get("vni")
             if raw_vni is None:
                 continue
             vni = int(raw_vni)
+            if (str(vlan), vni) in traditional_l3_bindings:
+                continue
             host_l2_vnis.add(vni)
             svi = config.get("svis", {}).get(str(vlan), {})
             vrf = str(svi.get("vrf", ""))
@@ -364,7 +420,7 @@ def overlay_state_csv(state: Mapping[str, Any]) -> str:
                     "device": host,
                     "vlan": device.get("vlan"),
                     "vlan_name": device.get("vlan_name"),
-                    "ipv6_link_local": svi.get("ipv6_link_local"),
+                    "ipv6_link_local": _ipv6_link_local_display(svi),
                     "mtu": svi.get("mtu"),
                     "anycast_gateway": svi.get("anycast_gateway", False),
                     "nve_member": device.get("nve_member"),
@@ -392,6 +448,96 @@ def overlay_state_csv(state: Mapping[str, Any]) -> str:
     for row in rows:
         writer.writerow({key: _json_cell(row.get(key)) for key in VNI_MAP_CSV_FIELDS})
     return stream.getvalue()
+
+
+def overlay_state_legacy_gateway_records(
+    state: Mapping[str, Any],
+) -> list[dict[str, str]]:
+    """Project Canonical OverlayState into the legacy SVI gateway rows."""
+    l3_by_vrf = {
+        str(item.get("vrf")): str(item["vni"])
+        for item in state["spec"]["l3vnis"]
+        if item.get("vrf")
+    }
+    rows: list[dict[str, str]] = []
+    for resource in state["spec"]["l2vnis"]:
+        vrf = str(resource.get("vrf") or "")
+        if not vrf or vrf == "management":
+            continue
+        l3vni = l3_by_vrf.get(vrf, "")
+        if l3vni and str(resource["vni"]) == l3vni:
+            continue
+        for host, device in sorted(resource["devices"].items()):
+            svi = device.get("svi")
+            vlan = device.get("vlan")
+            if not isinstance(svi, Mapping) or not svi or vlan is None:
+                continue
+            ipv4 = list(svi.get("ipv4_addresses") or [])
+            ipv6 = list(svi.get("ipv6_addresses") or [])
+            rows.append(
+                {
+                    "l3vni": l3vni,
+                    "vrf": vrf,
+                    "l2vni": str(resource["vni"]),
+                    "gateway_ipv4": str(ipv4[0]) if ipv4 else "",
+                    "gateway_ipv6": str(ipv6[0]) if ipv6 else "",
+                    "device": str(host),
+                    "vlan": str(vlan),
+                    "vlan_name": str(device.get("vlan_name") or ""),
+                    "ipv6_link_local": _ipv6_link_local_display(svi),
+                }
+            )
+
+    def integer(value: str) -> int:
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return 0
+
+    return sorted(
+        rows,
+        key=lambda row: (
+            integer(row["l3vni"]),
+            row["vrf"],
+            integer(row["l2vni"]),
+            row["device"],
+            integer(row["vlan"]),
+        ),
+    )
+
+
+def overlay_state_legacy_gateway_csv(state: Mapping[str, Any]) -> str:
+    """Render an exact generate-vni-map compatible CSV projection."""
+    stream = io.StringIO(newline="")
+    writer = csv.DictWriter(
+        stream,
+        fieldnames=LEGACY_VNI_GATEWAY_FIELDS,
+        lineterminator="\n",
+    )
+    writer.writeheader()
+    writer.writerows(overlay_state_legacy_gateway_records(state))
+    return stream.getvalue()
+
+
+def render_overlay_state_legacy_gateway_markdown(
+    state: Mapping[str, Any],
+) -> str:
+    """Render the legacy VNI gateway map from Canonical OverlayState."""
+    lines = [
+        "# VNI / VRF / Gateway Map",
+        "",
+        "| l3vni | vrf | l2vni | gateway_ipv4 | gateway_ipv6 | device | vlan | vlan_name | ipv6_link_local |",
+        "|---|---|---|---|---|---|---|---|---|",
+    ]
+    for row in overlay_state_legacy_gateway_records(state):
+        lines.append(
+            "| {l3vni} | {vrf} | {l2vni} | {gateway_ipv4} | "
+            "{gateway_ipv6} | {device} | {vlan} | {vlan_name} | "
+            "{ipv6_link_local} |".format(
+                **row
+            )
+        )
+    return "\n".join(lines) + "\n"
 
 
 def render_overlay_state_markdown(state: Mapping[str, Any]) -> str:
@@ -430,8 +576,8 @@ def render_overlay_state_markdown(state: Mapping[str, Any]) -> str:
             "",
             "## L2VNI",
             "",
-            "| L2VNI | VRF | VLAN name | Devices / VLANs | Gateway IPv4 | Gateway IPv6 | NVE states | Status |",
-            "|---:|---|---|---|---|---|---|---|",
+            "| L2VNI | VRF | VLAN name | Devices / VLANs | Gateway IPv4 | Gateway IPv6 | IPv6 link-local | NVE states | Status |",
+            "|---:|---|---|---|---|---|---|---|---|",
         ]
     )
     for resource in state["spec"]["l2vnis"]:
@@ -449,12 +595,26 @@ def render_overlay_state_markdown(state: Mapping[str, Any]) -> str:
             f"{host}={device.get('operational_state') or 'UNKNOWN'}"
             for host, device in sorted(resource["devices"].items())
         )
+        link_local_by_device = {
+            host: _ipv6_link_local_display(device.get("svi")) or "-"
+            for host, device in sorted(resource["devices"].items())
+        }
+        link_local_values = set(link_local_by_device.values())
+        link_local = (
+            next(iter(link_local_values))
+            if len(link_local_values) == 1
+            else ", ".join(
+                f"{host}={value}"
+                for host, value in link_local_by_device.items()
+            )
+        )
         lines.append(
             f"| {resource['vni']} | {resource.get('vrf') or '-'} | {resource.get('vlan_name') or '-'} | "
-            f"{device_vlans} | {_json_cell(ipv4)} | {_json_cell(ipv6)} | {states} | {resource['status']} |"
+            f"{device_vlans} | {_json_cell(ipv4)} | {_json_cell(ipv6)} | {link_local} | "
+            f"{states} | {resource['status']} |"
         )
     if not state["spec"]["l2vnis"]:
-        lines.append("| - | - | - | - | - | - | - | NOT_APPLICABLE |")
+        lines.append("| - | - | - | - | - | - | - | - | NOT_APPLICABLE |")
     if state["spec"]["conflicts"]:
         lines.extend(["", "## Conflicts", ""])
         for item in state["spec"]["conflicts"]:

@@ -1,0 +1,116 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://alred.local/schemas/v1/evpn-control-plane-model.schema.json",
+  "title": "EVPNControlPlaneModel",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["api_version", "kind", "metadata", "spec"],
+  "properties": {
+    "api_version": {"const": "alred/v1"},
+    "kind": {"const": "EVPNControlPlaneModel"},
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source"],
+      "properties": {
+        "source": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "value"],
+          "properties": {
+            "type": {"enum": ["evidence-package", "running-config-import", "latest-operation", "operation", "file"]},
+            "value": {"type": "string", "minLength": 1}
+          }
+        },
+        "source_manifest_sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+      }
+    },
+    "spec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "parser_versions", "nodes", "sessions", "peer_ranges", "unresolved_peers", "diagnostics"],
+      "properties": {
+        "status": {"enum": ["complete", "partial", "insufficient-evidence"]},
+        "parser_versions": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["running_config", "bgp_l2vpn_evpn_summary"],
+          "properties": {
+            "running_config": {"type": "string", "minLength": 1},
+            "bgp_l2vpn_evpn_summary": {"type": "string", "minLength": 1}
+          }
+        },
+        "nodes": {
+          "type": "object",
+          "additionalProperties": {"$ref": "#/$defs/node"}
+        },
+        "sessions": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/session"}
+        },
+        "peer_ranges": {
+          "type": "array",
+          "items": {"type": "object"}
+        },
+        "unresolved_peers": {
+          "type": "array",
+          "items": {"type": "object"}
+        },
+        "diagnostics": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["code"],
+            "properties": {"code": {"type": "string", "minLength": 1}}
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "node": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["topology_role", "site", "functions", "observed_functions", "router_id", "update_source_addresses", "vtep_addresses", "cluster_ids", "evidence_refs"],
+      "properties": {
+        "topology_role": {"type": "string", "minLength": 1},
+        "site": {"type": ["string", "null"]},
+        "functions": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
+        "observed_functions": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
+        "router_id": {"type": ["string", "null"]},
+        "update_source_addresses": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
+        "vtep_addresses": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
+        "vpc_domain": {"type": ["string", "null"]},
+        "vpc_shared_vtep_addresses": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
+        "cluster_ids": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
+        "evidence_refs": {"type": "array", "uniqueItems": true, "items": {"type": "string"}}
+      }
+    },
+    "endpoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["node", "address", "local_as"],
+      "properties": {
+        "node": {"type": "string", "minLength": 1},
+        "address": {"type": ["string", "null"]},
+        "local_as": {"type": ["string", "null"]}
+      }
+    },
+    "session": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["session_id", "endpoints", "relationship", "rr_node", "client_node", "state", "resolution_status", "observations", "evidence_refs"],
+      "properties": {
+        "session_id": {"type": "string", "minLength": 1},
+        "endpoints": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"$ref": "#/$defs/endpoint"}},
+        "relationship": {"enum": ["rr-client", "ibgp-peer", "ebgp-peer", "unknown"]},
+        "rr_node": {"type": ["string", "null"]},
+        "client_node": {"type": ["string", "null"]},
+        "state": {"enum": ["established", "down", "configured", "unknown", "conflict"]},
+        "resolution_status": {"enum": ["confirmed", "unresolved", "conflict"]},
+        "observations": {"type": "array", "items": {"type": "object"}},
+        "evidence_refs": {"type": "array", "uniqueItems": true, "items": {"type": "string"}}
+      }
+    }
+  }
+}

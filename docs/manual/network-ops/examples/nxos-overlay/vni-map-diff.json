@@ -1,40 +1,2481 @@
 {
   "api_version": "alred/v1",
   "kind": "OverlayVniMapDiff",
-  "metadata": {"change_id": "HC-20260802T140000-p1234-a1b2c3", "before_phase": "before", "after_phase": "after", "generated_at": "2026-08-02T14:15:31+09:00", "generator_version": "1.0"},
-  "summary": {"total_changes": 32, "added": 32, "removed": 0, "modified": 0, "conflict": 0, "unknown": 0},
+  "metadata": {
+    "change_id": "CHG-2026-00123",
+    "before_phase": "before",
+    "after_phase": "after",
+    "generated_at": "2026-08-16T10:15:00+09:00",
+    "generator_version": "1.1"
+  },
+  "summary": {
+    "total_changes": 52,
+    "added": 52,
+    "removed": 0,
+    "modified": 0,
+    "conflict": 0,
+    "unknown": 0
+  },
   "changes": [
-    {"change_type":"ADDED","resource_type":"L2VNI","vni":10020,"vrf":"TENANT-B","device":"leaf01","field":"nve_member","before":null,"after":true,"status":"OBSERVED","evidence_before":[{"command":"show running-config","file":"health/before/raw/leaf01/config.txt","source_id":"running_config"}],"evidence_after":[{"command":"show running-config","file":"health/after/raw/leaf01/config.txt","source_id":"running_config"}]},
-    {"change_type":"ADDED","resource_type":"L2VNI","vni":10020,"vrf":"TENANT-B","device":"leaf01","field":"operational_state","before":null,"after":"Up","status":"OBSERVED","evidence_before":[{"command":"show nve vni","file":"health/before/raw/leaf01/shows.log","source_id":"nve_vni"}],"evidence_after":[{"command":"show nve vni","file":"health/after/raw/leaf01/shows.log","source_id":"nve_vni"}]},
-    {"change_type":"ADDED","resource_type":"L2VNI","vni":10020,"vrf":"TENANT-B","device":"leaf01","field":"replication","before":null,"after":"UnicastBGP","status":"OBSERVED","evidence_before":[],"evidence_after":[]},
-    {"change_type":"ADDED","resource_type":"L2VNI","vni":10020,"vrf":"TENANT-B","device":"leaf01","field":"svi.anycast_gateway","before":null,"after":true,"status":"OBSERVED","evidence_before":[],"evidence_after":[]},
-    {"change_type":"ADDED","resource_type":"L2VNI","vni":10020,"vrf":"TENANT-B","device":"leaf01","field":"svi.ipv4_addresses","before":null,"after":["198.51.100.1/24"],"status":"OBSERVED","evidence_before":[],"evidence_after":[]},
-    {"change_type":"ADDED","resource_type":"L2VNI","vni":10020,"vrf":"TENANT-B","device":"leaf01","field":"svi.ipv6_addresses","before":null,"after":[],"status":"OBSERVED","evidence_before":[],"evidence_after":[]},
-    {"change_type":"ADDED","resource_type":"L2VNI","vni":10020,"vrf":"TENANT-B","device":"leaf01","field":"svi.ipv6_link_local","before":null,"after":null,"status":"OBSERVED","evidence_before":[],"evidence_after":[]},
-    {"change_type":"ADDED","resource_type":"L2VNI","vni":10020,"vrf":"TENANT-B","device":"leaf01","field":"svi.mtu","before":null,"after":9216,"status":"OBSERVED","evidence_before":[],"evidence_after":[]},
-    {"change_type":"ADDED","resource_type":"L2VNI","vni":10020,"vrf":"TENANT-B","device":"leaf01","field":"svi.vrf","before":null,"after":"TENANT-B","status":"OBSERVED","evidence_before":[],"evidence_after":[]},
-    {"change_type":"ADDED","resource_type":"L2VNI","vni":10020,"vrf":"TENANT-B","device":"leaf01","field":"vlan","before":null,"after":20,"status":"OBSERVED","evidence_before":[],"evidence_after":[]},
-    {"change_type":"ADDED","resource_type":"L2VNI","vni":10020,"vrf":"TENANT-B","device":"leaf01","field":"vlan_name","before":null,"after":"TENANT-B-APP","status":"OBSERVED","evidence_before":[],"evidence_after":[]},
-    {"change_type":"ADDED","resource_type":"L2VNI","vni":10020,"vrf":"TENANT-B","device":"leaf02","field":"nve_member","before":null,"after":true,"status":"OBSERVED","evidence_before":[{"command":"show running-config","file":"health/before/raw/leaf02/config.txt","source_id":"running_config"}],"evidence_after":[{"command":"show running-config","file":"health/after/raw/leaf02/config.txt","source_id":"running_config"}]},
-    {"change_type":"ADDED","resource_type":"L2VNI","vni":10020,"vrf":"TENANT-B","device":"leaf02","field":"operational_state","before":null,"after":"Up","status":"OBSERVED","evidence_before":[{"command":"show nve vni","file":"health/before/raw/leaf02/shows.log","source_id":"nve_vni"}],"evidence_after":[{"command":"show nve vni","file":"health/after/raw/leaf02/shows.log","source_id":"nve_vni"}]},
-    {"change_type":"ADDED","resource_type":"L2VNI","vni":10020,"vrf":"TENANT-B","device":"leaf02","field":"replication","before":null,"after":"UnicastBGP","status":"OBSERVED","evidence_before":[],"evidence_after":[]},
-    {"change_type":"ADDED","resource_type":"L2VNI","vni":10020,"vrf":"TENANT-B","device":"leaf02","field":"svi.anycast_gateway","before":null,"after":true,"status":"OBSERVED","evidence_before":[],"evidence_after":[]},
-    {"change_type":"ADDED","resource_type":"L2VNI","vni":10020,"vrf":"TENANT-B","device":"leaf02","field":"svi.ipv4_addresses","before":null,"after":["198.51.100.1/24"],"status":"OBSERVED","evidence_before":[],"evidence_after":[]},
-    {"change_type":"ADDED","resource_type":"L2VNI","vni":10020,"vrf":"TENANT-B","device":"leaf02","field":"svi.ipv6_addresses","before":null,"after":[],"status":"OBSERVED","evidence_before":[],"evidence_after":[]},
-    {"change_type":"ADDED","resource_type":"L2VNI","vni":10020,"vrf":"TENANT-B","device":"leaf02","field":"svi.ipv6_link_local","before":null,"after":null,"status":"OBSERVED","evidence_before":[],"evidence_after":[]},
-    {"change_type":"ADDED","resource_type":"L2VNI","vni":10020,"vrf":"TENANT-B","device":"leaf02","field":"svi.mtu","before":null,"after":9216,"status":"OBSERVED","evidence_before":[],"evidence_after":[]},
-    {"change_type":"ADDED","resource_type":"L2VNI","vni":10020,"vrf":"TENANT-B","device":"leaf02","field":"svi.vrf","before":null,"after":"TENANT-B","status":"OBSERVED","evidence_before":[],"evidence_after":[]},
-    {"change_type":"ADDED","resource_type":"L2VNI","vni":10020,"vrf":"TENANT-B","device":"leaf02","field":"vlan","before":null,"after":120,"status":"OBSERVED","evidence_before":[],"evidence_after":[]},
-    {"change_type":"ADDED","resource_type":"L2VNI","vni":10020,"vrf":"TENANT-B","device":"leaf02","field":"vlan_name","before":null,"after":"TENANT-B-APP","status":"OBSERVED","evidence_before":[],"evidence_after":[]},
-    {"change_type":"ADDED","resource_type":"L3VNI","vni":50002,"vrf":"TENANT-B","device":"leaf01","field":"bgp_processes.65000.address_families.ipv4.commands","before":null,"after":["advertise l2vpn evpn"],"status":"OBSERVED","evidence_before":[],"evidence_after":[]},
-    {"change_type":"ADDED","resource_type":"L3VNI","vni":50002,"vrf":"TENANT-B","device":"leaf01","field":"local_as","before":null,"after":["65000"],"status":"OBSERVED","evidence_before":[],"evidence_after":[]},
-    {"change_type":"ADDED","resource_type":"L3VNI","vni":50002,"vrf":"TENANT-B","device":"leaf01","field":"nve_associate_vrf","before":null,"after":true,"status":"OBSERVED","evidence_before":[],"evidence_after":[]},
-    {"change_type":"ADDED","resource_type":"L3VNI","vni":50002,"vrf":"TENANT-B","device":"leaf01","field":"operational_state","before":null,"after":"Up","status":"OBSERVED","evidence_before":[],"evidence_after":[]},
-    {"change_type":"ADDED","resource_type":"L3VNI","vni":50002,"vrf":"TENANT-B","device":"leaf01","field":"rd","before":null,"after":"auto","status":"OBSERVED","evidence_before":[],"evidence_after":[]},
-    {"change_type":"ADDED","resource_type":"L3VNI","vni":50002,"vrf":"TENANT-B","device":"leaf02","field":"bgp_processes.65000.address_families.ipv4.commands","before":null,"after":["advertise l2vpn evpn"],"status":"OBSERVED","evidence_before":[],"evidence_after":[]},
-    {"change_type":"ADDED","resource_type":"L3VNI","vni":50002,"vrf":"TENANT-B","device":"leaf02","field":"local_as","before":null,"after":["65000"],"status":"OBSERVED","evidence_before":[],"evidence_after":[]},
-    {"change_type":"ADDED","resource_type":"L3VNI","vni":50002,"vrf":"TENANT-B","device":"leaf02","field":"nve_associate_vrf","before":null,"after":true,"status":"OBSERVED","evidence_before":[],"evidence_after":[]},
-    {"change_type":"ADDED","resource_type":"L3VNI","vni":50002,"vrf":"TENANT-B","device":"leaf02","field":"operational_state","before":null,"after":"Up","status":"OBSERVED","evidence_before":[],"evidence_after":[]},
-    {"change_type":"ADDED","resource_type":"L3VNI","vni":50002,"vrf":"TENANT-B","device":"leaf02","field":"rd","before":null,"after":"auto","status":"OBSERVED","evidence_before":[],"evidence_after":[]}
+    {
+      "change_type": "ADDED",
+      "resource_type": "L2VNI",
+      "vni": 10100,
+      "vrf": "tenant1-vpc1",
+      "device": "adc-lfsw0101",
+      "field": "nve_member",
+      "before": null,
+      "after": true,
+      "status": "OBSERVED",
+      "evidence_before": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/before/adc-lfsw0101/running_config.txt",
+          "sha256": "eb43a542c4b6a1aaed1e82b9e56f3902f959d9acb845494a01593112caf8304f",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/before/adc-lfsw0101/nve_vni.txt",
+          "sha256": "d5153f92df841522d362171565f86198905945f2dbd7804600eb1bef90098d49",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ],
+      "evidence_after": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/after/adc-lfsw0101/running_config.txt",
+          "sha256": "d5123dbb96f47cec60ef330f5348c7d49826b29077a5dcf04748606ddf6e21d6",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/after/adc-lfsw0101/nve_vni.txt",
+          "sha256": "12088e5e46a8494f956f38a665ad26c413d899f0a7864e01602b3256f3aa67cc",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ]
+    },
+    {
+      "change_type": "ADDED",
+      "resource_type": "L2VNI",
+      "vni": 10100,
+      "vrf": "tenant1-vpc1",
+      "device": "adc-lfsw0101",
+      "field": "operational_state",
+      "before": null,
+      "after": "Up",
+      "status": "OBSERVED",
+      "evidence_before": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/before/adc-lfsw0101/running_config.txt",
+          "sha256": "eb43a542c4b6a1aaed1e82b9e56f3902f959d9acb845494a01593112caf8304f",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/before/adc-lfsw0101/nve_vni.txt",
+          "sha256": "d5153f92df841522d362171565f86198905945f2dbd7804600eb1bef90098d49",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ],
+      "evidence_after": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/after/adc-lfsw0101/running_config.txt",
+          "sha256": "d5123dbb96f47cec60ef330f5348c7d49826b29077a5dcf04748606ddf6e21d6",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/after/adc-lfsw0101/nve_vni.txt",
+          "sha256": "12088e5e46a8494f956f38a665ad26c413d899f0a7864e01602b3256f3aa67cc",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ]
+    },
+    {
+      "change_type": "ADDED",
+      "resource_type": "L2VNI",
+      "vni": 10100,
+      "vrf": "tenant1-vpc1",
+      "device": "adc-lfsw0101",
+      "field": "replication",
+      "before": null,
+      "after": "UnicastBGP",
+      "status": "OBSERVED",
+      "evidence_before": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/before/adc-lfsw0101/running_config.txt",
+          "sha256": "eb43a542c4b6a1aaed1e82b9e56f3902f959d9acb845494a01593112caf8304f",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/before/adc-lfsw0101/nve_vni.txt",
+          "sha256": "d5153f92df841522d362171565f86198905945f2dbd7804600eb1bef90098d49",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ],
+      "evidence_after": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/after/adc-lfsw0101/running_config.txt",
+          "sha256": "d5123dbb96f47cec60ef330f5348c7d49826b29077a5dcf04748606ddf6e21d6",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/after/adc-lfsw0101/nve_vni.txt",
+          "sha256": "12088e5e46a8494f956f38a665ad26c413d899f0a7864e01602b3256f3aa67cc",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ]
+    },
+    {
+      "change_type": "ADDED",
+      "resource_type": "L2VNI",
+      "vni": 10100,
+      "vrf": "tenant1-vpc1",
+      "device": "adc-lfsw0101",
+      "field": "svi.admin_enabled",
+      "before": null,
+      "after": true,
+      "status": "OBSERVED",
+      "evidence_before": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/before/adc-lfsw0101/running_config.txt",
+          "sha256": "eb43a542c4b6a1aaed1e82b9e56f3902f959d9acb845494a01593112caf8304f",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/before/adc-lfsw0101/nve_vni.txt",
+          "sha256": "d5153f92df841522d362171565f86198905945f2dbd7804600eb1bef90098d49",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ],
+      "evidence_after": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/after/adc-lfsw0101/running_config.txt",
+          "sha256": "d5123dbb96f47cec60ef330f5348c7d49826b29077a5dcf04748606ddf6e21d6",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/after/adc-lfsw0101/nve_vni.txt",
+          "sha256": "12088e5e46a8494f956f38a665ad26c413d899f0a7864e01602b3256f3aa67cc",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ]
+    },
+    {
+      "change_type": "ADDED",
+      "resource_type": "L2VNI",
+      "vni": 10100,
+      "vrf": "tenant1-vpc1",
+      "device": "adc-lfsw0101",
+      "field": "svi.anycast_gateway",
+      "before": null,
+      "after": true,
+      "status": "OBSERVED",
+      "evidence_before": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/before/adc-lfsw0101/running_config.txt",
+          "sha256": "eb43a542c4b6a1aaed1e82b9e56f3902f959d9acb845494a01593112caf8304f",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/before/adc-lfsw0101/nve_vni.txt",
+          "sha256": "d5153f92df841522d362171565f86198905945f2dbd7804600eb1bef90098d49",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ],
+      "evidence_after": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/after/adc-lfsw0101/running_config.txt",
+          "sha256": "d5123dbb96f47cec60ef330f5348c7d49826b29077a5dcf04748606ddf6e21d6",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/after/adc-lfsw0101/nve_vni.txt",
+          "sha256": "12088e5e46a8494f956f38a665ad26c413d899f0a7864e01602b3256f3aa67cc",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ]
+    },
+    {
+      "change_type": "ADDED",
+      "resource_type": "L2VNI",
+      "vni": 10100,
+      "vrf": "tenant1-vpc1",
+      "device": "adc-lfsw0101",
+      "field": "svi.ipv4_addresses",
+      "before": null,
+      "after": [
+        "172.16.0.254/24"
+      ],
+      "status": "OBSERVED",
+      "evidence_before": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/before/adc-lfsw0101/running_config.txt",
+          "sha256": "eb43a542c4b6a1aaed1e82b9e56f3902f959d9acb845494a01593112caf8304f",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/before/adc-lfsw0101/nve_vni.txt",
+          "sha256": "d5153f92df841522d362171565f86198905945f2dbd7804600eb1bef90098d49",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ],
+      "evidence_after": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/after/adc-lfsw0101/running_config.txt",
+          "sha256": "d5123dbb96f47cec60ef330f5348c7d49826b29077a5dcf04748606ddf6e21d6",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/after/adc-lfsw0101/nve_vni.txt",
+          "sha256": "12088e5e46a8494f956f38a665ad26c413d899f0a7864e01602b3256f3aa67cc",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ]
+    },
+    {
+      "change_type": "ADDED",
+      "resource_type": "L2VNI",
+      "vni": 10100,
+      "vrf": "tenant1-vpc1",
+      "device": "adc-lfsw0101",
+      "field": "svi.ipv6_addresses",
+      "before": null,
+      "after": [
+        "fd21:0:0:1::1/64"
+      ],
+      "status": "OBSERVED",
+      "evidence_before": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/before/adc-lfsw0101/running_config.txt",
+          "sha256": "eb43a542c4b6a1aaed1e82b9e56f3902f959d9acb845494a01593112caf8304f",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/before/adc-lfsw0101/nve_vni.txt",
+          "sha256": "d5153f92df841522d362171565f86198905945f2dbd7804600eb1bef90098d49",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ],
+      "evidence_after": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/after/adc-lfsw0101/running_config.txt",
+          "sha256": "d5123dbb96f47cec60ef330f5348c7d49826b29077a5dcf04748606ddf6e21d6",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/after/adc-lfsw0101/nve_vni.txt",
+          "sha256": "12088e5e46a8494f956f38a665ad26c413d899f0a7864e01602b3256f3aa67cc",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ]
+    },
+    {
+      "change_type": "ADDED",
+      "resource_type": "L2VNI",
+      "vni": 10100,
+      "vrf": "tenant1-vpc1",
+      "device": "adc-lfsw0101",
+      "field": "svi.ipv6_link_local",
+      "before": null,
+      "after": "fe80::1",
+      "status": "OBSERVED",
+      "evidence_before": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/before/adc-lfsw0101/running_config.txt",
+          "sha256": "eb43a542c4b6a1aaed1e82b9e56f3902f959d9acb845494a01593112caf8304f",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/before/adc-lfsw0101/nve_vni.txt",
+          "sha256": "d5153f92df841522d362171565f86198905945f2dbd7804600eb1bef90098d49",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ],
+      "evidence_after": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/after/adc-lfsw0101/running_config.txt",
+          "sha256": "d5123dbb96f47cec60ef330f5348c7d49826b29077a5dcf04748606ddf6e21d6",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/after/adc-lfsw0101/nve_vni.txt",
+          "sha256": "12088e5e46a8494f956f38a665ad26c413d899f0a7864e01602b3256f3aa67cc",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ]
+    },
+    {
+      "change_type": "ADDED",
+      "resource_type": "L2VNI",
+      "vni": 10100,
+      "vrf": "tenant1-vpc1",
+      "device": "adc-lfsw0101",
+      "field": "svi.ipv6_nd_suppress_ra",
+      "before": null,
+      "after": true,
+      "status": "OBSERVED",
+      "evidence_before": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/before/adc-lfsw0101/running_config.txt",
+          "sha256": "eb43a542c4b6a1aaed1e82b9e56f3902f959d9acb845494a01593112caf8304f",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/before/adc-lfsw0101/nve_vni.txt",
+          "sha256": "d5153f92df841522d362171565f86198905945f2dbd7804600eb1bef90098d49",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ],
+      "evidence_after": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/after/adc-lfsw0101/running_config.txt",
+          "sha256": "d5123dbb96f47cec60ef330f5348c7d49826b29077a5dcf04748606ddf6e21d6",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/after/adc-lfsw0101/nve_vni.txt",
+          "sha256": "12088e5e46a8494f956f38a665ad26c413d899f0a7864e01602b3256f3aa67cc",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ]
+    },
+    {
+      "change_type": "ADDED",
+      "resource_type": "L2VNI",
+      "vni": 10100,
+      "vrf": "tenant1-vpc1",
+      "device": "adc-lfsw0101",
+      "field": "svi.mtu",
+      "before": null,
+      "after": 9216,
+      "status": "OBSERVED",
+      "evidence_before": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/before/adc-lfsw0101/running_config.txt",
+          "sha256": "eb43a542c4b6a1aaed1e82b9e56f3902f959d9acb845494a01593112caf8304f",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/before/adc-lfsw0101/nve_vni.txt",
+          "sha256": "d5153f92df841522d362171565f86198905945f2dbd7804600eb1bef90098d49",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ],
+      "evidence_after": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/after/adc-lfsw0101/running_config.txt",
+          "sha256": "d5123dbb96f47cec60ef330f5348c7d49826b29077a5dcf04748606ddf6e21d6",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/after/adc-lfsw0101/nve_vni.txt",
+          "sha256": "12088e5e46a8494f956f38a665ad26c413d899f0a7864e01602b3256f3aa67cc",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ]
+    },
+    {
+      "change_type": "ADDED",
+      "resource_type": "L2VNI",
+      "vni": 10100,
+      "vrf": "tenant1-vpc1",
+      "device": "adc-lfsw0101",
+      "field": "svi.vrf",
+      "before": null,
+      "after": "tenant1-vpc1",
+      "status": "OBSERVED",
+      "evidence_before": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/before/adc-lfsw0101/running_config.txt",
+          "sha256": "eb43a542c4b6a1aaed1e82b9e56f3902f959d9acb845494a01593112caf8304f",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/before/adc-lfsw0101/nve_vni.txt",
+          "sha256": "d5153f92df841522d362171565f86198905945f2dbd7804600eb1bef90098d49",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ],
+      "evidence_after": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/after/adc-lfsw0101/running_config.txt",
+          "sha256": "d5123dbb96f47cec60ef330f5348c7d49826b29077a5dcf04748606ddf6e21d6",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/after/adc-lfsw0101/nve_vni.txt",
+          "sha256": "12088e5e46a8494f956f38a665ad26c413d899f0a7864e01602b3256f3aa67cc",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ]
+    },
+    {
+      "change_type": "ADDED",
+      "resource_type": "L2VNI",
+      "vni": 10100,
+      "vrf": "tenant1-vpc1",
+      "device": "adc-lfsw0101",
+      "field": "vlan",
+      "before": null,
+      "after": 100,
+      "status": "OBSERVED",
+      "evidence_before": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/before/adc-lfsw0101/running_config.txt",
+          "sha256": "eb43a542c4b6a1aaed1e82b9e56f3902f959d9acb845494a01593112caf8304f",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/before/adc-lfsw0101/nve_vni.txt",
+          "sha256": "d5153f92df841522d362171565f86198905945f2dbd7804600eb1bef90098d49",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ],
+      "evidence_after": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/after/adc-lfsw0101/running_config.txt",
+          "sha256": "d5123dbb96f47cec60ef330f5348c7d49826b29077a5dcf04748606ddf6e21d6",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/after/adc-lfsw0101/nve_vni.txt",
+          "sha256": "12088e5e46a8494f956f38a665ad26c413d899f0a7864e01602b3256f3aa67cc",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ]
+    },
+    {
+      "change_type": "ADDED",
+      "resource_type": "L2VNI",
+      "vni": 10100,
+      "vrf": "tenant1-vpc1",
+      "device": "adc-lfsw0101",
+      "field": "vlan_name",
+      "before": null,
+      "after": "tenant1-vpc1-server-seg1",
+      "status": "OBSERVED",
+      "evidence_before": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/before/adc-lfsw0101/running_config.txt",
+          "sha256": "eb43a542c4b6a1aaed1e82b9e56f3902f959d9acb845494a01593112caf8304f",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/before/adc-lfsw0101/nve_vni.txt",
+          "sha256": "d5153f92df841522d362171565f86198905945f2dbd7804600eb1bef90098d49",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ],
+      "evidence_after": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/after/adc-lfsw0101/running_config.txt",
+          "sha256": "d5123dbb96f47cec60ef330f5348c7d49826b29077a5dcf04748606ddf6e21d6",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/after/adc-lfsw0101/nve_vni.txt",
+          "sha256": "12088e5e46a8494f956f38a665ad26c413d899f0a7864e01602b3256f3aa67cc",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ]
+    },
+    {
+      "change_type": "ADDED",
+      "resource_type": "L2VNI",
+      "vni": 10100,
+      "vrf": "tenant1-vpc1",
+      "device": "adc-lfsw0102",
+      "field": "nve_member",
+      "before": null,
+      "after": true,
+      "status": "OBSERVED",
+      "evidence_before": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/before/adc-lfsw0102/running_config.txt",
+          "sha256": "a4f693cbcf2f4145dd71a90527e6fe10d6d2e1d5c7962b23b7febdbf7b54adc4",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/before/adc-lfsw0102/nve_vni.txt",
+          "sha256": "0703c6cf05111fe7df1e14afd3dd9b0ee728799040353716353de2e0a6847da0",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ],
+      "evidence_after": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/after/adc-lfsw0102/running_config.txt",
+          "sha256": "0b1ab9e41d221c9acd6ee69118ca08de4200568a1b7f753381221c686039f807",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/after/adc-lfsw0102/nve_vni.txt",
+          "sha256": "e8cc19d634ca0c6eca3f96c3a74360f189c402fa7a1f081c3aef2cc558213cf6",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ]
+    },
+    {
+      "change_type": "ADDED",
+      "resource_type": "L2VNI",
+      "vni": 10100,
+      "vrf": "tenant1-vpc1",
+      "device": "adc-lfsw0102",
+      "field": "operational_state",
+      "before": null,
+      "after": "Up",
+      "status": "OBSERVED",
+      "evidence_before": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/before/adc-lfsw0102/running_config.txt",
+          "sha256": "a4f693cbcf2f4145dd71a90527e6fe10d6d2e1d5c7962b23b7febdbf7b54adc4",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/before/adc-lfsw0102/nve_vni.txt",
+          "sha256": "0703c6cf05111fe7df1e14afd3dd9b0ee728799040353716353de2e0a6847da0",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ],
+      "evidence_after": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/after/adc-lfsw0102/running_config.txt",
+          "sha256": "0b1ab9e41d221c9acd6ee69118ca08de4200568a1b7f753381221c686039f807",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/after/adc-lfsw0102/nve_vni.txt",
+          "sha256": "e8cc19d634ca0c6eca3f96c3a74360f189c402fa7a1f081c3aef2cc558213cf6",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ]
+    },
+    {
+      "change_type": "ADDED",
+      "resource_type": "L2VNI",
+      "vni": 10100,
+      "vrf": "tenant1-vpc1",
+      "device": "adc-lfsw0102",
+      "field": "replication",
+      "before": null,
+      "after": "UnicastBGP",
+      "status": "OBSERVED",
+      "evidence_before": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/before/adc-lfsw0102/running_config.txt",
+          "sha256": "a4f693cbcf2f4145dd71a90527e6fe10d6d2e1d5c7962b23b7febdbf7b54adc4",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/before/adc-lfsw0102/nve_vni.txt",
+          "sha256": "0703c6cf05111fe7df1e14afd3dd9b0ee728799040353716353de2e0a6847da0",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ],
+      "evidence_after": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/after/adc-lfsw0102/running_config.txt",
+          "sha256": "0b1ab9e41d221c9acd6ee69118ca08de4200568a1b7f753381221c686039f807",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/after/adc-lfsw0102/nve_vni.txt",
+          "sha256": "e8cc19d634ca0c6eca3f96c3a74360f189c402fa7a1f081c3aef2cc558213cf6",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ]
+    },
+    {
+      "change_type": "ADDED",
+      "resource_type": "L2VNI",
+      "vni": 10100,
+      "vrf": "tenant1-vpc1",
+      "device": "adc-lfsw0102",
+      "field": "svi.admin_enabled",
+      "before": null,
+      "after": true,
+      "status": "OBSERVED",
+      "evidence_before": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/before/adc-lfsw0102/running_config.txt",
+          "sha256": "a4f693cbcf2f4145dd71a90527e6fe10d6d2e1d5c7962b23b7febdbf7b54adc4",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/before/adc-lfsw0102/nve_vni.txt",
+          "sha256": "0703c6cf05111fe7df1e14afd3dd9b0ee728799040353716353de2e0a6847da0",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ],
+      "evidence_after": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/after/adc-lfsw0102/running_config.txt",
+          "sha256": "0b1ab9e41d221c9acd6ee69118ca08de4200568a1b7f753381221c686039f807",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/after/adc-lfsw0102/nve_vni.txt",
+          "sha256": "e8cc19d634ca0c6eca3f96c3a74360f189c402fa7a1f081c3aef2cc558213cf6",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ]
+    },
+    {
+      "change_type": "ADDED",
+      "resource_type": "L2VNI",
+      "vni": 10100,
+      "vrf": "tenant1-vpc1",
+      "device": "adc-lfsw0102",
+      "field": "svi.anycast_gateway",
+      "before": null,
+      "after": true,
+      "status": "OBSERVED",
+      "evidence_before": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/before/adc-lfsw0102/running_config.txt",
+          "sha256": "a4f693cbcf2f4145dd71a90527e6fe10d6d2e1d5c7962b23b7febdbf7b54adc4",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/before/adc-lfsw0102/nve_vni.txt",
+          "sha256": "0703c6cf05111fe7df1e14afd3dd9b0ee728799040353716353de2e0a6847da0",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ],
+      "evidence_after": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/after/adc-lfsw0102/running_config.txt",
+          "sha256": "0b1ab9e41d221c9acd6ee69118ca08de4200568a1b7f753381221c686039f807",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/after/adc-lfsw0102/nve_vni.txt",
+          "sha256": "e8cc19d634ca0c6eca3f96c3a74360f189c402fa7a1f081c3aef2cc558213cf6",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ]
+    },
+    {
+      "change_type": "ADDED",
+      "resource_type": "L2VNI",
+      "vni": 10100,
+      "vrf": "tenant1-vpc1",
+      "device": "adc-lfsw0102",
+      "field": "svi.ipv4_addresses",
+      "before": null,
+      "after": [
+        "172.16.0.254/24"
+      ],
+      "status": "OBSERVED",
+      "evidence_before": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/before/adc-lfsw0102/running_config.txt",
+          "sha256": "a4f693cbcf2f4145dd71a90527e6fe10d6d2e1d5c7962b23b7febdbf7b54adc4",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/before/adc-lfsw0102/nve_vni.txt",
+          "sha256": "0703c6cf05111fe7df1e14afd3dd9b0ee728799040353716353de2e0a6847da0",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ],
+      "evidence_after": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/after/adc-lfsw0102/running_config.txt",
+          "sha256": "0b1ab9e41d221c9acd6ee69118ca08de4200568a1b7f753381221c686039f807",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/after/adc-lfsw0102/nve_vni.txt",
+          "sha256": "e8cc19d634ca0c6eca3f96c3a74360f189c402fa7a1f081c3aef2cc558213cf6",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ]
+    },
+    {
+      "change_type": "ADDED",
+      "resource_type": "L2VNI",
+      "vni": 10100,
+      "vrf": "tenant1-vpc1",
+      "device": "adc-lfsw0102",
+      "field": "svi.ipv6_addresses",
+      "before": null,
+      "after": [
+        "fd21:0:0:1::1/64"
+      ],
+      "status": "OBSERVED",
+      "evidence_before": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/before/adc-lfsw0102/running_config.txt",
+          "sha256": "a4f693cbcf2f4145dd71a90527e6fe10d6d2e1d5c7962b23b7febdbf7b54adc4",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/before/adc-lfsw0102/nve_vni.txt",
+          "sha256": "0703c6cf05111fe7df1e14afd3dd9b0ee728799040353716353de2e0a6847da0",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ],
+      "evidence_after": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/after/adc-lfsw0102/running_config.txt",
+          "sha256": "0b1ab9e41d221c9acd6ee69118ca08de4200568a1b7f753381221c686039f807",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/after/adc-lfsw0102/nve_vni.txt",
+          "sha256": "e8cc19d634ca0c6eca3f96c3a74360f189c402fa7a1f081c3aef2cc558213cf6",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ]
+    },
+    {
+      "change_type": "ADDED",
+      "resource_type": "L2VNI",
+      "vni": 10100,
+      "vrf": "tenant1-vpc1",
+      "device": "adc-lfsw0102",
+      "field": "svi.ipv6_link_local",
+      "before": null,
+      "after": "fe80::1",
+      "status": "OBSERVED",
+      "evidence_before": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/before/adc-lfsw0102/running_config.txt",
+          "sha256": "a4f693cbcf2f4145dd71a90527e6fe10d6d2e1d5c7962b23b7febdbf7b54adc4",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/before/adc-lfsw0102/nve_vni.txt",
+          "sha256": "0703c6cf05111fe7df1e14afd3dd9b0ee728799040353716353de2e0a6847da0",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ],
+      "evidence_after": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/after/adc-lfsw0102/running_config.txt",
+          "sha256": "0b1ab9e41d221c9acd6ee69118ca08de4200568a1b7f753381221c686039f807",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/after/adc-lfsw0102/nve_vni.txt",
+          "sha256": "e8cc19d634ca0c6eca3f96c3a74360f189c402fa7a1f081c3aef2cc558213cf6",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ]
+    },
+    {
+      "change_type": "ADDED",
+      "resource_type": "L2VNI",
+      "vni": 10100,
+      "vrf": "tenant1-vpc1",
+      "device": "adc-lfsw0102",
+      "field": "svi.ipv6_nd_suppress_ra",
+      "before": null,
+      "after": true,
+      "status": "OBSERVED",
+      "evidence_before": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/before/adc-lfsw0102/running_config.txt",
+          "sha256": "a4f693cbcf2f4145dd71a90527e6fe10d6d2e1d5c7962b23b7febdbf7b54adc4",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/before/adc-lfsw0102/nve_vni.txt",
+          "sha256": "0703c6cf05111fe7df1e14afd3dd9b0ee728799040353716353de2e0a6847da0",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ],
+      "evidence_after": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/after/adc-lfsw0102/running_config.txt",
+          "sha256": "0b1ab9e41d221c9acd6ee69118ca08de4200568a1b7f753381221c686039f807",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/after/adc-lfsw0102/nve_vni.txt",
+          "sha256": "e8cc19d634ca0c6eca3f96c3a74360f189c402fa7a1f081c3aef2cc558213cf6",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ]
+    },
+    {
+      "change_type": "ADDED",
+      "resource_type": "L2VNI",
+      "vni": 10100,
+      "vrf": "tenant1-vpc1",
+      "device": "adc-lfsw0102",
+      "field": "svi.mtu",
+      "before": null,
+      "after": 9216,
+      "status": "OBSERVED",
+      "evidence_before": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/before/adc-lfsw0102/running_config.txt",
+          "sha256": "a4f693cbcf2f4145dd71a90527e6fe10d6d2e1d5c7962b23b7febdbf7b54adc4",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/before/adc-lfsw0102/nve_vni.txt",
+          "sha256": "0703c6cf05111fe7df1e14afd3dd9b0ee728799040353716353de2e0a6847da0",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ],
+      "evidence_after": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/after/adc-lfsw0102/running_config.txt",
+          "sha256": "0b1ab9e41d221c9acd6ee69118ca08de4200568a1b7f753381221c686039f807",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/after/adc-lfsw0102/nve_vni.txt",
+          "sha256": "e8cc19d634ca0c6eca3f96c3a74360f189c402fa7a1f081c3aef2cc558213cf6",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ]
+    },
+    {
+      "change_type": "ADDED",
+      "resource_type": "L2VNI",
+      "vni": 10100,
+      "vrf": "tenant1-vpc1",
+      "device": "adc-lfsw0102",
+      "field": "svi.vrf",
+      "before": null,
+      "after": "tenant1-vpc1",
+      "status": "OBSERVED",
+      "evidence_before": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/before/adc-lfsw0102/running_config.txt",
+          "sha256": "a4f693cbcf2f4145dd71a90527e6fe10d6d2e1d5c7962b23b7febdbf7b54adc4",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/before/adc-lfsw0102/nve_vni.txt",
+          "sha256": "0703c6cf05111fe7df1e14afd3dd9b0ee728799040353716353de2e0a6847da0",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ],
+      "evidence_after": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/after/adc-lfsw0102/running_config.txt",
+          "sha256": "0b1ab9e41d221c9acd6ee69118ca08de4200568a1b7f753381221c686039f807",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/after/adc-lfsw0102/nve_vni.txt",
+          "sha256": "e8cc19d634ca0c6eca3f96c3a74360f189c402fa7a1f081c3aef2cc558213cf6",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ]
+    },
+    {
+      "change_type": "ADDED",
+      "resource_type": "L2VNI",
+      "vni": 10100,
+      "vrf": "tenant1-vpc1",
+      "device": "adc-lfsw0102",
+      "field": "vlan",
+      "before": null,
+      "after": 100,
+      "status": "OBSERVED",
+      "evidence_before": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/before/adc-lfsw0102/running_config.txt",
+          "sha256": "a4f693cbcf2f4145dd71a90527e6fe10d6d2e1d5c7962b23b7febdbf7b54adc4",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/before/adc-lfsw0102/nve_vni.txt",
+          "sha256": "0703c6cf05111fe7df1e14afd3dd9b0ee728799040353716353de2e0a6847da0",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ],
+      "evidence_after": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/after/adc-lfsw0102/running_config.txt",
+          "sha256": "0b1ab9e41d221c9acd6ee69118ca08de4200568a1b7f753381221c686039f807",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/after/adc-lfsw0102/nve_vni.txt",
+          "sha256": "e8cc19d634ca0c6eca3f96c3a74360f189c402fa7a1f081c3aef2cc558213cf6",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ]
+    },
+    {
+      "change_type": "ADDED",
+      "resource_type": "L2VNI",
+      "vni": 10100,
+      "vrf": "tenant1-vpc1",
+      "device": "adc-lfsw0102",
+      "field": "vlan_name",
+      "before": null,
+      "after": "tenant1-vpc1-server-seg1",
+      "status": "OBSERVED",
+      "evidence_before": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/before/adc-lfsw0102/running_config.txt",
+          "sha256": "a4f693cbcf2f4145dd71a90527e6fe10d6d2e1d5c7962b23b7febdbf7b54adc4",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/before/adc-lfsw0102/nve_vni.txt",
+          "sha256": "0703c6cf05111fe7df1e14afd3dd9b0ee728799040353716353de2e0a6847da0",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ],
+      "evidence_after": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/after/adc-lfsw0102/running_config.txt",
+          "sha256": "0b1ab9e41d221c9acd6ee69118ca08de4200568a1b7f753381221c686039f807",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/after/adc-lfsw0102/nve_vni.txt",
+          "sha256": "e8cc19d634ca0c6eca3f96c3a74360f189c402fa7a1f081c3aef2cc558213cf6",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ]
+    },
+    {
+      "change_type": "ADDED",
+      "resource_type": "L2VNI",
+      "vni": 10100,
+      "vrf": "tenant1-vpc1",
+      "device": "adc-lfsw0103",
+      "field": "nve_member",
+      "before": null,
+      "after": true,
+      "status": "OBSERVED",
+      "evidence_before": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/before/adc-lfsw0103/running_config.txt",
+          "sha256": "89ffdedd50c5b99a494ba6a8e9373ec26975752fa82595293d754acc92aaed55",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/before/adc-lfsw0103/nve_vni.txt",
+          "sha256": "286b2ff763eb44dbe076cd47c4a9901a45ac3fad23ddd9c5687cb491f0eb6bd9",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ],
+      "evidence_after": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/after/adc-lfsw0103/running_config.txt",
+          "sha256": "864ebf9517600315cd5ad7f561265b5906b8553ae152bd97f0848bfec911c4e9",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/after/adc-lfsw0103/nve_vni.txt",
+          "sha256": "5d43912c3d129962fbe23b6ae659c20d0bd42c2dd767d7997a242659e3b586ce",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ]
+    },
+    {
+      "change_type": "ADDED",
+      "resource_type": "L2VNI",
+      "vni": 10100,
+      "vrf": "tenant1-vpc1",
+      "device": "adc-lfsw0103",
+      "field": "operational_state",
+      "before": null,
+      "after": "Up",
+      "status": "OBSERVED",
+      "evidence_before": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/before/adc-lfsw0103/running_config.txt",
+          "sha256": "89ffdedd50c5b99a494ba6a8e9373ec26975752fa82595293d754acc92aaed55",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/before/adc-lfsw0103/nve_vni.txt",
+          "sha256": "286b2ff763eb44dbe076cd47c4a9901a45ac3fad23ddd9c5687cb491f0eb6bd9",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ],
+      "evidence_after": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/after/adc-lfsw0103/running_config.txt",
+          "sha256": "864ebf9517600315cd5ad7f561265b5906b8553ae152bd97f0848bfec911c4e9",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/after/adc-lfsw0103/nve_vni.txt",
+          "sha256": "5d43912c3d129962fbe23b6ae659c20d0bd42c2dd767d7997a242659e3b586ce",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ]
+    },
+    {
+      "change_type": "ADDED",
+      "resource_type": "L2VNI",
+      "vni": 10100,
+      "vrf": "tenant1-vpc1",
+      "device": "adc-lfsw0103",
+      "field": "replication",
+      "before": null,
+      "after": "UnicastBGP",
+      "status": "OBSERVED",
+      "evidence_before": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/before/adc-lfsw0103/running_config.txt",
+          "sha256": "89ffdedd50c5b99a494ba6a8e9373ec26975752fa82595293d754acc92aaed55",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/before/adc-lfsw0103/nve_vni.txt",
+          "sha256": "286b2ff763eb44dbe076cd47c4a9901a45ac3fad23ddd9c5687cb491f0eb6bd9",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ],
+      "evidence_after": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/after/adc-lfsw0103/running_config.txt",
+          "sha256": "864ebf9517600315cd5ad7f561265b5906b8553ae152bd97f0848bfec911c4e9",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/after/adc-lfsw0103/nve_vni.txt",
+          "sha256": "5d43912c3d129962fbe23b6ae659c20d0bd42c2dd767d7997a242659e3b586ce",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ]
+    },
+    {
+      "change_type": "ADDED",
+      "resource_type": "L2VNI",
+      "vni": 10100,
+      "vrf": "tenant1-vpc1",
+      "device": "adc-lfsw0103",
+      "field": "svi.admin_enabled",
+      "before": null,
+      "after": true,
+      "status": "OBSERVED",
+      "evidence_before": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/before/adc-lfsw0103/running_config.txt",
+          "sha256": "89ffdedd50c5b99a494ba6a8e9373ec26975752fa82595293d754acc92aaed55",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/before/adc-lfsw0103/nve_vni.txt",
+          "sha256": "286b2ff763eb44dbe076cd47c4a9901a45ac3fad23ddd9c5687cb491f0eb6bd9",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ],
+      "evidence_after": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/after/adc-lfsw0103/running_config.txt",
+          "sha256": "864ebf9517600315cd5ad7f561265b5906b8553ae152bd97f0848bfec911c4e9",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/after/adc-lfsw0103/nve_vni.txt",
+          "sha256": "5d43912c3d129962fbe23b6ae659c20d0bd42c2dd767d7997a242659e3b586ce",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ]
+    },
+    {
+      "change_type": "ADDED",
+      "resource_type": "L2VNI",
+      "vni": 10100,
+      "vrf": "tenant1-vpc1",
+      "device": "adc-lfsw0103",
+      "field": "svi.anycast_gateway",
+      "before": null,
+      "after": true,
+      "status": "OBSERVED",
+      "evidence_before": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/before/adc-lfsw0103/running_config.txt",
+          "sha256": "89ffdedd50c5b99a494ba6a8e9373ec26975752fa82595293d754acc92aaed55",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/before/adc-lfsw0103/nve_vni.txt",
+          "sha256": "286b2ff763eb44dbe076cd47c4a9901a45ac3fad23ddd9c5687cb491f0eb6bd9",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ],
+      "evidence_after": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/after/adc-lfsw0103/running_config.txt",
+          "sha256": "864ebf9517600315cd5ad7f561265b5906b8553ae152bd97f0848bfec911c4e9",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/after/adc-lfsw0103/nve_vni.txt",
+          "sha256": "5d43912c3d129962fbe23b6ae659c20d0bd42c2dd767d7997a242659e3b586ce",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ]
+    },
+    {
+      "change_type": "ADDED",
+      "resource_type": "L2VNI",
+      "vni": 10100,
+      "vrf": "tenant1-vpc1",
+      "device": "adc-lfsw0103",
+      "field": "svi.ipv4_addresses",
+      "before": null,
+      "after": [
+        "172.16.0.254/24"
+      ],
+      "status": "OBSERVED",
+      "evidence_before": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/before/adc-lfsw0103/running_config.txt",
+          "sha256": "89ffdedd50c5b99a494ba6a8e9373ec26975752fa82595293d754acc92aaed55",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/before/adc-lfsw0103/nve_vni.txt",
+          "sha256": "286b2ff763eb44dbe076cd47c4a9901a45ac3fad23ddd9c5687cb491f0eb6bd9",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ],
+      "evidence_after": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/after/adc-lfsw0103/running_config.txt",
+          "sha256": "864ebf9517600315cd5ad7f561265b5906b8553ae152bd97f0848bfec911c4e9",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/after/adc-lfsw0103/nve_vni.txt",
+          "sha256": "5d43912c3d129962fbe23b6ae659c20d0bd42c2dd767d7997a242659e3b586ce",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ]
+    },
+    {
+      "change_type": "ADDED",
+      "resource_type": "L2VNI",
+      "vni": 10100,
+      "vrf": "tenant1-vpc1",
+      "device": "adc-lfsw0103",
+      "field": "svi.ipv6_addresses",
+      "before": null,
+      "after": [
+        "fd21:0:0:1::1/64"
+      ],
+      "status": "OBSERVED",
+      "evidence_before": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/before/adc-lfsw0103/running_config.txt",
+          "sha256": "89ffdedd50c5b99a494ba6a8e9373ec26975752fa82595293d754acc92aaed55",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/before/adc-lfsw0103/nve_vni.txt",
+          "sha256": "286b2ff763eb44dbe076cd47c4a9901a45ac3fad23ddd9c5687cb491f0eb6bd9",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ],
+      "evidence_after": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/after/adc-lfsw0103/running_config.txt",
+          "sha256": "864ebf9517600315cd5ad7f561265b5906b8553ae152bd97f0848bfec911c4e9",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/after/adc-lfsw0103/nve_vni.txt",
+          "sha256": "5d43912c3d129962fbe23b6ae659c20d0bd42c2dd767d7997a242659e3b586ce",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ]
+    },
+    {
+      "change_type": "ADDED",
+      "resource_type": "L2VNI",
+      "vni": 10100,
+      "vrf": "tenant1-vpc1",
+      "device": "adc-lfsw0103",
+      "field": "svi.ipv6_link_local",
+      "before": null,
+      "after": "fe80::1",
+      "status": "OBSERVED",
+      "evidence_before": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/before/adc-lfsw0103/running_config.txt",
+          "sha256": "89ffdedd50c5b99a494ba6a8e9373ec26975752fa82595293d754acc92aaed55",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/before/adc-lfsw0103/nve_vni.txt",
+          "sha256": "286b2ff763eb44dbe076cd47c4a9901a45ac3fad23ddd9c5687cb491f0eb6bd9",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ],
+      "evidence_after": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/after/adc-lfsw0103/running_config.txt",
+          "sha256": "864ebf9517600315cd5ad7f561265b5906b8553ae152bd97f0848bfec911c4e9",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/after/adc-lfsw0103/nve_vni.txt",
+          "sha256": "5d43912c3d129962fbe23b6ae659c20d0bd42c2dd767d7997a242659e3b586ce",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ]
+    },
+    {
+      "change_type": "ADDED",
+      "resource_type": "L2VNI",
+      "vni": 10100,
+      "vrf": "tenant1-vpc1",
+      "device": "adc-lfsw0103",
+      "field": "svi.ipv6_nd_suppress_ra",
+      "before": null,
+      "after": true,
+      "status": "OBSERVED",
+      "evidence_before": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/before/adc-lfsw0103/running_config.txt",
+          "sha256": "89ffdedd50c5b99a494ba6a8e9373ec26975752fa82595293d754acc92aaed55",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/before/adc-lfsw0103/nve_vni.txt",
+          "sha256": "286b2ff763eb44dbe076cd47c4a9901a45ac3fad23ddd9c5687cb491f0eb6bd9",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ],
+      "evidence_after": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/after/adc-lfsw0103/running_config.txt",
+          "sha256": "864ebf9517600315cd5ad7f561265b5906b8553ae152bd97f0848bfec911c4e9",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/after/adc-lfsw0103/nve_vni.txt",
+          "sha256": "5d43912c3d129962fbe23b6ae659c20d0bd42c2dd767d7997a242659e3b586ce",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ]
+    },
+    {
+      "change_type": "ADDED",
+      "resource_type": "L2VNI",
+      "vni": 10100,
+      "vrf": "tenant1-vpc1",
+      "device": "adc-lfsw0103",
+      "field": "svi.mtu",
+      "before": null,
+      "after": 9216,
+      "status": "OBSERVED",
+      "evidence_before": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/before/adc-lfsw0103/running_config.txt",
+          "sha256": "89ffdedd50c5b99a494ba6a8e9373ec26975752fa82595293d754acc92aaed55",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/before/adc-lfsw0103/nve_vni.txt",
+          "sha256": "286b2ff763eb44dbe076cd47c4a9901a45ac3fad23ddd9c5687cb491f0eb6bd9",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ],
+      "evidence_after": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/after/adc-lfsw0103/running_config.txt",
+          "sha256": "864ebf9517600315cd5ad7f561265b5906b8553ae152bd97f0848bfec911c4e9",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/after/adc-lfsw0103/nve_vni.txt",
+          "sha256": "5d43912c3d129962fbe23b6ae659c20d0bd42c2dd767d7997a242659e3b586ce",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ]
+    },
+    {
+      "change_type": "ADDED",
+      "resource_type": "L2VNI",
+      "vni": 10100,
+      "vrf": "tenant1-vpc1",
+      "device": "adc-lfsw0103",
+      "field": "svi.vrf",
+      "before": null,
+      "after": "tenant1-vpc1",
+      "status": "OBSERVED",
+      "evidence_before": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/before/adc-lfsw0103/running_config.txt",
+          "sha256": "89ffdedd50c5b99a494ba6a8e9373ec26975752fa82595293d754acc92aaed55",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/before/adc-lfsw0103/nve_vni.txt",
+          "sha256": "286b2ff763eb44dbe076cd47c4a9901a45ac3fad23ddd9c5687cb491f0eb6bd9",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ],
+      "evidence_after": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/after/adc-lfsw0103/running_config.txt",
+          "sha256": "864ebf9517600315cd5ad7f561265b5906b8553ae152bd97f0848bfec911c4e9",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/after/adc-lfsw0103/nve_vni.txt",
+          "sha256": "5d43912c3d129962fbe23b6ae659c20d0bd42c2dd767d7997a242659e3b586ce",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ]
+    },
+    {
+      "change_type": "ADDED",
+      "resource_type": "L2VNI",
+      "vni": 10100,
+      "vrf": "tenant1-vpc1",
+      "device": "adc-lfsw0103",
+      "field": "vlan",
+      "before": null,
+      "after": 10,
+      "status": "OBSERVED",
+      "evidence_before": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/before/adc-lfsw0103/running_config.txt",
+          "sha256": "89ffdedd50c5b99a494ba6a8e9373ec26975752fa82595293d754acc92aaed55",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/before/adc-lfsw0103/nve_vni.txt",
+          "sha256": "286b2ff763eb44dbe076cd47c4a9901a45ac3fad23ddd9c5687cb491f0eb6bd9",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ],
+      "evidence_after": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/after/adc-lfsw0103/running_config.txt",
+          "sha256": "864ebf9517600315cd5ad7f561265b5906b8553ae152bd97f0848bfec911c4e9",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/after/adc-lfsw0103/nve_vni.txt",
+          "sha256": "5d43912c3d129962fbe23b6ae659c20d0bd42c2dd767d7997a242659e3b586ce",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ]
+    },
+    {
+      "change_type": "ADDED",
+      "resource_type": "L2VNI",
+      "vni": 10100,
+      "vrf": "tenant1-vpc1",
+      "device": "adc-lfsw0103",
+      "field": "vlan_name",
+      "before": null,
+      "after": "tenant1-vpc1-server-seg1",
+      "status": "OBSERVED",
+      "evidence_before": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/before/adc-lfsw0103/running_config.txt",
+          "sha256": "89ffdedd50c5b99a494ba6a8e9373ec26975752fa82595293d754acc92aaed55",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/before/adc-lfsw0103/nve_vni.txt",
+          "sha256": "286b2ff763eb44dbe076cd47c4a9901a45ac3fad23ddd9c5687cb491f0eb6bd9",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ],
+      "evidence_after": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/after/adc-lfsw0103/running_config.txt",
+          "sha256": "864ebf9517600315cd5ad7f561265b5906b8553ae152bd97f0848bfec911c4e9",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/after/adc-lfsw0103/nve_vni.txt",
+          "sha256": "5d43912c3d129962fbe23b6ae659c20d0bd42c2dd767d7997a242659e3b586ce",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ]
+    },
+    {
+      "change_type": "ADDED",
+      "resource_type": "L2VNI",
+      "vni": 10100,
+      "vrf": "tenant1-vpc1",
+      "device": "adc-lfsw0104",
+      "field": "nve_member",
+      "before": null,
+      "after": true,
+      "status": "OBSERVED",
+      "evidence_before": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/before/adc-lfsw0104/running_config.txt",
+          "sha256": "b499e4bba6524bda10b4fbdee6c6fb542456b2836ebeb2af2a03a536bc4c5b37",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/before/adc-lfsw0104/nve_vni.txt",
+          "sha256": "b56fd9f01542bb6f96ff3abc19c2a481b11a711f84c9c0e25ea2c3639102ae34",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ],
+      "evidence_after": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/after/adc-lfsw0104/running_config.txt",
+          "sha256": "d176bf4ae7682effa105c083104f0cc1a93feaa79f4423d20822319a32a1deb8",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/after/adc-lfsw0104/nve_vni.txt",
+          "sha256": "5e36fddc57f16a664f3a9734142f61f74b35158f978af81425a0e06fed3f6718",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ]
+    },
+    {
+      "change_type": "ADDED",
+      "resource_type": "L2VNI",
+      "vni": 10100,
+      "vrf": "tenant1-vpc1",
+      "device": "adc-lfsw0104",
+      "field": "operational_state",
+      "before": null,
+      "after": "Up",
+      "status": "OBSERVED",
+      "evidence_before": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/before/adc-lfsw0104/running_config.txt",
+          "sha256": "b499e4bba6524bda10b4fbdee6c6fb542456b2836ebeb2af2a03a536bc4c5b37",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/before/adc-lfsw0104/nve_vni.txt",
+          "sha256": "b56fd9f01542bb6f96ff3abc19c2a481b11a711f84c9c0e25ea2c3639102ae34",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ],
+      "evidence_after": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/after/adc-lfsw0104/running_config.txt",
+          "sha256": "d176bf4ae7682effa105c083104f0cc1a93feaa79f4423d20822319a32a1deb8",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/after/adc-lfsw0104/nve_vni.txt",
+          "sha256": "5e36fddc57f16a664f3a9734142f61f74b35158f978af81425a0e06fed3f6718",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ]
+    },
+    {
+      "change_type": "ADDED",
+      "resource_type": "L2VNI",
+      "vni": 10100,
+      "vrf": "tenant1-vpc1",
+      "device": "adc-lfsw0104",
+      "field": "replication",
+      "before": null,
+      "after": "UnicastBGP",
+      "status": "OBSERVED",
+      "evidence_before": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/before/adc-lfsw0104/running_config.txt",
+          "sha256": "b499e4bba6524bda10b4fbdee6c6fb542456b2836ebeb2af2a03a536bc4c5b37",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/before/adc-lfsw0104/nve_vni.txt",
+          "sha256": "b56fd9f01542bb6f96ff3abc19c2a481b11a711f84c9c0e25ea2c3639102ae34",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ],
+      "evidence_after": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/after/adc-lfsw0104/running_config.txt",
+          "sha256": "d176bf4ae7682effa105c083104f0cc1a93feaa79f4423d20822319a32a1deb8",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/after/adc-lfsw0104/nve_vni.txt",
+          "sha256": "5e36fddc57f16a664f3a9734142f61f74b35158f978af81425a0e06fed3f6718",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ]
+    },
+    {
+      "change_type": "ADDED",
+      "resource_type": "L2VNI",
+      "vni": 10100,
+      "vrf": "tenant1-vpc1",
+      "device": "adc-lfsw0104",
+      "field": "svi.admin_enabled",
+      "before": null,
+      "after": true,
+      "status": "OBSERVED",
+      "evidence_before": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/before/adc-lfsw0104/running_config.txt",
+          "sha256": "b499e4bba6524bda10b4fbdee6c6fb542456b2836ebeb2af2a03a536bc4c5b37",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/before/adc-lfsw0104/nve_vni.txt",
+          "sha256": "b56fd9f01542bb6f96ff3abc19c2a481b11a711f84c9c0e25ea2c3639102ae34",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ],
+      "evidence_after": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/after/adc-lfsw0104/running_config.txt",
+          "sha256": "d176bf4ae7682effa105c083104f0cc1a93feaa79f4423d20822319a32a1deb8",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/after/adc-lfsw0104/nve_vni.txt",
+          "sha256": "5e36fddc57f16a664f3a9734142f61f74b35158f978af81425a0e06fed3f6718",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ]
+    },
+    {
+      "change_type": "ADDED",
+      "resource_type": "L2VNI",
+      "vni": 10100,
+      "vrf": "tenant1-vpc1",
+      "device": "adc-lfsw0104",
+      "field": "svi.anycast_gateway",
+      "before": null,
+      "after": true,
+      "status": "OBSERVED",
+      "evidence_before": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/before/adc-lfsw0104/running_config.txt",
+          "sha256": "b499e4bba6524bda10b4fbdee6c6fb542456b2836ebeb2af2a03a536bc4c5b37",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/before/adc-lfsw0104/nve_vni.txt",
+          "sha256": "b56fd9f01542bb6f96ff3abc19c2a481b11a711f84c9c0e25ea2c3639102ae34",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ],
+      "evidence_after": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/after/adc-lfsw0104/running_config.txt",
+          "sha256": "d176bf4ae7682effa105c083104f0cc1a93feaa79f4423d20822319a32a1deb8",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/after/adc-lfsw0104/nve_vni.txt",
+          "sha256": "5e36fddc57f16a664f3a9734142f61f74b35158f978af81425a0e06fed3f6718",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ]
+    },
+    {
+      "change_type": "ADDED",
+      "resource_type": "L2VNI",
+      "vni": 10100,
+      "vrf": "tenant1-vpc1",
+      "device": "adc-lfsw0104",
+      "field": "svi.ipv4_addresses",
+      "before": null,
+      "after": [
+        "172.16.0.254/24"
+      ],
+      "status": "OBSERVED",
+      "evidence_before": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/before/adc-lfsw0104/running_config.txt",
+          "sha256": "b499e4bba6524bda10b4fbdee6c6fb542456b2836ebeb2af2a03a536bc4c5b37",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/before/adc-lfsw0104/nve_vni.txt",
+          "sha256": "b56fd9f01542bb6f96ff3abc19c2a481b11a711f84c9c0e25ea2c3639102ae34",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ],
+      "evidence_after": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/after/adc-lfsw0104/running_config.txt",
+          "sha256": "d176bf4ae7682effa105c083104f0cc1a93feaa79f4423d20822319a32a1deb8",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/after/adc-lfsw0104/nve_vni.txt",
+          "sha256": "5e36fddc57f16a664f3a9734142f61f74b35158f978af81425a0e06fed3f6718",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ]
+    },
+    {
+      "change_type": "ADDED",
+      "resource_type": "L2VNI",
+      "vni": 10100,
+      "vrf": "tenant1-vpc1",
+      "device": "adc-lfsw0104",
+      "field": "svi.ipv6_addresses",
+      "before": null,
+      "after": [
+        "fd21:0:0:1::1/64"
+      ],
+      "status": "OBSERVED",
+      "evidence_before": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/before/adc-lfsw0104/running_config.txt",
+          "sha256": "b499e4bba6524bda10b4fbdee6c6fb542456b2836ebeb2af2a03a536bc4c5b37",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/before/adc-lfsw0104/nve_vni.txt",
+          "sha256": "b56fd9f01542bb6f96ff3abc19c2a481b11a711f84c9c0e25ea2c3639102ae34",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ],
+      "evidence_after": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/after/adc-lfsw0104/running_config.txt",
+          "sha256": "d176bf4ae7682effa105c083104f0cc1a93feaa79f4423d20822319a32a1deb8",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/after/adc-lfsw0104/nve_vni.txt",
+          "sha256": "5e36fddc57f16a664f3a9734142f61f74b35158f978af81425a0e06fed3f6718",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ]
+    },
+    {
+      "change_type": "ADDED",
+      "resource_type": "L2VNI",
+      "vni": 10100,
+      "vrf": "tenant1-vpc1",
+      "device": "adc-lfsw0104",
+      "field": "svi.ipv6_link_local",
+      "before": null,
+      "after": "fe80::1",
+      "status": "OBSERVED",
+      "evidence_before": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/before/adc-lfsw0104/running_config.txt",
+          "sha256": "b499e4bba6524bda10b4fbdee6c6fb542456b2836ebeb2af2a03a536bc4c5b37",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/before/adc-lfsw0104/nve_vni.txt",
+          "sha256": "b56fd9f01542bb6f96ff3abc19c2a481b11a711f84c9c0e25ea2c3639102ae34",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ],
+      "evidence_after": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/after/adc-lfsw0104/running_config.txt",
+          "sha256": "d176bf4ae7682effa105c083104f0cc1a93feaa79f4423d20822319a32a1deb8",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/after/adc-lfsw0104/nve_vni.txt",
+          "sha256": "5e36fddc57f16a664f3a9734142f61f74b35158f978af81425a0e06fed3f6718",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ]
+    },
+    {
+      "change_type": "ADDED",
+      "resource_type": "L2VNI",
+      "vni": 10100,
+      "vrf": "tenant1-vpc1",
+      "device": "adc-lfsw0104",
+      "field": "svi.ipv6_nd_suppress_ra",
+      "before": null,
+      "after": true,
+      "status": "OBSERVED",
+      "evidence_before": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/before/adc-lfsw0104/running_config.txt",
+          "sha256": "b499e4bba6524bda10b4fbdee6c6fb542456b2836ebeb2af2a03a536bc4c5b37",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/before/adc-lfsw0104/nve_vni.txt",
+          "sha256": "b56fd9f01542bb6f96ff3abc19c2a481b11a711f84c9c0e25ea2c3639102ae34",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ],
+      "evidence_after": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/after/adc-lfsw0104/running_config.txt",
+          "sha256": "d176bf4ae7682effa105c083104f0cc1a93feaa79f4423d20822319a32a1deb8",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/after/adc-lfsw0104/nve_vni.txt",
+          "sha256": "5e36fddc57f16a664f3a9734142f61f74b35158f978af81425a0e06fed3f6718",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ]
+    },
+    {
+      "change_type": "ADDED",
+      "resource_type": "L2VNI",
+      "vni": 10100,
+      "vrf": "tenant1-vpc1",
+      "device": "adc-lfsw0104",
+      "field": "svi.mtu",
+      "before": null,
+      "after": 9216,
+      "status": "OBSERVED",
+      "evidence_before": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/before/adc-lfsw0104/running_config.txt",
+          "sha256": "b499e4bba6524bda10b4fbdee6c6fb542456b2836ebeb2af2a03a536bc4c5b37",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/before/adc-lfsw0104/nve_vni.txt",
+          "sha256": "b56fd9f01542bb6f96ff3abc19c2a481b11a711f84c9c0e25ea2c3639102ae34",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ],
+      "evidence_after": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/after/adc-lfsw0104/running_config.txt",
+          "sha256": "d176bf4ae7682effa105c083104f0cc1a93feaa79f4423d20822319a32a1deb8",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/after/adc-lfsw0104/nve_vni.txt",
+          "sha256": "5e36fddc57f16a664f3a9734142f61f74b35158f978af81425a0e06fed3f6718",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ]
+    },
+    {
+      "change_type": "ADDED",
+      "resource_type": "L2VNI",
+      "vni": 10100,
+      "vrf": "tenant1-vpc1",
+      "device": "adc-lfsw0104",
+      "field": "svi.vrf",
+      "before": null,
+      "after": "tenant1-vpc1",
+      "status": "OBSERVED",
+      "evidence_before": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/before/adc-lfsw0104/running_config.txt",
+          "sha256": "b499e4bba6524bda10b4fbdee6c6fb542456b2836ebeb2af2a03a536bc4c5b37",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/before/adc-lfsw0104/nve_vni.txt",
+          "sha256": "b56fd9f01542bb6f96ff3abc19c2a481b11a711f84c9c0e25ea2c3639102ae34",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ],
+      "evidence_after": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/after/adc-lfsw0104/running_config.txt",
+          "sha256": "d176bf4ae7682effa105c083104f0cc1a93feaa79f4423d20822319a32a1deb8",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/after/adc-lfsw0104/nve_vni.txt",
+          "sha256": "5e36fddc57f16a664f3a9734142f61f74b35158f978af81425a0e06fed3f6718",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ]
+    },
+    {
+      "change_type": "ADDED",
+      "resource_type": "L2VNI",
+      "vni": 10100,
+      "vrf": "tenant1-vpc1",
+      "device": "adc-lfsw0104",
+      "field": "vlan",
+      "before": null,
+      "after": 10,
+      "status": "OBSERVED",
+      "evidence_before": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/before/adc-lfsw0104/running_config.txt",
+          "sha256": "b499e4bba6524bda10b4fbdee6c6fb542456b2836ebeb2af2a03a536bc4c5b37",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/before/adc-lfsw0104/nve_vni.txt",
+          "sha256": "b56fd9f01542bb6f96ff3abc19c2a481b11a711f84c9c0e25ea2c3639102ae34",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ],
+      "evidence_after": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/after/adc-lfsw0104/running_config.txt",
+          "sha256": "d176bf4ae7682effa105c083104f0cc1a93feaa79f4423d20822319a32a1deb8",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/after/adc-lfsw0104/nve_vni.txt",
+          "sha256": "5e36fddc57f16a664f3a9734142f61f74b35158f978af81425a0e06fed3f6718",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ]
+    },
+    {
+      "change_type": "ADDED",
+      "resource_type": "L2VNI",
+      "vni": 10100,
+      "vrf": "tenant1-vpc1",
+      "device": "adc-lfsw0104",
+      "field": "vlan_name",
+      "before": null,
+      "after": "tenant1-vpc1-server-seg1",
+      "status": "OBSERVED",
+      "evidence_before": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/before/adc-lfsw0104/running_config.txt",
+          "sha256": "b499e4bba6524bda10b4fbdee6c6fb542456b2836ebeb2af2a03a536bc4c5b37",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/before/adc-lfsw0104/nve_vni.txt",
+          "sha256": "b56fd9f01542bb6f96ff3abc19c2a481b11a711f84c9c0e25ea2c3639102ae34",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ],
+      "evidence_after": [
+        {
+          "command": "show running-config",
+          "file": "synthetic/after/adc-lfsw0104/running_config.txt",
+          "sha256": "d176bf4ae7682effa105c083104f0cc1a93feaa79f4423d20822319a32a1deb8",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "running_config"
+        },
+        {
+          "command": "show nve vni",
+          "file": "synthetic/after/adc-lfsw0104/nve_vni.txt",
+          "sha256": "5e36fddc57f16a664f3a9734142f61f74b35158f978af81425a0e06fed3f6718",
+          "parse_status": "parsed",
+          "status": "success",
+          "source_id": "nve_vni"
+        }
+      ]
+    }
   ]
 }

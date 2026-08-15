@@ -89,19 +89,24 @@ Hosts     : 3
 Warnings  : 0
 Result    : PASS
 Checks    : PASS=49 WARN=0 FAIL=0 UNKNOWN=0 N/A=5
-Manifest  : operations/HC-20260802T140000-p1234-a1b2c3/health/before/collection-manifest.yaml
-Snapshot  : operations/HC-20260802T140000-p1234-a1b2c3/health/before/snapshot.json
-Checklist : operations/HC-20260802T140000-p1234-a1b2c3/health/before/checklist.md
+Manifest  : operations/live/2026/08/02/HC-20260802T140000-p1234-a1b2c3/health/before/collection-manifest.yaml
+Snapshot  : operations/live/2026/08/02/HC-20260802T140000-p1234-a1b2c3/health/before/snapshot.json
+Checklist : operations/live/2026/08/02/HC-20260802T140000-p1234-a1b2c3/health/before/checklist.md
 ```
 
 `nxos-overlay`を含むため、通常のhealth成果物に加えて次が生成されます。
 
 ```text
-operations/HC-20260802T140000-p1234-a1b2c3/health/before/
+operations/live/2026/08/02/HC-20260802T140000-p1234-a1b2c3/health/before/
 ├── overlay-state.yaml
 ├── vni-map.md
-└── vni-map.csv
+├── vni-map.csv
+├── vni_gateway_map.md
+└── vni_gateway_map.csv
 ```
+
+`vni_gateway_map.*` は既存 command 互換の SVI 中心一覧である。用途と制約は
+[VNI Map Guide](09_VNI_MAP_GUIDE.md)を参照する。
 
 beforeのChecklist・VNI map例:
 
@@ -141,8 +146,8 @@ ChecklistではbaselineとOverlayの両方を確認します。
 2. L2VNIとVRF、L3VNIの対応が正しい。
 3. NVE stateがUpである。
 4. `Conflicts: 0`、`Unknowns: 0`である。
-5. 機器別VLAN差分が意図した`DEVICE_VARIANT`である。
-6. Gateway IPv4/IPv6、MTU、anycast gatewayが想定どおりである。
+5. 機器別 VLAN または IPv6 link-local mode／明示値の差分が意図した`DEVICE_VARIANT`である。
+6. Gateway IPv4／IPv6、IPv6 link-local、MTU、anycast gateway が想定どおりである。
 
 beforeでFAILまたはUNKNOWNがある場合は、変更前から存在する事象でも原因と影響を確認してから
 作業継続を判断します。
@@ -189,9 +194,9 @@ Hosts     : 3
 Warnings  : 0
 Result    : PASS
 Checks    : PASS=49 WARN=0 FAIL=0 UNKNOWN=0 N/A=5
-Manifest  : operations/HC-20260802T140000-p1234-a1b2c3/health/after/collection-manifest.yaml
-Snapshot  : operations/HC-20260802T140000-p1234-a1b2c3/health/after/snapshot.json
-Checklist : operations/HC-20260802T140000-p1234-a1b2c3/health/after/checklist.md
+Manifest  : operations/live/2026/08/02/HC-20260802T140000-p1234-a1b2c3/health/after/collection-manifest.yaml
+Snapshot  : operations/live/2026/08/02/HC-20260802T140000-p1234-a1b2c3/health/after/snapshot.json
+Checklist : operations/live/2026/08/02/HC-20260802T140000-p1234-a1b2c3/health/after/checklist.md
 ```
 
 afterのChecklist・VNI map例:
@@ -209,7 +214,7 @@ afterのChecklist・VNI map例:
 after完了後のreportでは次を確認します。
 
 ```text
-operations/HC-20260802T140000-p1234-a1b2c3/health/report/
+operations/live/2026/08/02/HC-20260802T140000-p1234-a1b2c3/health/report/
 ├── health-result.json
 ├── summary.md
 ├── vni-map-diff.json
@@ -253,7 +258,7 @@ NVE state、SVI、Gatewayなどを機器・field単位で追跡するためで�
 - diffに計画外のREMOVED、MODIFIED、CONFLICT、UNKNOWNがない
 - logging、route、OSPF、BGP、vPC、reload-pendingに新規異常がない
 
-`DEVICE_VARIANT`は、機器別VLANなどの意図した差分であれば完了を妨げません。作業計画にない
+`DEVICE_VARIANT`は、機器別 VLAN や IPv6 link-local mode／明示値などの意図した差分であれば完了を妨げません。作業計画にない
 差分の場合は完了せず、設定と入力情報を照合します。
 
 ## 10. オフラインログを使用する場合

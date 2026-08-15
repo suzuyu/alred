@@ -4,8 +4,8 @@
 `OverlayChangeSet` YAMLとして定義する方法を説明します。実際のbefore、plan、approve、apply、
 after、save、rollbackは[alredによるVNI設定投入](./08_ALRED_OVERLAY_CHANGE_APPLY.md)を参照してください。
 
-仕様の正本は[Overlay Change Management Design](../../design/OVERLAY_CHANGE_MANAGEMENT_DESIGN.md)と
-[NX-OS Overlay Config Rendering Design](../../design/NXOS_OVERLAY_CONFIG_RENDERING_DESIGN.md)です。
+仕様の正本は[Overlay Change Management Design](../../design/network-ops/OVERLAY_CHANGE_MANAGEMENT_DESIGN.md)と
+[NX-OS Overlay Config Rendering Design](../../design/network-ops/NXOS_OVERLAY_CONFIG_RENDERING_DESIGN.md)です。
 
 ## 1. 作成するタイミング
 
@@ -60,10 +60,10 @@ changes/CHG-2026-00123/device-groups.fabric.yaml
 - [既定値を省略したChangeSet](./examples/overlay-changeset/desired-changes.minimal.yaml)
 - [一ファイル形式ChangeSet](./examples/overlay-changeset/desired-changes.inline.yaml)（代替）
 - [サンプルの説明](./examples/overlay-changeset/README.md)
-- [vPCペア1のforward config](./examples/overlay-changeset/leaf01.cfg)
-- [vPCペア1のrollback config](./examples/overlay-changeset/leaf01-rollback.cfg)
-- [vPCペア2のforward config](./examples/overlay-changeset/leaf03.cfg)
-- [vPCペア2のrollback config](./examples/overlay-changeset/leaf03-rollback.cfg)
+- [vPC pair 1 の forward config](./examples/overlay-changeset/adc-lfsw0101.cfg)
+- [vPC pair 1 の rollback config](./examples/overlay-changeset/adc-lfsw0101-rollback.cfg)
+- [vPC pair 2 の forward config](./examples/overlay-changeset/adc-lfsw0103.cfg)
+- [vPC pair 2 の rollback config](./examples/overlay-changeset/adc-lfsw0103-rollback.cfg)
 
 サンプルをそのまま本番環境へ投入せず、change ID、対象hostname、VNI、VLAN、VRF、IP address、
 BGP関連値を対象環境に合わせて変更してください。
@@ -104,10 +104,10 @@ spec:
 ```yaml
 spec:
   device_groups:
-    vpc-leaf-pair-01:
+    adc-vpc-pair-01:
       devices:
-        - leaf01
-        - leaf02
+        - adc-lfsw0101
+        - adc-lfsw0102
   l2vnis: []
   l3vnis: []
 ```
@@ -147,43 +147,38 @@ spec:
 api_version: alred/v1
 kind: OverlayDeviceGroups
 metadata:
-  name: fabric-a
+  name: adc-single-site-fabric
 spec:
   device_groups:
-    vpc-leaf-pair-01:
+    adc-vpc-pair-01:
       devices:
-        - leaf01
-        - leaf02
-    vpc-leaf-pair-02:
+        - adc-lfsw0101
+        - adc-lfsw0102
+    adc-vpc-pair-02:
       devices:
-        - leaf03
-        - leaf04
-    server-leafs:
+        - adc-lfsw0103
+        - adc-lfsw0104
+    adc-all-vtep-leafs:
       groups:
-        - vpc-leaf-pair-01
-    storage-leafs:
-      groups:
-        - vpc-leaf-pair-02
-    all-vtep-leafs:
-      groups:
-        - server-leafs
-        - storage-leafs
+        - adc-vpc-pair-01
+        - adc-vpc-pair-02
 ```
 
 この形式ではgroupファイルに所属関係だけを定義し、VLANなど作業固有値はChangeSetの
 `targets.groups`へ記載します。詳細仕様は
-[Overlay Change Management Design](../../design/OVERLAY_CHANGE_MANAGEMENT_DESIGN.md#5-device-group)を
+[Overlay Change Management Design](../../design/network-ops/OVERLAY_CHANGE_MANAGEMENT_DESIGN.md#5-device-group)を
 参照してください。
 
 ```yaml
 targets:
   groups:
-    server-leafs: {}
-    storage-leafs:
-      vlan: 120
+    adc-vpc-pair-01: {}
+    adc-vpc-pair-02:
+      vlan: 10
 ```
 
-この例では`leaf01/leaf02`がVLAN 20、`leaf03/leaf04`がVLAN 120になります。値の優先順位は
+この例では `adc-lfsw0101/0102` が VLAN 100、`adc-lfsw0103/0104` が VLAN 10 になります。
+値の優先順位は
 次のとおりです。
 
 ```text
@@ -205,28 +200,22 @@ group名は任意ですが、vPCペアと用途を識別できる安定した名
 ```yaml
 spec:
   device_groups:
-    vpc-leaf-pair-01:
+    adc-vpc-pair-01:
       devices:
-        - leaf01
-        - leaf02
-    vpc-leaf-pair-02:
+        - adc-lfsw0101
+        - adc-lfsw0102
+    adc-vpc-pair-02:
       devices:
-        - leaf03
-        - leaf04
-    server-leafs:
-      groups:
-        - vpc-leaf-pair-01
-    storage-leafs:
-      groups:
-        - vpc-leaf-pair-02
+        - adc-lfsw0103
+        - adc-lfsw0104
   l2vnis:
-    - vni: 10020
-      default_vlan: 20
+    - vni: 10100
+      default_vlan: 100
       targets:
         groups:
-          server-leafs: {}
-          storage-leafs:
-            vlan: 120
+          adc-vpc-pair-01: {}
+          adc-vpc-pair-02:
+            vlan: 10
 ```
 
 ## 6. L2VNIを定義
@@ -235,25 +224,25 @@ Gateway SVIを含むL2VNIの例:
 
 ```yaml
 l2vnis:
-  - vni: 10020
-    default_vlan: 20
-    vlan_name: TENANT-A-APP
-    vrf: TENANT-A
-    l3vni: 50001
+  - vni: 10100
+    default_vlan: 100
+    vlan_name: tenant1-vpc1-server-seg1
+    vrf: tenant1-vpc1
+    l3vni: 19001
     svi:
       mtu: 9216
       ipv4_addresses:
-        - 198.51.100.1/24
+        - 172.16.0.254/24
       ipv6_addresses:
-        - 2001:db8:20::1/64
+        - fd21:0:0:1::1/64
       ipv6_link_local: fe80::1
       ipv6_nd_suppress_ra: true
       gateway_mode: anycast
     targets:
       groups:
-        server-leafs: {}
-        storage-leafs:
-          vlan: 120
+        adc-vpc-pair-01: {}
+        adc-vpc-pair-02:
+          vlan: 10
 ```
 
 主な規則:
@@ -359,29 +348,23 @@ spec:
     path: ./device-groups.fabric.yaml
 
   l2vnis:
-    - vni: 10020
-      default_vlan: 20
-      vlan_name: TENANT-A-APP
-      vrf: TENANT-A
-      l3vni: 50001
+    - vni: 10100
+      default_vlan: 100
+      vlan_name: tenant1-vpc1-server-seg1
+      vrf: tenant1-vpc1
+      l3vni: 19001
       svi:
         ipv4_addresses:
-          - 198.51.100.1/24
+          - 172.16.0.254/24
         ipv6_addresses:
-          - 2001:db8:20::1/64
+          - fd21:0:0:1::1/64
       targets:
         groups:
-          server-leafs: {}
-          storage-leafs:
-            vlan: 120
+          adc-vpc-pair-01: {}
+          adc-vpc-pair-02:
+            vlan: 10
 
-  l3vnis:
-    - vni: 50001
-      vrf: TENANT-A
-      targets:
-        groups:
-          server-leafs: {}
-          storage-leafs: {}
+  l3vnis: []
 ```
 
 この例では、plan時に次の既定値または導出値が適用されます。
@@ -392,18 +375,10 @@ spec:
 | `l2vnis[].svi.ipv6_link_local` | `fe80::1` |
 | `l2vnis[].svi.ipv6_nd_suppress_ra` | `true`。`ipv6 nd suppress-ra`を生成 |
 | `l2vnis[].svi.gateway_mode` | `anycast` |
-| `l3vnis[].mode` | `new_l3vni` |
-| `l3vnis[].address_families` | 関連するGateway SVIからIPv4とIPv6を導出 |
-| `advertise_l2vpn_evpn` | IPv4／IPv6とも`true` |
-| `redistribute_direct.enabled` | IPv4／IPv6とも`true` |
-| `redistribute_static.enabled` | IPv4／IPv6とも`true` |
-| redistributeの`route_map` | IPv4は`IPv4_REDISTRIBUTE_ALL`、IPv6は`IPv6_REDISTRIBUTE_ALL` |
-| `maximum_paths_ibgp` | IPv4／IPv6とも`4` |
 
-簡略例でも、既定route-mapが対象機器に存在すること、既存BGP processが1つであること、
-NVEにglobal ingress replicationが設定済みであることはplanで検証されます。既定値と異なる
-設定を使用する場合、または変更内容の承認時に全BGPパラメータを明示する運用では、前節の
-完全な記載パターンを使用してください。
+このサンプルは既存 VRF／L3VNI を利用するため、`l3vnis` は空配列です。既存 BGP process が
+1 つであることと、NVE に global ingress replication が設定済みであることは plan で検証されます。
+新規 L3VNI も作成する場合は、前節の完全な記載パターンを使用してください。
 
 ## 9. target解決結果をレビュー
 
@@ -411,10 +386,10 @@ NVEにglobal ingress replicationが設定済みであることはplanで検証�
 
 | device | group | L2VNI | VLAN | L3VNI | VRF |
 |---|---|---:|---:|---:|---|
-| leaf01 | server-leafs → vpc-leaf-pair-01 | 10020 | 20 | 50001 | TENANT-A |
-| leaf02 | server-leafs → vpc-leaf-pair-01 | 10020 | 20 | 50001 | TENANT-A |
-| leaf03 | storage-leafs → vpc-leaf-pair-02 | 10020 | 120 | 50001 | TENANT-A |
-| leaf04 | storage-leafs → vpc-leaf-pair-02 | 10020 | 120 | 50001 | TENANT-A |
+| adc-lfsw0101 | adc-vpc-pair-01 | 10100 | 100 | 19001 | tenant1-vpc1 |
+| adc-lfsw0102 | adc-vpc-pair-01 | 10100 | 100 | 19001 | tenant1-vpc1 |
+| adc-lfsw0103 | adc-vpc-pair-02 | 10100 | 10 | 19001 | tenant1-vpc1 |
+| adc-lfsw0104 | adc-vpc-pair-02 | 10100 | 10 | 19001 | tenant1-vpc1 |
 
 ChangeSetレビュー時には、圧縮されたgroup表現だけでなく、この機器単位の期待値を確認します。
 特にvPCペア内でVLAN、VNI、VRF、SVI、BGP設定が一致していることを確認してください。
@@ -446,6 +421,16 @@ alred overlay-change prepare-plan \
   --operations-root operations
 ```
 
+参照元の `WARN` を確認したうえで明示的に許可する場合:
+
+```bash
+alred overlay-change prepare-plan \
+  --change-set ./changes/CHG-2026-00123/desired-changes.yaml \
+  --reference-state latest-known-good \
+  --allow-reference-state-warn \
+  --operations-root operations
+```
+
 参照元を明示する例:
 
 ```bash
@@ -463,17 +448,37 @@ alred overlay-change prepare-plan \
 | `--reference-operation-id <ID>` | 参照する過去operationを明示 | なし |
 | `--reference-phase after\|rollback` | 明示operation内のphase。省略時は最終workflowまたは正常性成果物から決定 | 自動 |
 | `--reference-max-age-days <DAYS>` | 参照Snapshotの最大経過日数 | `30` |
+| `--allow-reference-state-warn` | Overlay terminal、または明示した standalone after の `WARN` を許可 | 無効 |
 
-`--reference-state`と`--reference-operation-id`は相互排他です。rollback済みoperationでは
-途中状態のafterを使用せず、検証済みrollbackを参照します。Overlay変更workflowを持たない
-health-check operationでも、afterが完了してHealthResultが`PASS`、compare成果物がある場合は
-compareも`PASS`で、対象機器のrunning-configとOverlay解析証跡が揃っていれば参照できます。
+`--reference-state` と `--reference-operation-id` は相互排他です。rollback 済み Operation では
+途中状態の after を使用せず、検証済み rollback を参照します。Overlay 変更 workflow を持たない
+Health Check Operation でも、after が完了して HealthResult が `PASS`、compare 成果物がある場合は
+compare も `PASS` で、対象機器の running-config と Overlay 解析証跡が揃っていれば参照できます。
 
-prepare-planはVLAN / L2VNI、VRF / L3VNI、同一device・同一VRFのSVI / routed interface /
-loopback IP・prefix、既存SVI属性を検査し、結果を
-`preparation/attempts/<attempt-id>/conflict-report.md`へ保存します。明確な競合は`CONFLICT`、
-証跡不足は`UNKNOWN`としてconfig生成を停止します。同じVLAN・VRFへ設定するvPC Leaf間の
-anycast gateway重複は正常として扱います。
+既定は `PASS` のみです。`latest-known-good` で `--allow-reference-state-warn` を指定した場合は、workflow が
+`completed` または `rolled_back_and_verified` の Overlay terminal Operation の `WARN` だけを自動選択候補に
+含めます。standalone Health Check の `WARN` は、対象を `--reference-operation-id` で明示し、さらに
+`--allow-reference-state-warn` を指定した場合だけ許可します。`FAIL`、`UNKNOWN` は許可しません。
+`WARN` を採用すると、総件数、classification、Checklist path、明示許可 policy が `reference-state.json`、
+execution plan、CLI に記録されます。warning は対象 device だけでなく、参照 Operation の HealthResult 全体を
+表示します。
+
+standalone Health Check の `WARN` を明示的に参照する例:
+
+```bash
+alred overlay-change prepare-plan \
+  --change-set ./changes/CHG-2026-00123/desired-changes.yaml \
+  --reference-operation-id HC-20260816T011401-p0900-dfb5d4 \
+  --reference-phase after \
+  --allow-reference-state-warn \
+  --operations-root operations
+```
+
+prepare-plan は VLAN／L2VNI、VRF／L3VNI、同一 device・同一 VRF の SVI／routed interface／
+loopback IP・prefix、既存 SVI 属性を検査し、結果を
+`preparation/attempts/<attempt-id>/conflict-report.md` へ保存します。明確な競合は `CONFLICT`、
+証跡不足は `UNKNOWN` として config 生成を停止します。同じ VLAN・VRF へ設定する vPC Leaf 間の
+anycast gateway 重複は正常として扱います。
 
 ```text
 === OVERLAY PREPARATION PLAN ===
@@ -482,8 +487,8 @@ Reference       : HC-20260731T033111-p0900-e0922b (rollback)
 Reference age   : 2.25 days
 Conflict check  : PASS
 Devices         : 4
-Execution plan  : operations/CHG-2026-00123/preparation/attempts/prepare-plan-.../execution-plan.json
-Generated config: operations/CHG-2026-00123/preparation/attempts/prepare-plan-.../generated-config
+Execution plan  : operations/live/2026/08/01/CHG-2026-00123/preparation/attempts/prepare-plan-.../execution-plan.json
+Generated config: operations/live/2026/08/01/CHG-2026-00123/preparation/attempts/prepare-plan-.../generated-config
 Apply            : BLOCKED (fresh before and normal plan required)
 ```
 
@@ -502,9 +507,9 @@ beforeがPASSし、operationディレクトリが作成されたら、レビュ�
 
 ```bash
 cp ./changes/CHG-2026-00123/desired-changes.yaml \
-  operations/CHG-2026-00123/desired-changes.yaml
+  operations/live/2026/08/01/CHG-2026-00123/desired-changes.yaml
 cp ./changes/CHG-2026-00123/device-groups.fabric.yaml \
-  operations/CHG-2026-00123/device-groups.fabric.yaml
+  operations/live/2026/08/01/CHG-2026-00123/device-groups.fabric.yaml
 ```
 
 planは`device_groups_ref`をChangeSet基準で解決し、materializeしたChangeSetを`inputs/change-set.yaml`、
@@ -517,7 +522,7 @@ groupファイルのコピーは不要です。
 
 ```bash
 alred overlay-change plan \
-  --change-set operations/CHG-2026-00123/desired-changes.yaml \
+  --change-set operations/live/2026/08/01/CHG-2026-00123/desired-changes.yaml \
   --hosts ./hosts.lab.yaml \
   --operations-root operations
 ```
@@ -532,8 +537,8 @@ pathを明示して監査したい場合は次のように指定できますが�
 
 ```bash
 alred overlay-change plan \
-  --change-set operations/CHG-2026-00123/desired-changes.yaml \
-  --before operations/CHG-2026-00123/health/before/snapshot.json \
+  --change-set operations/live/2026/08/01/CHG-2026-00123/desired-changes.yaml \
+  --before operations/live/2026/08/01/CHG-2026-00123/health/before/snapshot.json \
   --hosts ./hosts.lab.yaml \
   --operations-root operations
 ```

@@ -43,6 +43,9 @@ def build_health_execution_context(
     input_format: str | None,
     collection: Mapping[str, Any] | None,
     authentication: Mapping[str, Any],
+    purpose: str = "change",
+    mappings_path: str | Path | None = None,
+    description_rules_path: str | Path | None = None,
 ) -> dict[str, Any]:
     """Build and validate one context without storing credential secrets."""
     document = {
@@ -54,6 +57,7 @@ def build_health_execution_context(
             "timezone": timezone,
         },
         "spec": {
+            "purpose": purpose,
             "input_mode": input_mode,
             "inventory": (
                 source_file_reference(inventory_path)
@@ -62,6 +66,16 @@ def build_health_execution_context(
             ),
             "policy": (
                 source_file_reference(policy_path) if policy_path is not None else None
+            ),
+            "mappings": (
+                source_file_reference(mappings_path)
+                if mappings_path is not None
+                else None
+            ),
+            "description_rules": (
+                source_file_reference(description_rules_path)
+                if description_rules_path is not None
+                else None
             ),
             "input_format": input_format,
             "collection": dict(collection) if collection is not None else None,

@@ -1,7 +1,7 @@
 # VNI Config Renderer As-Is
 
-- Status: As-Is documented
-- Last reviewed: 2026-07-26
+- Status: Integrated
+- Last reviewed: 2026-08-09
 - Scope: 現行`generate-vni-config`、`vni_add_config.j2`、`vni_delete_config.j2`
 
 ## Evidence
@@ -29,11 +29,10 @@ ingress-replication precondition、所有resourceに限定したrollbackは未�
 
 ## Recommended design disposition
 
-Phase 5では現行CSVをadapterとして維持し、ChangeSetと同じCanonical Render Modelへ接続する。
-現行goldenの変更は意図した互換性変更としてレビューし、将来仕様のgoldenとはdirectoryを
-分ける。
+現行CSVをadapterとして維持し、ChangeSetと同じCanonical Render Modelへ接続する実装は完了した。
+現行goldenの変更は意図した互換性変更としてレビューし、新仕様のgoldenとはdirectoryを分ける。
 
 ## Integration
 
-- Design document: [NX-OS Overlay Config Rendering Design](../design/NXOS_OVERLAY_CONFIG_RENDERING_DESIGN.md)
-- Integrated date: -
+- Design document: [VNI Map and Legacy CSV Design](../design/network-ops/VNI_MAP_AND_LEGACY_CSV_DESIGN.md)、[NX-OS Overlay Config Rendering Design](../design/network-ops/NXOS_OVERLAY_CONFIG_RENDERING_DESIGN.md)
+- Integrated date: 2026-08-09

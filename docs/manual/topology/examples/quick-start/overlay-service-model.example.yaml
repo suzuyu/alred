@@ -1,0 +1,15 @@
+api_version: alred/v1
+kind: OverlayServiceModel
+metadata:
+  source:
+    type: evidence-package
+    value: imported-evidence/digital-twin-sample
+spec:
+  status: insufficient-evidence
+  parser_versions:
+    running_config: '1.0'
+    evpn_control_plane: '1.0'
+    operational: '1.13'
+  services: []
+  route_leaks: []
+  diagnostics: []

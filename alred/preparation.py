@@ -4,12 +4,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+from collections import Counter
 import json
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
 from .operation import (
     OperationError,
+    list_live_operation_ids,
     load_operation_metadata,
     open_operation_workspace,
 )
@@ -93,16 +95,51 @@ def _candidate(
     phase: str,
     source_type: str,
     target_hosts: set[str],
-) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any] | None]:
+    allow_warn: bool = False,
+    allow_standalone_warn: bool = False,
+) -> tuple[
+    dict[str, Any],
+    dict[str, Any],
+    dict[str, Any],
+    dict[str, Any] | None,
+    dict[str, Any] | None,
+]:
     metadata = load_operation_metadata(operation_root)
     snapshot_path = operation_root / "health" / phase / "snapshot.json"
     health_path = operation_root / "health" / phase / "health-result.json"
     snapshot = _read_json(snapshot_path, "HealthSnapshot")
     health = _read_json(health_path, "HealthResult")
-    if health.get("result") != "PASS":
+    health_result = health.get("result")
+    overlay_health = None
+    if health_result == "WARN":
+        if not allow_warn:
+            raise ReferenceStateNotEligibleError(
+                f"operation {operation_root.name} {phase} health result is "
+                "'WARN'; use --allow-reference-state-warn to allow it"
+            )
+        if source_type != "overlay_terminal" and not allow_standalone_warn:
+            raise ReferenceStateNotEligibleError(
+                "standalone WARN requires --reference-operation-id with "
+                "--allow-reference-state-warn"
+            )
+        if metadata["spec"].get("workflow_state") == "completed":
+            overlay_path = operation_root / "overlay" / "health-result.json"
+            overlay_health = _read_json(
+                overlay_path,
+                "OverlayHealthResult",
+            )
+            if overlay_health.get("result") not in {
+                "VERIFIED",
+                "OBSERVED_HEALTHY",
+            }:
+                raise ReferenceStateNotEligibleError(
+                    f"operation {operation_root.name} Overlay result is "
+                    f"{overlay_health.get('result')!r}, not verified"
+                )
+    elif health_result != "PASS":
         raise ReferenceStateNotEligibleError(
             f"operation {operation_root.name} {phase} health result is "
-            f"{health.get('result')!r}, not PASS"
+            f"{health_result!r}, not PASS"
         )
     comparison = None
     if source_type == "standalone_health_after":
@@ -129,17 +166,40 @@ def _candidate(
                 f"operation {operation_root.name} {phase} lacks Overlay "
                 f"running-config evidence for {host}"
             )
-    return metadata, snapshot, health, comparison
+    return metadata, snapshot, health, comparison, overlay_health
+
+
+def _health_summary(
+    operation_root: Path,
+    phase: str,
+    health: Mapping[str, Any],
+) -> dict[str, Any]:
+    classifications = Counter(
+        str(check.get("classification") or "unclassified")
+        for check in health.get("checks", [])
+        if isinstance(check, Mapping) and check.get("result") == "WARN"
+    )
+    return {
+        "result": health["result"],
+        "warning_count": int(health.get("counts", {}).get("warn", 0)),
+        "warning_classifications": dict(sorted(classifications.items())),
+        "checklist_path": str(
+            operation_root / "health" / phase / "checklist.md"
+        ),
+    }
 
 
 def _operation_directories(operations_root: Path) -> Iterable[Path]:
-    if not operations_root.is_dir():
-        return []
-    return (
-        path
-        for path in sorted(operations_root.iterdir())
-        if path.is_dir() and not path.is_symlink()
-    )
+    for operation_id in list_live_operation_ids(operations_root):
+        try:
+            yield open_operation_workspace(
+                operations_root,
+                operation_id,
+            ).operation_root
+        except (OperationError, ValueError, OSError):
+            # Automatic discovery treats incomplete or unreadable operations as
+            # ineligible candidates. Explicit selection remains fail closed.
+            continue
 
 
 def select_reference_state(
@@ -152,6 +212,7 @@ def select_reference_state(
     reference_state: str | None = None,
     reference_operation_id: str | None = None,
     reference_phase: str | None = None,
+    allow_reference_state_warn: bool = False,
 ) -> SelectedReferenceState:
     """Select one terminal, healthy, target-complete Snapshot."""
     if max_age_days < 1:
@@ -180,6 +241,7 @@ def select_reference_state(
             dict[str, Any],
             dict[str, Any],
             dict[str, Any] | None,
+            dict[str, Any] | None,
         ]
     ] = []
     if reference_operation_id is not None:
@@ -192,11 +254,13 @@ def select_reference_state(
             raise ReferenceStateError("prepare-plan cannot reference its own operation")
         metadata = load_operation_metadata(operation_root)
         phase, source_type = _reference_phase(metadata, reference_phase)
-        metadata, snapshot, health, comparison = _candidate(
+        metadata, snapshot, health, comparison, overlay_health = _candidate(
             operation_root,
             phase=phase,
             source_type=source_type,
             target_hosts=targets,
+            allow_warn=allow_reference_state_warn,
+            allow_standalone_warn=allow_reference_state_warn,
         )
         created_at = datetime.fromisoformat(snapshot["created_at"])
         candidates.append(
@@ -208,6 +272,7 @@ def select_reference_state(
                 snapshot,
                 health,
                 comparison,
+                overlay_health,
             )
         )
         mode = "explicit"
@@ -223,11 +288,19 @@ def select_reference_state(
                 ).operation_root
                 metadata = load_operation_metadata(operation_root)
                 phase, source_type = _reference_phase(metadata)
-                _metadata, snapshot, health, comparison = _candidate(
+                (
+                    _metadata,
+                    snapshot,
+                    health,
+                    comparison,
+                    overlay_health,
+                ) = _candidate(
                     operation_root,
                     phase=phase,
                     source_type=source_type,
                     target_hosts=targets,
+                    allow_warn=allow_reference_state_warn,
+                    allow_standalone_warn=False,
                 )
                 created_at = datetime.fromisoformat(snapshot["created_at"])
                 candidates.append(
@@ -239,6 +312,7 @@ def select_reference_state(
                         snapshot,
                         health,
                         comparison,
+                        overlay_health,
                     )
                 )
             except (
@@ -260,8 +334,9 @@ def select_reference_state(
         phase,
         source_type,
         snapshot,
-        _health,
+        health,
         comparison,
+        overlay_health,
     ) = max(
         candidates, key=lambda item: item[0]
     )
@@ -281,7 +356,11 @@ def select_reference_state(
     document = {
         "schema_version": SCHEMA_VERSION,
         "change_id": current_change_id,
-        "selection": {"mode": mode, "max_age_days": max_age_days},
+        "selection": {
+            "mode": mode,
+            "max_age_days": max_age_days,
+            "allow_reference_state_warn": allow_reference_state_warn,
+        },
         "source": {
             "operation_id": operation_root.name,
             "phase": phase,
@@ -292,6 +371,11 @@ def select_reference_state(
             "snapshot_created_at": created_at.isoformat(timespec="seconds"),
             "health_result_path": str(health_path),
             "health_result_sha256": source_sha256(health_path),
+            "health_summary": _health_summary(
+                operation_root,
+                phase,
+                health,
+            ),
         },
         "age": {
             "evaluated_at": evaluated_at.isoformat(timespec="seconds"),
@@ -306,6 +390,13 @@ def select_reference_state(
             "path": str(comparison_path),
             "sha256": source_sha256(comparison_path),
             "result": comparison["result"],
+        }
+    if overlay_health is not None:
+        overlay_path = operation_root / "overlay" / "health-result.json"
+        document["source"]["overlay_result"] = {
+            "path": str(overlay_path),
+            "sha256": source_sha256(overlay_path),
+            "result": overlay_health["result"],
         }
     validate_document(document, kind="OverlayReferenceState")
     return SelectedReferenceState(document=document, snapshot=snapshot)

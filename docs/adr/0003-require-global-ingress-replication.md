@@ -24,5 +24,5 @@ global `ingress-replication protocol bgp`が設定済みであることをOverla
 
 ## References
 
-- [NX-OS Overlay Config Rendering Design](../design/NXOS_OVERLAY_CONFIG_RENDERING_DESIGN.md)
-- [Overlay Change Management Design](../design/OVERLAY_CHANGE_MANAGEMENT_DESIGN.md)
+- [NX-OS Overlay Config Rendering Design](../design/network-ops/NXOS_OVERLAY_CONFIG_RENDERING_DESIGN.md)
+- [Overlay Change Management Design](../design/network-ops/OVERLAY_CHANGE_MANAGEMENT_DESIGN.md)

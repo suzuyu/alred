@@ -1,0 +1,26 @@
+hostname site1-spine02
+username production-monitor role network-operator
+ntp server 192.0.2.200 prefer use-vrf management
+logging server 192.0.2.201 6 use-vrf management
+ip name-server 192.0.2.203 use-vrf management
+tacacs server PROD-TACACS
+  address ipv4 192.0.2.202
+aaa group server tacacs+ PROD
+  server name PROD-TACACS
+ip access-list PROD-MGMT
+  10 permit ip 192.0.2.0/24 any
+line vty
+  access-class PROD-MGMT in
+interface mgmt0
+  vrf member management
+  ip address 192.0.2.12/24
+interface loopback0
+  ip address 10.255.0.12/32
+interface Ethernet1/1
+  description site1-leaf01 Ethernet1/2
+  no switchport
+  ip address 198.51.100.2/31
+interface Ethernet1/2
+  description site1-leaf02 Ethernet1/2
+  no switchport
+  ip address 198.51.100.6/31

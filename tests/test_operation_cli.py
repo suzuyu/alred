@@ -7,9 +7,11 @@ import pytest
 
 from alred.cli import (
     build_parser,
+    cmd_operation_archive,
     cmd_operation_inspect,
     cmd_operation_status,
     cmd_overlay_change_approve,
+    cmd_overlay_change_accept_rollback_state_warn,
     cmd_overlay_change_qualify,
     cmd_overlay_change_qualify_approve,
     cmd_overlay_change_qualify_rollback,
@@ -17,7 +19,9 @@ from alred.cli import (
 )
 from alred.operation import (
     OperationLock,
+    archive_operation_workspace,
     create_operation_workspace,
+    transition_operation,
     transition_workflow,
 )
 
@@ -108,6 +112,16 @@ def test_operation_inspect_is_read_only_and_shows_hashes(tmp_path, capsys):
             ],
             cmd_operation_inspect,
         ),
+        (
+            [
+                "operation",
+                "archive",
+                "--change-id",
+                "CHG-1",
+                "--dry-run",
+            ],
+            cmd_operation_archive,
+        ),
     ],
 )
 def test_operation_cli_dispatch(arguments, expected_function):
@@ -115,6 +129,71 @@ def test_operation_cli_dispatch(arguments, expected_function):
 
     assert args.func is expected_function
     assert args.operations_root == "operations"
+
+
+def test_operation_status_reads_verified_archive_without_extracting(
+    tmp_path, capsys
+):
+    operations_root = tmp_path / "operations"
+    workspace = create_operation_workspace(
+        operations_root,
+        change_id="CHG-ARCHIVED",
+        now=JST_NOW,
+    )
+    with OperationLock(workspace, "test", now=JST_NOW) as lock:
+        transition_operation(workspace, "running", lock=lock, now=JST_NOW)
+        transition_operation(workspace, "completed", lock=lock, now=JST_NOW)
+    archive_operation_workspace(
+        operations_root,
+        workspace.change_id,
+        older_than_days=0,
+        now=JST_NOW,
+    )
+
+    cmd_operation_status(
+        argparse.Namespace(
+            operations_root=str(operations_root),
+            change_id=workspace.change_id,
+        )
+    )
+
+    output = capsys.readouterr().out
+    assert "Storage        : archived" in output
+    assert "Archive files :" in output
+    assert "checksum verified" in output
+
+
+def test_operation_archive_rejects_an_already_archived_id_without_traceback(
+    tmp_path, capsys
+):
+    operations_root = tmp_path / "operations"
+    workspace = create_operation_workspace(
+        operations_root,
+        change_id="CHG-ARCHIVED",
+        now=JST_NOW,
+    )
+    with OperationLock(workspace, "test", now=JST_NOW) as lock:
+        transition_operation(workspace, "running", lock=lock, now=JST_NOW)
+        transition_operation(workspace, "completed", lock=lock, now=JST_NOW)
+    archive_operation_workspace(
+        operations_root,
+        workspace.change_id,
+        older_than_days=0,
+        now=JST_NOW,
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        cmd_operation_archive(
+            argparse.Namespace(
+                operations_root=str(operations_root),
+                change_id=workspace.change_id,
+                older_than_days=0,
+                dry_run=False,
+            )
+        )
+
+    assert exc_info.value.code == 2
+    assert "OPERATION_ARCHIVED" in capsys.readouterr().err
 
 
 def test_overlay_approve_help_documents_initial_safety_options(capsys):
@@ -245,6 +324,86 @@ def test_overlay_save_help_and_cli_dispatch(capsys):
     )
     assert rollback_args.func is cmd_overlay_change_save
     assert rollback_args.save_mode == "rollback"
+
+    acceptance_args = build_parser().parse_args(
+        [
+            "overlay-change",
+            "accept-rollback-state-warn",
+            "--change-id",
+            "CHG-1",
+        ]
+    )
+    assert (
+        acceptance_args.func
+        is cmd_overlay_change_accept_rollback_state_warn
+    )
+
+
+def test_accept_rollback_state_warn_cli_displays_evidence_and_exact_phrase(
+    tmp_path,
+    monkeypatch,
+    capsys,
+):
+    operations_root = tmp_path / "operations"
+    workspace = create_operation_workspace(
+        operations_root,
+        change_id="CHG-WARN-1",
+        now=JST_NOW,
+    )
+    phrase = "ACCEPT ROLLBACK STATE WARN CHG-WARN-1"
+    monkeypatch.setattr("alred.cli.sys.stdin.isatty", lambda: True)
+    monkeypatch.setattr("alred.cli.sys.stdout.isatty", lambda: True)
+    monkeypatch.setattr("builtins.input", lambda _prompt: phrase)
+
+    def fake_accept(operation, *, confirm, lock, now):
+        summary = {
+            "change_id": operation.change_id,
+            "attempt_id": "rollback-1",
+            "warning_count": 1,
+            "warning_classifications": {"pre_existing": 1},
+            "gates": {
+                "snapshot_fresh": True,
+                "raw_config_equal": True,
+                "semantic_config_equal": True,
+            },
+            "warnings": [
+                {
+                    "host": "leaf01",
+                    "check_id": "ntp_health",
+                    "classification": "pre_existing",
+                    "message": "NTP is not synchronized",
+                }
+            ],
+            "verification_path": "verification.json",
+            "verification_sha256": "sha256:" + "a" * 64,
+            "health_result_path": "health-result.json",
+            "health_result_sha256": "sha256:" + "b" * 64,
+            "confirmation_phrase": phrase,
+        }
+        assert confirm(summary)
+        return {
+            "spec": {
+                "verification_kind": "ManagedRollbackVerification"
+            }
+        }
+
+    monkeypatch.setattr("alred.cli.accept_rollback_state_warn", fake_accept)
+    args = build_parser().parse_args(
+        [
+            "overlay-change",
+            "accept-rollback-state-warn",
+            "--change-id",
+            workspace.change_id,
+            "--operations-root",
+            str(operations_root),
+        ]
+    )
+
+    assert cmd_overlay_change_accept_rollback_state_warn(args) == 0
+    output = capsys.readouterr().out
+    assert "leaf01/ntp_health: pre_existing" in output
+    assert phrase in output
+    assert "Workflow    : rolled_back_and_verified" in output
 
 
 def test_overlay_approve_rejects_non_tty_before_creating_record(

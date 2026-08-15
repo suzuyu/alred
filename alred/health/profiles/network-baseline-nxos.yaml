@@ -46,6 +46,9 @@ spec:
         - id: reload_pending
           command: show system config reload-pending
           required: true
+        - id: running_config_diff
+          command: show running-config diff unified
+          required: false
         - id: show_logging
           command: show logging
           required: true
@@ -95,6 +98,9 @@ spec:
     - id: reload_pending
       evaluator: reload_pending
       severity: fail
+    - id: running_config_diff
+      evaluator: running_config_diff
+      severity: warn
     - id: logging_health
       evaluator: logging_health
       severity: warn

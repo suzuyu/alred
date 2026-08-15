@@ -12,6 +12,7 @@ from alred.cli import (
 )
 from alred.health.overlay import parse_overlay_running_config
 from alred.operation import (
+    OperationError,
     OperationLock,
     atomic_write_yaml,
     create_operation_workspace,
@@ -22,6 +23,7 @@ from alred.operation import (
 )
 from alred.overlay_conflict import assess_overlay_conflicts
 from alred.preparation import (
+    ReferenceStateError,
     ReferenceStateNotEligibleError,
     ReferenceStateStaleError,
     select_reference_state,
@@ -110,7 +112,31 @@ def _snapshot(change_id, phase, created_at, config=FABRIC_CONFIG):
     }
 
 
-def _health_result(change_id, phase, created_at):
+def _health_result(change_id, phase, created_at, *, result="PASS"):
+    checks = []
+    if result == "WARN":
+        checks = [
+            {
+                "check_id": "ntp_health",
+                "profile": "network-baseline-nxos",
+                "host": "leaf01",
+                "resource": "ntp",
+                "result": "WARN",
+                "classification": "pre_existing",
+                "message": "NTP is unsynchronized",
+                "evidence": [],
+            },
+            {
+                "check_id": "running_config_diff",
+                "profile": "network-baseline-nxos",
+                "host": "leaf01",
+                "resource": "configuration",
+                "result": "WARN",
+                "classification": "pre_existing",
+                "message": "Running-config differs from startup-config",
+                "evidence": [],
+            },
+        ]
     return {
         "schema_version": 1,
         "change_id": change_id,
@@ -118,15 +144,44 @@ def _health_result(change_id, phase, created_at):
         "started_at": created_at.isoformat(),
         "completed_at": created_at.isoformat(),
         "profiles": ["network-baseline-nxos", "nxos-overlay"],
-        "result": "PASS",
+        "result": result,
         "counts": {
-            "pass": 1,
-            "warn": 0,
+            "pass": int(result == "PASS"),
+            "warn": len(checks),
             "fail": 0,
             "unknown": 0,
             "not_applicable": 0,
         },
+        "checks": checks,
+    }
+
+
+def _overlay_health_result(change_id, created_at, *, result="VERIFIED"):
+    section_result = "PASS" if result == "VERIFIED" else "WARN"
+    return {
+        "schema_version": 1,
+        "change_id": change_id,
+        "source": "declared",
+        "started_at": created_at.isoformat(),
+        "completed_at": created_at.isoformat(),
+        "result": result,
+        "sections": {
+            "configuration": section_result,
+            "operational": section_result,
+            "impact": section_result,
+        },
+        "counts": {
+            "pass": 3 if section_result == "PASS" else 0,
+            "warn": 3 if section_result == "WARN" else 0,
+            "fail": 0,
+            "unknown": 0,
+            "not_applicable": 0,
+            "plan_error": 0,
+        },
         "checks": [],
+        "warnings": [],
+        "conflicts": [],
+        "convergence": None,
     }
 
 
@@ -240,6 +295,8 @@ def _write_reference(
     config=FABRIC_CONFIG,
     created_at=REFERENCE_TIME,
     compare_result="PASS",
+    health_result="PASS",
+    overlay_result="VERIFIED",
 ):
     workspace = create_operation_workspace(
         operations_root,
@@ -266,9 +323,33 @@ def _write_reference(
         encoding="utf-8",
     )
     (phase_dir / "health-result.json").write_text(
-        json.dumps(_health_result(operation_id, phase, created_at)),
+        json.dumps(
+            _health_result(
+                operation_id,
+                phase,
+                created_at,
+                result=health_result,
+            )
+        ),
         encoding="utf-8",
     )
+    (phase_dir / "checklist.md").write_text(
+        "# Health Check Checklist\n",
+        encoding="utf-8",
+    )
+    if workflow_state == "completed":
+        overlay_dir = workspace.operation_root / "overlay"
+        overlay_dir.mkdir(parents=True)
+        (overlay_dir / "health-result.json").write_text(
+            json.dumps(
+                _overlay_health_result(
+                    operation_id,
+                    created_at,
+                    result=overlay_result,
+                )
+            ),
+            encoding="utf-8",
+        )
     if workflow_state is None and compare_result is not None:
         report_dir = workspace.operation_root / "health" / "report"
         report_dir.mkdir(parents=True)
@@ -317,7 +398,9 @@ def test_prepare_plan_uses_latest_terminal_state_without_advancing_workflow(
 
     cmd_overlay_change_prepare_plan(args)
 
-    operation_root = operations_root / "CHG-1"
+    operation_root = open_operation_workspace(
+        operations_root, "CHG-1"
+    ).operation_root
     preparation_dir = _current_preparation_dir(operation_root)
     execution = json.loads(
         (preparation_dir / "execution-plan.json").read_text()
@@ -360,6 +443,189 @@ def test_prepare_plan_uses_latest_terminal_state_without_advancing_workflow(
     assert metadata["spec"]["workflow_state"] == "plan_ready"
 
 
+def test_latest_known_good_skips_incomplete_legacy_operation(tmp_path):
+    operations_root = tmp_path / "operations"
+    _write_reference(operations_root)
+    incomplete = operations_root / "HC-20260730T114524-p0900-9727f1-R2"
+    incomplete.mkdir(parents=True)
+
+    selected = select_reference_state(
+        operations_root,
+        current_change_id="CHG-1",
+        target_hosts=["leaf01"],
+        evaluated_at=REFERENCE_TIME,
+        reference_state="latest-known-good",
+    )
+
+    assert selected.document["source"]["operation_id"] == "REF-1"
+
+
+def test_reference_warn_requires_explicit_opt_in(tmp_path):
+    operations_root = tmp_path / "operations"
+    _write_reference(operations_root, health_result="WARN")
+
+    with pytest.raises(
+        ReferenceStateNotEligibleError,
+        match="--allow-reference-state-warn",
+    ):
+        select_reference_state(
+            operations_root,
+            current_change_id="CHG-1",
+            target_hosts=["leaf01"],
+            evaluated_at=REFERENCE_TIME,
+            reference_operation_id="REF-1",
+        )
+
+
+def test_prepare_plan_explicitly_allows_terminal_reference_warn(
+    tmp_path,
+    capsys,
+):
+    operations_root = tmp_path / "operations"
+    reference_workspace = _write_reference(
+        operations_root,
+        health_result="WARN",
+    )
+    change_set_path = _write_changeset(tmp_path / "desired.yaml")
+    args = build_parser().parse_args(
+        [
+            "overlay-change",
+            "prepare-plan",
+            "--change-set",
+            str(change_set_path),
+            "--reference-state",
+            "latest-known-good",
+            "--allow-reference-state-warn",
+            "--reference-max-age-days",
+            "36500",
+            "--operations-root",
+            str(operations_root),
+        ]
+    )
+
+    cmd_overlay_change_prepare_plan(args)
+
+    operation_root = open_operation_workspace(
+        operations_root,
+        "CHG-1",
+    ).operation_root
+    preparation_dir = _current_preparation_dir(operation_root)
+    reference = json.loads(
+        (preparation_dir / "reference-state.json").read_text()
+    )
+    execution = json.loads(
+        (preparation_dir / "execution-plan.json").read_text()
+    )
+    summary = reference["source"]["health_summary"]
+    assert reference["selection"]["allow_reference_state_warn"] is True
+    assert summary == {
+        "result": "WARN",
+        "warning_count": 2,
+        "warning_classifications": {"pre_existing": 2},
+        "checklist_path": str(
+            reference_workspace.operation_root
+            / "health/after/checklist.md"
+        ),
+    }
+    assert reference["source"]["overlay_result"]["result"] == "VERIFIED"
+    assert execution["warnings"][1]["code"] == (
+        "REFERENCE_STATE_WARN_ALLOWED"
+    )
+    output = capsys.readouterr().out
+    assert "Reference result: WARN" in output
+    assert "Warnings         : 2" in output
+    assert "Warning classes  : pre_existing=2" in output
+    assert "Reference policy : WARN explicitly allowed" in output
+
+
+def test_reference_warn_allows_explicit_standalone_health_operation(tmp_path):
+    operations_root = tmp_path / "operations"
+    _write_reference(
+        operations_root,
+        workflow_state=None,
+        health_result="WARN",
+    )
+
+    selected = select_reference_state(
+        operations_root,
+        current_change_id="CHG-1",
+        target_hosts=["leaf01"],
+        evaluated_at=REFERENCE_TIME,
+        reference_operation_id="REF-1",
+        allow_reference_state_warn=True,
+    )
+
+    assert selected.document["source"]["source_type"] == (
+        "standalone_health_after"
+    )
+    assert selected.document["source"]["health_summary"]["result"] == (
+        "WARN"
+    )
+    assert "overlay_result" not in selected.document["source"]
+
+
+def test_latest_known_good_does_not_auto_select_standalone_warn(tmp_path):
+    operations_root = tmp_path / "operations"
+    _write_reference(
+        operations_root,
+        workflow_state=None,
+        health_result="WARN",
+    )
+
+    with pytest.raises(
+        ReferenceStateError,
+        match="no healthy terminal reference state",
+    ):
+        select_reference_state(
+            operations_root,
+            current_change_id="CHG-1",
+            target_hosts=["leaf01"],
+            evaluated_at=REFERENCE_TIME,
+            reference_state="latest-known-good",
+            allow_reference_state_warn=True,
+        )
+
+
+def test_reference_warn_rechecks_completed_overlay_result(tmp_path):
+    operations_root = tmp_path / "operations"
+    _write_reference(
+        operations_root,
+        health_result="WARN",
+        overlay_result="WARN",
+    )
+
+    with pytest.raises(
+        ReferenceStateNotEligibleError,
+        match="Overlay result is 'WARN', not verified",
+    ):
+        select_reference_state(
+            operations_root,
+            current_change_id="CHG-1",
+            target_hosts=["leaf01"],
+            evaluated_at=REFERENCE_TIME,
+            reference_operation_id="REF-1",
+            allow_reference_state_warn=True,
+        )
+
+
+def test_explicit_reference_rejects_incomplete_legacy_operation(tmp_path):
+    operations_root = tmp_path / "operations"
+    incomplete = operations_root / "HC-20260730T114524-p0900-9727f1-R2"
+    incomplete.mkdir(parents=True)
+
+    with pytest.raises(
+        OperationError,
+        match="operation metadata not found",
+    ):
+        select_reference_state(
+            operations_root,
+            current_change_id="CHG-1",
+            target_hosts=["leaf01"],
+            evaluated_at=REFERENCE_TIME,
+            reference_operation_id=incomplete.name,
+        )
+
+
 def test_prepare_plan_rejects_conflict_and_keeps_report(tmp_path, capsys):
     operations_root = tmp_path / "operations"
     conflicting = FABRIC_CONFIG + """\
@@ -386,7 +652,9 @@ vlan 20
     with pytest.raises(SystemExit) as exc_info:
         cmd_overlay_change_prepare_plan(args)
 
-    operation_root = operations_root / "CHG-1"
+    operation_root = open_operation_workspace(
+        operations_root, "CHG-1"
+    ).operation_root
     attempt_id = load_operation_metadata(operation_root)["spec"]["phases"][
         "prepare_plan"
     ]["current_attempt"]
@@ -404,7 +672,9 @@ vlan 20
     assert attempt["error"]["code"] == "PLAN_CONFLICT"
     assert operation_execution["errors"][-1]["attempt_id"] == attempt_id
     assert exc_info.value.code == 2
-    assert "PLAN_CONFLICT" in capsys.readouterr().err
+    error = capsys.readouterr().err
+    assert "PLAN_CONFLICT" in error
+    assert f"Conflict report: {preparation_dir / 'conflict-report.md'}" in error
 
 
 def test_normal_plan_repeats_conflict_check_against_fresh_before(
@@ -448,7 +718,12 @@ vlan 20
     assert report["result"] == "CONFLICT"
     assert not (workspace.operation_root / "plan/execution-plan.json").exists()
     assert exc_info.value.code == 2
-    assert "PLAN_CONFLICT" in capsys.readouterr().err
+    error = capsys.readouterr().err
+    assert "PLAN_CONFLICT" in error
+    assert (
+        f"Conflict report: {workspace.operation_root / 'plan/conflict-report.md'}"
+        in error
+    )
 
 
 def test_normal_plan_infers_current_before_from_changeset_change_id(
@@ -674,7 +949,9 @@ vlan 20
 
     with pytest.raises(SystemExit):
         cmd_overlay_change_prepare_plan(args("REF-BAD"))
-    operation_root = operations_root / "CHG-1"
+    operation_root = open_operation_workspace(
+        operations_root, "CHG-1"
+    ).operation_root
     failed_attempt = load_operation_metadata(operation_root)["spec"]["phases"][
         "prepare_plan"
     ]["current_attempt"]
@@ -830,3 +1107,4 @@ def test_prepare_plan_cli_exposes_clear_reference_options(capsys):
     assert "--reference-operation-id" in output
     assert "--reference-phase {after,rollback}" in output
     assert "--reference-max-age-days" in output
+    assert "--allow-reference-state-warn" in output

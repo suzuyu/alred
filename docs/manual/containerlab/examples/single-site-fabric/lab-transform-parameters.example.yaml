@@ -1,0 +1,37 @@
+api_version: alred/v1
+kind: LabTransformParameters
+metadata:
+  name: single-site-fabric-sample
+spec:
+  services:
+    ntp:
+      action: replace
+      servers:
+        - address: 192.168.129.254
+    logging:
+      action: remove
+    dns:
+      action: remove
+    aaa:
+      action: remove
+    snmp:
+      action: remove
+  access_control:
+    management_access_class:
+      action: remove
+  credentials:
+    certificates:
+      action: remove
+    private_keys:
+      action: remove
+  source_local_users:
+    action: remove
+  lab_users:
+    users: []
+  bootstrap_user:
+    action: preserve
+  management:
+    ipv4_subnet: 192.168.129.0/24
+    gateway: 192.168.129.254
+  vpc_keepalive:
+    action: replace

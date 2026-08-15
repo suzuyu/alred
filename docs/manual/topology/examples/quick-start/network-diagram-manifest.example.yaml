@@ -1,0 +1,62 @@
+api_version: alred/v1
+kind: NetworkDiagramManifest
+spec:
+  source:
+    type: evidence-package
+    value: imported-evidence/digital-twin-sample
+  options:
+    min_confidence: low
+    direction: TD
+    group_by_role: true
+    group_by_site: true
+    all_graph: true
+    overlay_service: true
+    overlay_detail_limit: 20
+    all_overlay_details: false
+    overlay_detail_formats:
+      - markdown
+    overlay_selectors:
+      sites: []
+      vrfs: []
+      l2vnis: []
+      l3vnis: []
+      services: []
+    overlay_detail_selection:
+      generated_service_ids: []
+      omitted_service_ids: []
+    views:
+      - physical
+      - underlay
+      - evpn
+      - overlay-service
+    drawio_directions:
+      - TD
+      - LR
+  inputs:
+    - path: docs/manual/topology/examples/quick-start/links_confirmed.example.csv
+      sha256: sha256:3b23277155cb28954be68f6aac62e67bb79928eb2a21ebf709dc97b8b65eede7
+    - path: docs/manual/topology/examples/quick-start/links_candidates.example.csv
+      sha256: sha256:803e97ac0f05bdd119f49913b155d2795e683fadedffe1caa637079df780b3a9
+    - path: docs/manual/containerlab/examples/quick-start/hosts.lab.example.yaml
+      sha256: sha256:63ca491a8c63fe7aa058fd55c4c0861128e7ea4583e1ebebbd9acc461f0aa5dd
+    - path: docs/manual/containerlab/examples/quick-start/roles.example.yaml
+      sha256: sha256:9eb5b7581011b690d79b2d249733d6974799a68ac174b7ca68de585be6498f1e
+  artifacts:
+    - path: docs/manual/topology/examples/quick-start/topology-graph.example.md
+      sha256: sha256:704f33f76880e64ebc65b096f1d31342d0876d4a0aaf48eda0e48a03cce1848b
+    - path: docs/manual/topology/examples/quick-start/topology_underlay.example.md
+      sha256: sha256:f31dd23f36aa77942c449e8d1ff0eeba4210b1cffebf7a05604eb9405c794cb7
+    - path: docs/manual/topology/examples/quick-start/topology_evpn.example.md
+      sha256: sha256:ceb1f53bbb640aaf6edb83db17738e7cde3075479766c94106f06e7ec130796c
+    - path: docs/manual/topology/examples/quick-start/evpn-control-plane-model.example.yaml
+      sha256: sha256:0817c1c3fb972355cb3fbbb705d740fc24627986a30658122efb593326ed55a2
+    - path: docs/manual/topology/examples/quick-start/evpn-session-links.example.csv
+      sha256: sha256:edea3d7908ea065625daa431068cd38843867594797b2a3152ac9a8ba89d382b
+    - path: docs/manual/topology/examples/quick-start/topology_overlay_service.example.md
+      sha256: sha256:e8a07237b37e79d2c33bf17e43e0313fdec370398a58aef6a5be1c7e8685e451
+    - path: docs/manual/topology/examples/quick-start/overlay-service-model.example.yaml
+      sha256: sha256:79200ba85e37a78a5f4ada538b4ec283537d0b08008d589c2fbd908b39257745
+    - path: docs/manual/topology/examples/quick-start/overlay-service-links.example.csv
+      sha256: sha256:3ce7e39e685fe65864a9b248a4d31e29bbfacad856be699ba372836f8ea38310
+    - path: docs/manual/topology/examples/quick-start/topology-graph-all.example.drawio
+      sha256: sha256:ffbf9a4b1b787ab06799dabbe8b8879f52c9e24bef0e66b2346a1025dd7cbe82

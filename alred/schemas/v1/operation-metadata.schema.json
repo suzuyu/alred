@@ -66,6 +66,9 @@
           "type": "string",
           "minLength": 1
         },
+        "purpose": {
+          "enum": ["change", "inspection", "initial_lab_qualification"]
+        },
         "lifecycle": {
           "$ref": "#/$defs/operation_state"
         },

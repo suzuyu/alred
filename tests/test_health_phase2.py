@@ -32,6 +32,10 @@ from alred.health.transcript import (
 from alred.operation import (
     OperationLock,
     OperationStateError,
+    atomic_write_json,
+    atomic_write_yaml,
+    list_live_operation_ids,
+    load_operation_execution,
     load_operation_metadata,
     open_operation_workspace,
     transition_phase,
@@ -334,6 +338,37 @@ def test_collect_manifest_prefers_running_config_text_over_json_sidecar(
     assert Path(record["file"]) == text_path.resolve()
 
 
+def test_collect_manifest_includes_dedicated_lldp_artifact(tmp_path):
+    collected = tmp_path / "collect"
+    lldp = collected / "lldp"
+    config = collected / "config"
+    lldp.mkdir(parents=True)
+    config.mkdir(parents=True)
+    lldp_path = lldp / "leaf01_lldp.txt"
+    lldp_path.write_text("Device ID: spine01\n", encoding="utf-8")
+    (config / "leaf01_run.txt").write_text(
+        "hostname leaf01\n", encoding="utf-8"
+    )
+
+    manifest = build_collect_manifest(
+        [collected],
+        collection_id="CHG-1-before-lldp",
+        change_id="CHG-1",
+        phase="before",
+        profiles=["network-baseline-nxos"],
+        started_at=JST_NOW,
+        completed_at=JST_NOW,
+        timezone="Asia/Tokyo",
+    )
+
+    record = manifest["spec"]["hosts"]["leaf01"]["commands"][
+        "lldp_neighbors_detail"
+    ]
+    assert record["command"] == "show lldp neighbors detail"
+    assert record["status"] == "success"
+    assert Path(record["file"]) == lldp_path.resolve()
+
+
 def test_health_snapshot_cli_is_offline_and_writes_operation_artifacts(
     tmp_path,
     capsys,
@@ -359,7 +394,10 @@ def test_health_snapshot_cli_is_offline_and_writes_operation_artifacts(
     cmd_health_check_snapshot(args)
 
     output = capsys.readouterr().out
-    phase_dir = operations_root / "CHG-1" / "health" / "before"
+    operation_root = open_operation_workspace(
+        operations_root, "CHG-1"
+    ).operation_root
+    phase_dir = operation_root / "health" / "before"
     assert "=== HEALTH SNAPSHOT SUMMARY ===" in output
     assert (phase_dir / "collection-manifest.yaml").is_file()
     snapshot_path = phase_dir / "snapshot.json"
@@ -368,7 +406,7 @@ def test_health_snapshot_cli_is_offline_and_writes_operation_artifacts(
     assert snapshot["change_id"] == "CHG-1"
     assert snapshot["hosts"]["leaf01"]["collection_status"] == "partial"
     resolved = yaml.safe_load(
-        (operations_root / "CHG-1" / "health" / "resolved-profiles.yaml").read_text(
+        (operation_root / "health" / "resolved-profiles.yaml").read_text(
             encoding="utf-8"
         )
     )
@@ -412,7 +450,9 @@ def test_health_before_and_after_offline_wrappers_share_snapshot_path(
     cmd_health_check_phase(before)
     cmd_health_check_phase(after)
 
-    operation = operations_root / "CHG-1" / "health"
+    operation = open_operation_workspace(
+        operations_root, "CHG-1"
+    ).operation_root / "health"
     assert (operation / "before" / "snapshot.json").is_file()
     assert (operation / "after" / "snapshot.json").is_file()
     assert (operation / "report" / "health-result.json").is_file()
@@ -448,7 +488,9 @@ def test_health_before_warn_or_completed_can_create_new_attempt(tmp_path):
     operations_root = tmp_path / "operations"
 
     cmd_health_check_phase(_offline_before_args(operations_root))
-    operation = operations_root / "CHG-RETRY"
+    operation = open_operation_workspace(
+        operations_root, "CHG-RETRY"
+    ).operation_root
     first_current = json.loads(
         (operation / "health/before/current.json").read_text()
     )
@@ -479,7 +521,9 @@ def test_health_before_warn_or_completed_can_create_new_attempt(tmp_path):
 def test_health_before_retry_rejects_changed_profile(tmp_path):
     operations_root = tmp_path / "operations"
     cmd_health_check_phase(_offline_before_args(operations_root))
-    operation = operations_root / "CHG-RETRY"
+    operation = open_operation_workspace(
+        operations_root, "CHG-RETRY"
+    ).operation_root
     original_current = json.loads(
         (operation / "health/before/current.json").read_text()
     )
@@ -499,7 +543,9 @@ def test_health_before_retry_rejects_changed_profile(tmp_path):
 def test_health_before_retry_is_blocked_after_plan_artifact(tmp_path):
     operations_root = tmp_path / "operations"
     cmd_health_check_phase(_offline_before_args(operations_root))
-    operation = operations_root / "CHG-RETRY"
+    operation = open_operation_workspace(
+        operations_root, "CHG-RETRY"
+    ).operation_root
     plan_path = operation / "plan/execution-plan.json"
     plan_path.parent.mkdir()
     plan_path.write_text("{}\n", encoding="utf-8")
@@ -527,7 +573,9 @@ spec:
         encoding="utf-8",
     )
     cmd_health_check_phase(_offline_before_args(operations_root))
-    operation = operations_root / "CHG-RETRY"
+    operation = open_operation_workspace(
+        operations_root, "CHG-RETRY"
+    ).operation_root
     first_current = json.loads(
         (operation / "health/before/current.json").read_text()
     )
@@ -575,7 +623,9 @@ spec:
 def test_health_before_profile_revision_requires_reason(tmp_path):
     operations_root = tmp_path / "operations"
     cmd_health_check_phase(_offline_before_args(operations_root))
-    operation = operations_root / "CHG-RETRY"
+    operation = open_operation_workspace(
+        operations_root, "CHG-RETRY"
+    ).operation_root
     attempt_count = len(list((operation / "health/before/attempts").iterdir()))
 
     with pytest.raises(ProfileResolutionError, match="revision-reason"):
@@ -612,7 +662,9 @@ def test_revision_reason_requires_existing_profile_difference(tmp_path):
 def test_failed_profile_revision_keeps_previous_current_and_profile(tmp_path):
     operations_root = tmp_path / "operations"
     cmd_health_check_phase(_offline_before_args(operations_root))
-    operation = operations_root / "CHG-RETRY"
+    operation = open_operation_workspace(
+        operations_root, "CHG-RETRY"
+    ).operation_root
     original_current = json.loads(
         (operation / "health/before/current.json").read_text()
     )
@@ -809,16 +861,150 @@ def test_health_before_collect_reuses_existing_runner(
 
     cmd_health_check_phase(args)
 
-    phase_root = operations_root / "CHG-1" / "health" / "before"
+    phase_root = (
+        open_operation_workspace(operations_root, "CHG-1").operation_root
+        / "health"
+        / "before"
+    )
     commands = (phase_root / "show-commands.txt").read_text(encoding="utf-8")
     assert observed["args"].command == "collect"
-    assert observed["args"].run_config_only is True
+    assert observed["args"].run_config_only is False
     assert commands.startswith("[device_type:nxos]\n")
     assert "show version" in commands
     assert "show logging" in commands
-    assert "show running-config" not in commands
+    assert "show running-config\n" not in commands
+    assert "show running-config diff unified" in commands
     assert (phase_root / "raw").is_dir()
     assert (phase_root / "snapshot.json").is_file()
+
+
+def test_health_before_collect_preserves_collection_time_range(
+    tmp_path,
+    monkeypatch,
+):
+    operations_root = tmp_path / "operations"
+    collection_started_at = datetime.fromisoformat(
+        "2026-08-10T13:51:28+09:00"
+    )
+    collection_completed_at = datetime.fromisoformat(
+        "2026-08-10T13:53:02+09:00"
+    )
+    evaluation_completed_at = datetime.fromisoformat(
+        "2026-08-10T13:53:03+09:00"
+    )
+    processing_started_at = collection_completed_at
+    times = iter([processing_started_at, evaluation_completed_at])
+    monkeypatch.setattr(
+        "alred.cli.now_in_timezone",
+        lambda _timezone: next(times),
+    )
+    args = build_parser().parse_args(
+        [
+            "health-check",
+            "snapshot",
+            "--input",
+            str(COLLECT_FIXTURE),
+            "--input-format",
+            "alred-collect",
+            "--phase",
+            "before",
+            "--change-id",
+            "CHG-COLLECTION-TIME",
+            "--operations-root",
+            str(operations_root),
+        ]
+    )
+    args._health_collection_started_at = collection_started_at
+    args._health_collection_completed_at = collection_completed_at
+
+    cmd_health_check_snapshot(args)
+
+    phase_root = (
+        open_operation_workspace(
+            operations_root,
+            "CHG-COLLECTION-TIME",
+        ).operation_root
+        / "health"
+        / "before"
+    )
+    manifest = yaml.safe_load(
+        (phase_root / "collection-manifest.yaml").read_text(encoding="utf-8")
+    )
+    result = json.loads(
+        (phase_root / "health-result.json").read_text(encoding="utf-8")
+    )
+    checklist = (phase_root / "checklist.md").read_text(encoding="utf-8")
+
+    assert manifest["metadata"]["started_at"] == (
+        collection_started_at.isoformat()
+    )
+    assert manifest["metadata"]["completed_at"] == (
+        collection_completed_at.isoformat()
+    )
+    assert result["started_at"] == collection_started_at.isoformat()
+    assert result["completed_at"] == evaluation_completed_at.isoformat()
+    assert f"- Started at: {collection_started_at.isoformat()}" in checklist
+    assert f"- Completed at: {evaluation_completed_at.isoformat()}" in checklist
+
+
+def test_health_inspection_records_purpose_without_active_change(
+    tmp_path,
+):
+    operations_root = tmp_path / "operations"
+    hosts_path = tmp_path / "hosts.yaml"
+    mappings_path = tmp_path / "mappings.yaml"
+    description_rules_path = tmp_path / "description_rules.yaml"
+    hosts_path.write_text(
+        "all:\n  hosts:\n    leaf01:\n      device_type: nxos\n",
+        encoding="utf-8",
+    )
+    mappings_path.write_text("{}\n", encoding="utf-8")
+    description_rules_path.write_text("rules: []\n", encoding="utf-8")
+    args = build_parser().parse_args(
+        [
+            "health-check",
+            "before",
+            "--purpose",
+            "inspection",
+            "--input",
+            str(COLLECT_FIXTURE),
+            "--input-format",
+            "alred-collect",
+            "--hosts",
+            str(hosts_path),
+            "--mappings",
+            str(mappings_path),
+            "--description-rules",
+            str(description_rules_path),
+            "--operations-root",
+            str(operations_root),
+        ]
+    )
+
+    cmd_health_check_phase(args)
+
+    operation_root = open_operation_workspace(
+        operations_root, args.change_id
+    ).operation_root
+    metadata = load_operation_metadata(operation_root)
+    context = yaml.safe_load(
+        (operation_root / "health/execution-context.yaml").read_text(
+            encoding="utf-8"
+        )
+    )
+    health = json.loads(
+        (operation_root / "health/before/health-result.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert metadata["spec"]["purpose"] == "inspection"
+    assert context["spec"]["purpose"] == "inspection"
+    assert context["spec"]["mappings"]["path"] == str(mappings_path.resolve())
+    assert context["spec"]["description_rules"]["path"] == str(
+        description_rules_path.resolve()
+    )
+    assert health["operation_gate"]["required"] is False
+    assert not (operations_root / ".state/active-change.yaml").exists()
 
 
 def test_health_before_collect_can_retry_completed_collection(
@@ -861,7 +1047,9 @@ def test_health_before_collect_can_retry_completed_collection(
     cmd_health_check_phase(args())
     cmd_health_check_phase(args())
 
-    operation = operations_root / "CHG-COLLECT-RETRY"
+    operation = open_operation_workspace(
+        operations_root, "CHG-COLLECT-RETRY"
+    ).operation_root
     metadata = load_operation_metadata(operation)
     current = json.loads(
         (operation / "health/before/current.json").read_text()
@@ -875,6 +1063,162 @@ def test_health_before_collect_can_retry_completed_collection(
     }
     assert len(list((operation / "health/before/attempts").iterdir())) == 2
     assert Path(current["artifact_dir"]).is_dir()
+
+
+def test_health_before_collect_interrupt_is_cancelled_and_retryable(
+    tmp_path,
+    monkeypatch,
+):
+    operations_root = tmp_path / "operations"
+    hosts_path = tmp_path / "hosts.yaml"
+    hosts_path.write_text(
+        "all:\n  hosts:\n    leaf01:\n      device_type: nxos\n",
+        encoding="utf-8",
+    )
+    calls = 0
+
+    def fake_collect(args, _logger, old_generation_id=None):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise KeyboardInterrupt
+        shutil.copytree(COLLECT_FIXTURE, args.output, dirs_exist_ok=True)
+
+    monkeypatch.setattr("alred.cli.run_collect", fake_collect)
+
+    def args():
+        return build_parser().parse_args(
+            [
+                "health-check",
+                "before",
+                "--collect",
+                "--hosts",
+                str(hosts_path),
+                "--change-id",
+                "CHG-COLLECT-INTERRUPT",
+                "--profile",
+                "network-baseline-nxos",
+                "--operations-root",
+                str(operations_root),
+            ]
+        )
+
+    with pytest.raises(SystemExit) as interrupted:
+        cmd_health_check_phase(args())
+    assert interrupted.value.code == 130
+
+    workspace = open_operation_workspace(
+        operations_root,
+        "CHG-COLLECT-INTERRUPT",
+    )
+    metadata = load_operation_metadata(workspace.operation_root)
+    attempts_root = workspace.operation_root / "health/before/attempts"
+    first_result = json.loads(
+        next(attempts_root.glob("*/result.json")).read_text(encoding="utf-8")
+    )
+    assert metadata["spec"]["phases"]["before_collect"]["status"] == "cancelled"
+    assert first_result["status"] == "CANCELLED"
+    assert first_result["error"]["code"] == "COLLECTION_CANCELLED"
+
+    cmd_health_check_phase(args())
+
+    metadata = load_operation_metadata(workspace.operation_root)
+    results = [
+        json.loads(path.read_text(encoding="utf-8"))
+        for path in sorted(attempts_root.glob("*/result.json"))
+    ]
+    assert metadata["spec"]["phases"]["before_collect"]["status"] == "completed"
+    assert sorted(result["status"] for result in results) == [
+        "CANCELLED",
+        "COMPLETED",
+    ]
+
+
+def test_health_before_collect_reconciles_legacy_running_attempt(
+    tmp_path,
+    monkeypatch,
+):
+    operations_root = tmp_path / "operations"
+    hosts_path = tmp_path / "hosts.yaml"
+    hosts_path.write_text(
+        "all:\n  hosts:\n    leaf01:\n      device_type: nxos\n",
+        encoding="utf-8",
+    )
+
+    def interrupted_collect(args, _logger, old_generation_id=None):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr("alred.cli.run_collect", interrupted_collect)
+    command = [
+        "health-check",
+        "before",
+        "--collect",
+        "--hosts",
+        str(hosts_path),
+        "--change-id",
+        "CHG-COLLECT-LEGACY-RUNNING",
+        "--profile",
+        "network-baseline-nxos",
+        "--operations-root",
+        str(operations_root),
+    ]
+    with pytest.raises(SystemExit) as interrupted:
+        cmd_health_check_phase(build_parser().parse_args(command))
+    assert interrupted.value.code == 130
+
+    workspace = open_operation_workspace(
+        operations_root,
+        "CHG-COLLECT-LEGACY-RUNNING",
+    )
+    metadata = load_operation_metadata(workspace.operation_root)
+    execution = load_operation_execution(workspace.operation_root)
+    metadata["spec"]["phases"]["before_collect"] = {
+        "current_attempt": "legacy-before-collect",
+        "status": "running",
+    }
+    execution["phases"]["before_collect"] = {
+        "current_attempt": "legacy-before-collect",
+        "status": "running",
+    }
+    atomic_write_yaml(
+        workspace.operation_root,
+        workspace.metadata_path,
+        metadata,
+        kind="OperationMetadata",
+    )
+    atomic_write_json(
+        workspace.operation_root,
+        workspace.execution_path,
+        execution,
+        kind="OperationExecution",
+    )
+    result_path = next(
+        (workspace.operation_root / "health/before/attempts").glob(
+            "*/result.json"
+        )
+    )
+    result = json.loads(result_path.read_text(encoding="utf-8"))
+    result["status"] = "RUNNING"
+    result.pop("completed_at", None)
+    result.pop("error", None)
+    atomic_write_json(
+        workspace.operation_root,
+        result_path,
+        result,
+        kind="HealthPhaseAttempt",
+    )
+
+    def successful_collect(args, _logger, old_generation_id=None):
+        shutil.copytree(COLLECT_FIXTURE, args.output, dirs_exist_ok=True)
+
+    monkeypatch.setattr("alred.cli.run_collect", successful_collect)
+    cmd_health_check_phase(build_parser().parse_args(command))
+
+    metadata = load_operation_metadata(workspace.operation_root)
+    reconciled = json.loads(result_path.read_text(encoding="utf-8"))
+    assert reconciled["status"] == "CANCELLED"
+    assert reconciled["error"]["code"] == "COLLECTION_CANCELLED"
+    assert metadata["spec"]["phases"]["before_collect"]["status"] == "completed"
 
 
 def test_health_before_collect_reuses_generated_change_id_for_snapshot(
@@ -906,18 +1250,16 @@ def test_health_before_collect_reuses_generated_change_id_for_snapshot(
 
     cmd_health_check_phase(args)
 
-    operations = [
-        path
-        for path in operations_root.iterdir()
-        if path.is_dir() and not path.name.startswith(".")
-    ]
-    assert len(operations) == 1
-    assert args.change_id == operations[0].name
-    assert (operations[0] / "health" / "before" / "raw").is_dir()
-    assert (operations[0] / "health" / "before" / "snapshot.json").is_file()
+    operation_ids = list_live_operation_ids(operations_root)
+    assert operation_ids == [args.change_id]
+    operation_root = open_operation_workspace(
+        operations_root, args.change_id
+    ).operation_root
+    assert (operation_root / "health" / "before" / "raw").is_dir()
+    assert (operation_root / "health" / "before" / "snapshot.json").is_file()
 
     resolved = yaml.safe_load(
-        (operations[0] / "health" / "resolved-profiles.yaml").read_text(
+        (operation_root / "health" / "resolved-profiles.yaml").read_text(
             encoding="utf-8"
         )
     )
@@ -961,7 +1303,10 @@ def test_health_after_change_id_inherits_before_collect_context(
     )
     cmd_health_check_phase(before)
 
-    context_path = operations_root / "CHG-INHERIT" / "health" / "execution-context.yaml"
+    operation_root = open_operation_workspace(
+        operations_root, "CHG-INHERIT"
+    ).operation_root
+    context_path = operation_root / "health" / "execution-context.yaml"
     context_text = context_path.read_text(encoding="utf-8")
     context = yaml.safe_load(context_text)
     assert "must-not-be-persisted" not in context_text
@@ -990,7 +1335,7 @@ def test_health_after_change_id_inherits_before_collect_context(
     assert after.ask_pass is True
     assert len(observed) == 2
     assert (
-        operations_root / "CHG-INHERIT" / "health" / "after" / "snapshot.json"
+        operation_root / "health" / "after" / "snapshot.json"
     ).is_file()
 
 
@@ -1046,7 +1391,7 @@ def test_health_rollback_change_id_inherits_before_collect_context(
     )
     monkeypatch.setattr(
         "alred.cli._verify_and_publish_rollback_attempt",
-        lambda workspace, attempt: (
+        lambda workspace, attempt, **_kwargs: (
             {
                 "status": {
                     "result": "ROLLED_BACK_AND_VERIFIED",
@@ -1171,12 +1516,25 @@ def test_health_rollback_collect_retry_uses_new_attempt(tmp_path, monkeypatch):
             dirs_exist_ok=True,
         ),
     )
+    collection_started_at = datetime.fromisoformat(
+        "2026-08-10T13:51:28+09:00"
+    )
+    collection_completed_at = datetime.fromisoformat(
+        "2026-08-10T13:53:02+09:00"
+    )
+    times = iter([collection_started_at, collection_completed_at])
+    monkeypatch.setattr(
+        "alred.cli.now_in_timezone",
+        lambda _timezone: next(times),
+    )
 
     raw_dir = _direct_health_collect(args, workspace, resolved)
 
     metadata = load_operation_metadata(workspace.operation_root)
     assert attempt["attempt_id"] != "legacy-rollback"
     assert args._health_retry is True
+    assert args._health_collection_started_at == collection_started_at
+    assert args._health_collection_completed_at == collection_completed_at
     assert str(raw_dir).startswith(attempt["artifact_dir"])
     assert metadata["spec"]["phases"]["rollback_collect"]["status"] == "completed"
     assert (
@@ -1291,7 +1649,7 @@ def test_health_rollback_verification_error_is_rendered_without_traceback(
     monkeypatch.setattr("alred.cli._fail_rollback_attempt", lambda *args: None)
     monkeypatch.setattr(
         "alred.cli._verify_and_publish_rollback_attempt",
-        lambda *args: (_ for _ in ()).throw(
+        lambda *args, **_kwargs: (_ for _ in ()).throw(
             QualificationError("managed artifact not found: snapshot.json")
         ),
     )
@@ -1506,7 +1864,10 @@ def test_health_after_offline_before_requires_only_new_input_path(
 
     assert after.input_format == "alred-collect"
     assert (
-        operations_root / "CHG-OFFLINE" / "health" / "after" / "snapshot.json"
+        open_operation_workspace(operations_root, "CHG-OFFLINE").operation_root
+        / "health"
+        / "after"
+        / "snapshot.json"
     ).is_file()
 
 
@@ -1532,7 +1893,9 @@ def test_health_after_legacy_operation_accepts_explicit_input_options(
     )
     cmd_health_check_snapshot(legacy_before)
     assert not (
-        operations_root / "CHG-LEGACY" / "health" / "execution-context.yaml"
+        open_operation_workspace(operations_root, "CHG-LEGACY").operation_root
+        / "health"
+        / "execution-context.yaml"
     ).exists()
 
     after = build_parser().parse_args(
@@ -1552,7 +1915,10 @@ def test_health_after_legacy_operation_accepts_explicit_input_options(
     cmd_health_check_phase(after)
 
     assert (
-        operations_root / "CHG-LEGACY" / "health" / "after" / "snapshot.json"
+        open_operation_workspace(operations_root, "CHG-LEGACY").operation_root
+        / "health"
+        / "after"
+        / "snapshot.json"
     ).is_file()
 
 
@@ -1605,7 +1971,10 @@ def test_after_without_change_id_reuses_active_generated_before(
 
     assert after.change_id == change_id
     assert (
-        operations_root / change_id / "health" / "after" / "snapshot.json"
+        open_operation_workspace(operations_root, change_id).operation_root
+        / "health"
+        / "after"
+        / "snapshot.json"
     ).is_file()
     completed = yaml.safe_load(
         (operations_root / ".state" / "active-change.yaml").read_text(encoding="utf-8")

@@ -1,0 +1,98 @@
+api_version: alred/v1
+kind: LabTransformManifest
+spec:
+  parameter_source_sha256: sha256:3e6d9d5d50a5562531aadb505de5ab58a0487f2ccfbb0e88b42163283ab9ea18
+  resolved_parameter_sha256: sha256:49ad0c3932bcf59c8935719ffecef886ebd12f628075bfa3ecdd7bdb51d154ab
+  devices:
+    - hostname: site1-leaf01
+      platform: nxos
+      source_path: source-config/site1-leaf01_run.example.txt
+      source_sha256: sha256:a56e2732f938ec1546959093979fe241591c1ee0bce4ae563cd0dffd59170278
+      output_path: labconfig/site1-leaf01_run.example.txt
+      output_sha256: sha256:09194186ec62fef3565ad686c17bb117c379ef325dcea61ebb616d454cdc1a07
+      legacy_stats:
+        management_section_updates: 1
+      adapter_stats:
+        removed_ntp: 1
+        removed_logging: 1
+        removed_dns: 1
+        removed_aaa: 2
+        removed_users: 1
+        removed_access_class: 2
+        generated_ntp: 1
+      warnings:
+        - id: BOOTSTRAP_CREDENTIAL_PRESERVED
+          message: Containerlab bootstrap admin credential is preserved.
+      primary_username: null
+      post_apply_username: admin
+      post_apply_password_ref: null
+      bootstrap_action: preserve
+    - hostname: site1-leaf02
+      platform: nxos
+      source_path: source-config/site1-leaf02_run.example.txt
+      source_sha256: sha256:38609aedf5619852a54edb91c3fb13cce09f8c726f61fa15579377602e3bf880
+      output_path: labconfig/site1-leaf02_run.example.txt
+      output_sha256: sha256:986831cb51bbdc6fb21ff98bda8484b31161732c454022be1d82d6290db48756
+      legacy_stats:
+        management_section_updates: 1
+      adapter_stats:
+        removed_ntp: 1
+        removed_logging: 1
+        removed_dns: 1
+        removed_aaa: 2
+        removed_users: 1
+        removed_access_class: 2
+        generated_ntp: 1
+      warnings:
+        - id: BOOTSTRAP_CREDENTIAL_PRESERVED
+          message: Containerlab bootstrap admin credential is preserved.
+      primary_username: null
+      post_apply_username: admin
+      post_apply_password_ref: null
+      bootstrap_action: preserve
+    - hostname: site1-spine01
+      platform: nxos
+      source_path: source-config/site1-spine01_run.example.txt
+      source_sha256: sha256:fb792b54930baa1eb37b61c7dbd483e1b6bd254610b1ae603f745be036e174fe
+      output_path: labconfig/site1-spine01_run.example.txt
+      output_sha256: sha256:7b1ec19d591a2a1f6d777b5215e5b125f88b602c8a7ea13d3b6e9e9336cb3c33
+      legacy_stats:
+        management_section_updates: 1
+      adapter_stats:
+        removed_ntp: 1
+        removed_logging: 1
+        removed_dns: 1
+        removed_aaa: 2
+        removed_users: 1
+        removed_access_class: 2
+        generated_ntp: 1
+      warnings:
+        - id: BOOTSTRAP_CREDENTIAL_PRESERVED
+          message: Containerlab bootstrap admin credential is preserved.
+      primary_username: null
+      post_apply_username: admin
+      post_apply_password_ref: null
+      bootstrap_action: preserve
+    - hostname: site1-spine02
+      platform: nxos
+      source_path: source-config/site1-spine02_run.example.txt
+      source_sha256: sha256:7c6c8de56abbda8e8ef1bcb4b5dc8bbff858e2fc3e088939ab6c73674e6f70cd
+      output_path: labconfig/site1-spine02_run.example.txt
+      output_sha256: sha256:b3f9d309cae8b054a315d7f9a9d169c7a0235a6d7dd280c2bca8a51be5e065b8
+      legacy_stats:
+        management_section_updates: 1
+      adapter_stats:
+        removed_ntp: 1
+        removed_logging: 1
+        removed_dns: 1
+        removed_aaa: 2
+        removed_users: 1
+        removed_access_class: 2
+        generated_ntp: 1
+      warnings:
+        - id: BOOTSTRAP_CREDENTIAL_PRESERVED
+          message: Containerlab bootstrap admin credential is preserved.
+      primary_username: null
+      post_apply_username: admin
+      post_apply_password_ref: null
+      bootstrap_action: preserve

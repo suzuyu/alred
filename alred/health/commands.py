@@ -7,6 +7,8 @@ import re
 
 COMMAND_IDS = {
     "show running-config": "running_config",
+    "show running-config diff": "running_config_diff",
+    "show running-config diff unified": "running_config_diff",
     "show version": "show_version",
     "show processes cpu": "processes_cpu",
     "show system resources": "system_resources",

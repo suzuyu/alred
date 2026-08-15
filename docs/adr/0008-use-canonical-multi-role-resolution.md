@@ -30,7 +30,7 @@ RR は配置から独立した `evpn-route-reflector` と `underlay-route-reflec
 
 ## References
 
-- [Role Definition and Resolution Design](../design/ROLE_DEFINITION_AND_RESOLUTION_DESIGN.md)
+- [Role Definition and Resolution Design](../design/common/ROLE_DEFINITION_AND_RESOLUTION_DESIGN.md)
 - [Role Detection and Resolution As-Is](../as-is/ROLE_RESOLUTION_AS_IS.md)
-- [Health Check Framework Design](../design/HEALTH_CHECK_FRAMEWORK_DESIGN.md)
+- [Health Check Framework Design](../design/network-ops/HEALTH_CHECK_FRAMEWORK_DESIGN.md)
 - [ADR-0006](./0006-external-hierarchical-device-groups.md)

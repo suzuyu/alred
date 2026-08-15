@@ -37,6 +37,55 @@ def rollback_verification_passes(
     )
 
 
+def evaluate_rollback_health_gate(
+    health_result: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Evaluate the auditable rollback HealthResult acceptance policy."""
+    result = str(health_result.get("result", "UNKNOWN"))
+    checks = health_result.get("checks")
+    counts = health_result.get("counts")
+    if not isinstance(checks, list) or not isinstance(counts, Mapping):
+        checks = []
+        counts = {}
+    warning_checks = [
+        check
+        for check in checks
+        if isinstance(check, Mapping) and check.get("result") == "WARN"
+    ]
+    warning_classifications: dict[str, int] = {}
+    for check in warning_checks:
+        classification = str(check.get("classification", "unclassified"))
+        warning_classifications[classification] = (
+            warning_classifications.get(classification, 0) + 1
+        )
+    warning_count_complete = (
+        isinstance(counts.get("warn"), int)
+        and counts.get("warn") == len(warning_checks)
+    )
+    non_warning_failure_count = sum(
+        int(counts.get(key, 0))
+        for key in ("fail", "unknown")
+        if isinstance(counts.get(key, 0), int)
+    )
+    pre_existing_warn_only = (
+        warning_count_complete
+        and len(warning_checks) > 0
+        and non_warning_failure_count == 0
+        and all(
+            check.get("classification") == "pre_existing"
+            for check in warning_checks
+        )
+    )
+    return {
+        "result": result,
+        "passed": result == "PASS",
+        "state_warn_eligible": result == "WARN" and pre_existing_warn_only,
+        "warning_count": len(warning_checks),
+        "warning_count_complete": warning_count_complete,
+        "warning_classifications": warning_classifications,
+    }
+
+
 def semantic_difference_paths(
     before: Any,
     rollback: Any,
@@ -146,7 +195,10 @@ def render_rollback_verification_checklist(
         ("rollback_snapshot_fresh", status.get("snapshot_fresh", False), None),
         (
             "health_restored",
-            status["health_result"] == "PASS",
+            status.get("health_gate", {}).get(
+                "passed",
+                status["health_result"] == "PASS",
+            ),
             status["health_result"],
         ),
         (

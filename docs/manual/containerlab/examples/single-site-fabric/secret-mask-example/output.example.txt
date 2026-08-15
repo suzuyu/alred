@@ -1,0 +1,6 @@
+! Documentation-only fragment. Values below are non-secret sentinel values and are not deployable credentials.
+! REDACTED NXOS_USERNAME_PASSWORD
+! REDACTED NXOS_USERNAME_PASSWORD
+! REDACTED NXOS_SNMP_USER_AUTH_PRIV
+! REDACTED NXOS_SNMP_COMMUNITY
+! REDACTED NXOS_SNMP_COMMUNITY

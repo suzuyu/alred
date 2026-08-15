@@ -10,7 +10,7 @@
     "change_id": {"type": "string", "minLength": 1},
     "phase": {"enum": ["before", "rollback"]},
     "attempt_id": {"type": "string", "minLength": 1},
-    "status": {"enum": ["RUNNING", "COMPLETED", "FAILED"]},
+    "status": {"enum": ["RUNNING", "COMPLETED", "FAILED", "CANCELLED"]},
     "health_result": {"enum": ["PASS", "WARN", "FAIL", "UNKNOWN"]},
     "started_at": {"type": "string", "format": "date-time"},
     "completed_at": {"type": "string", "format": "date-time"},

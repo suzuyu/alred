@@ -1,0 +1,16 @@
+api_version: alred/v1
+kind: EVPNControlPlaneModel
+metadata:
+  source:
+    type: file
+    value: docs/manual/containerlab/examples/quick-start/topology.clab.example.yaml
+spec:
+  status: insufficient-evidence
+  parser_versions:
+    running_config: '1.0'
+    bgp_l2vpn_evpn_summary: '1.12'
+  nodes: {}
+  sessions: []
+  peer_ranges: []
+  unresolved_peers: []
+  diagnostics: []

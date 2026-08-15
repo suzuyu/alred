@@ -1,0 +1,16 @@
+hostname site1-leaf01
+ntp server 172.20.20.200 prefer use-vrf management
+line vty
+interface mgmt0
+  vrf member management
+  ip address 172.20.20.21/24
+interface loopback0
+  ip address 10.255.0.21/32
+interface Ethernet1/1
+  description site1-spine01 Ethernet1/1
+  no switchport
+  ip address 198.51.100.1/31
+interface Ethernet1/2
+  description site1-spine02 Ethernet1/1
+  no switchport
+  ip address 198.51.100.3/31

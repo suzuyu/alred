@@ -30,6 +30,7 @@
         "authentication"
       ],
       "properties": {
+        "purpose": {"enum": ["change", "inspection"]},
         "input_mode": {"enum": ["collect", "input"]},
         "inventory": {
           "oneOf": [
@@ -38,6 +39,18 @@
           ]
         },
         "policy": {
+          "oneOf": [
+            {"type": "null"},
+            {"$ref": "#/$defs/sourceFile"}
+          ]
+        },
+        "mappings": {
+          "oneOf": [
+            {"type": "null"},
+            {"$ref": "#/$defs/sourceFile"}
+          ]
+        },
+        "description_rules": {
           "oneOf": [
             {"type": "null"},
             {"$ref": "#/$defs/sourceFile"}

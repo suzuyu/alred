@@ -1,0 +1,38 @@
+name: quick-start-sample
+mgmt:
+  network: quick-start-sample
+  ipv4-subnet: 172.20.20.0/24
+topology:
+  kinds:
+    cisco_n9kv:
+      image: example.invalid/alred/cisco_n9kv:sample
+  nodes:
+    site1-spine01:
+      kind: cisco_n9kv
+      mgmt-ipv4: 172.20.20.11
+      group: spine
+      labels:
+        site: site-1
+    site1-spine02:
+      kind: cisco_n9kv
+      mgmt-ipv4: 172.20.20.12
+      group: spine
+      labels:
+        site: site-1
+    site1-leaf01:
+      kind: cisco_n9kv
+      mgmt-ipv4: 172.20.20.21
+      group: leaf
+      labels:
+        site: site-1
+    site1-leaf02:
+      kind: cisco_n9kv
+      mgmt-ipv4: 172.20.20.22
+      group: leaf
+      labels:
+        site: site-1
+  links:
+    - endpoints: ["site1-spine01:Ethernet1/1", "site1-leaf01:Ethernet1/1"]
+    - endpoints: ["site1-spine01:Ethernet1/2", "site1-leaf02:Ethernet1/1"]
+    - endpoints: ["site1-spine02:Ethernet1/1", "site1-leaf01:Ethernet1/2"]
+    - endpoints: ["site1-spine02:Ethernet1/2", "site1-leaf02:Ethernet1/2"]

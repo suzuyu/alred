@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://alred.local/schemas/v1/running-config-import-manifest.schema.json",
+  "title": "RunningConfigImportManifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["api_version", "kind", "metadata", "spec"],
+  "properties": {
+    "api_version": {"const": "alred/v1"},
+    "kind": {"const": "RunningConfigImportManifest"},
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["attempt_id", "imported_at", "tool_version"],
+      "properties": {
+        "attempt_id": {"type": "string", "minLength": 1},
+        "imported_at": {"type": "string", "format": "date-time"},
+        "tool_version": {"type": "string", "minLength": 1}
+      }
+    },
+    "spec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["input_format", "input_fingerprint", "inventory", "lldp", "hosts"],
+      "properties": {
+        "input_format": {"enum": ["alred-collect", "running-config-directory", "nxos-transcript"]},
+        "input_fingerprint": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "inventory": {"$ref": "#/$defs/artifact"},
+        "lldp": {"enum": ["provided", "not_provided"]},
+        "hosts": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {"$ref": "#/$defs/host"}
+        }
+      }
+    }
+  },
+  "$defs": {
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "host": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_path", "source_sha256", "source_size", "source_range", "identity_source", "config_path", "config_sha256"],
+      "properties": {
+        "source_path": {"type": "string", "minLength": 1},
+        "source_sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "source_size": {"type": "integer", "minimum": 1},
+        "source_range": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["start_line", "end_line"],
+          "properties": {
+            "start_line": {"type": "integer", "minimum": 1},
+            "end_line": {"type": "integer", "minimum": 1}
+          }
+        },
+        "identity_source": {"type": "string", "minLength": 1},
+        "config_path": {"type": "string", "pattern": "^config/[^/]+_run\\.txt$"},
+        "config_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "lldp_path": {"type": "string", "pattern": "^lldp/[^/]+_lldp\\.txt$"},
+        "lldp_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    }
+  }
+}

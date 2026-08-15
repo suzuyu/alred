@@ -48,7 +48,12 @@
           "const": ["show running-config", "show running-config diff"]
         },
         "save_command": {"type": "string", "minLength": 1},
-        "success_marker": {"type": ["string", "null"]}
+        "success_marker": {"type": ["string", "null"]},
+        "state_warn_acceptance_path": {"type": ["string", "null"]},
+        "state_warn_acceptance_sha256": {
+          "type": ["string", "null"],
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        }
       }
     },
     "status": {
@@ -65,7 +70,6 @@
         },
         "devices": {
           "type": "object",
-          "minProperties": 1,
           "maxProperties": 50,
           "additionalProperties": {"$ref": "#/$defs/device"}
         },

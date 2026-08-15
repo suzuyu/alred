@@ -187,7 +187,7 @@ hostname aliasが必要な場合は`--hosts`でinventoryを指定します。
 既定では次へ保存されます。
 
 ```text
-operations/<change-id>/
+operations/live/YYYY/MM/DD/<change-id>/
 ```
 
 書き込み先を変更する場合は`--operations-root`を使用します。

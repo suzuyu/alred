@@ -6,7 +6,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+import gzip
 import getpass
+import hashlib
+import io
 import json
 import os
 from pathlib import Path
@@ -16,6 +19,7 @@ import signal
 import socket
 import stat
 import tempfile
+import tarfile
 from typing import Any, Callable, Mapping
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -156,6 +160,19 @@ class OperationPathError(OperationError):
     """Raised when a workspace path violates the protection policy."""
 
     code = "VALIDATION_ERROR"
+
+
+class OperationArchivedError(OperationPathError):
+    """Raised when a live-only command targets an archived operation."""
+
+    code = "OPERATION_ARCHIVED"
+
+
+ARCHIVABLE_OPERATION_STATES = {
+    "completed",
+    "completed_with_warnings",
+    "cancelled",
+}
 
 
 @dataclass(frozen=True)
@@ -416,12 +433,87 @@ def atomic_write_yaml(
     return atomic_write_bytes(operation_root, path, content)
 
 
+def atomic_update_relative_directory_symlink(
+    root: str | Path,
+    link_path: str | Path,
+    target_path: str | Path,
+) -> Path:
+    """Atomically publish a relative convenience symlink below one trusted root."""
+    trusted_root = Path(root).resolve()
+    link = Path(link_path)
+    target = Path(target_path)
+    link_parent = link.parent
+    _ensure_directory(link_parent)
+    try:
+        link_parent.resolve().relative_to(trusted_root)
+        target_resolved = target.resolve(strict=True)
+        target_resolved.relative_to(trusted_root)
+    except (OSError, ValueError) as exc:
+        raise OperationPathError(
+            f"latest symlink path escapes trusted root: {link} -> {target}"
+        ) from exc
+    if not target_resolved.is_dir() or target.is_symlink():
+        raise OperationPathError(
+            f"latest symlink target must be a regular directory: {target}"
+        )
+    if os.path.lexists(link) and not link.is_symlink():
+        raise OperationPathError(
+            f"latest path exists and is not a symbolic link: {link}"
+        )
+
+    temporary = link_parent / f".{link.name}.{secrets.token_hex(6)}.tmp"
+    relative_target = os.path.relpath(target_resolved, link_parent.resolve())
+    try:
+        os.symlink(relative_target, temporary, target_is_directory=True)
+        os.replace(temporary, link)
+        directory_fd = os.open(link_parent, os.O_RDONLY)
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+    finally:
+        if os.path.lexists(temporary):
+            temporary.unlink()
+    return link
+
+
+def publish_latest_operation_link(workspace: OperationWorkspace) -> Path:
+    """Point operations/live/latest at one successfully published operation."""
+    return atomic_update_relative_directory_symlink(
+        workspace.operations_root,
+        workspace.operations_root / "live" / "latest",
+        workspace.operation_root,
+    )
+
+
+def remove_latest_operation_link_for(workspace: OperationWorkspace) -> None:
+    """Remove a convenience link before its live operation is archived."""
+    latest = workspace.operations_root / "live" / "latest"
+    if not latest.is_symlink():
+        return
+    try:
+        points_to_workspace = latest.resolve(strict=True) == (
+            workspace.operation_root.resolve(strict=True)
+        )
+    except OSError:
+        points_to_workspace = True
+    if not points_to_workspace:
+        return
+    latest.unlink()
+    directory_fd = os.open(latest.parent, os.O_RDONLY)
+    try:
+        os.fsync(directory_fd)
+    finally:
+        os.close(directory_fd)
+
+
 def _initial_documents(
     change_id: str,
     change_id_source: str,
     timezone_name: str,
     created_at: datetime,
     operation_root: Path,
+    purpose: str,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     iso_offset, _offset_token = format_utc_offset(created_at)
     transition = {
@@ -444,6 +536,7 @@ def _initial_documents(
         },
         "spec": {
             "output_root": str(operation_root),
+            "purpose": purpose,
             "lifecycle": "created",
             "workflow_state": None,
             "phases": {},
@@ -470,18 +563,30 @@ def create_operation_workspace(
     now: datetime | None = None,
     random_token_factory: Callable[[], str] | None = None,
     prefix: str = "HC",
+    purpose: str = "change",
 ) -> OperationWorkspace:
     """Create a secure operation root and its initial state documents."""
+    if purpose not in {"change", "inspection", "initial_lab_qualification"}:
+        raise ValueError(f"unsupported operation purpose: {purpose}")
     resolved_timezone = resolve_timezone_name(timezone_name)
     created_at = now_in_timezone(resolved_timezone, now=now)
     root = Path(operations_root)
     _ensure_directory(root)
+    _ensure_directory(root / "live")
+    _ensure_directory(root / ".index")
     token_factory = random_token_factory or (lambda: secrets.token_hex(3))
 
     if change_id is not None:
         resolved_change_id = validate_change_id(change_id)
         source = "specified"
-        operation_root = root / resolved_change_id
+        if operation_location_exists(root, resolved_change_id):
+            raise OperationPathError(
+                f"operation already exists: {resolved_change_id}"
+            )
+        operation_root = _dated_operation_root(
+            root, resolved_change_id, created_at
+        )
+        _ensure_directory(operation_root.parent)
         try:
             operation_root.mkdir(mode=0o700)
         except FileExistsError as exc:
@@ -497,7 +602,12 @@ def create_operation_workspace(
                 random_hex=token_factory(),
                 prefix=prefix,
             )
-            operation_root = root / resolved_change_id
+            if operation_location_exists(root, resolved_change_id):
+                continue
+            operation_root = _dated_operation_root(
+                root, resolved_change_id, created_at
+            )
+            _ensure_directory(operation_root.parent)
             try:
                 operation_root.mkdir(mode=0o700)
                 break
@@ -523,6 +633,7 @@ def create_operation_workspace(
         resolved_timezone,
         created_at,
         operation_root,
+        purpose,
     )
     try:
         atomic_write_yaml(
@@ -536,6 +647,17 @@ def create_operation_workspace(
             workspace.execution_path,
             execution,
             kind="OperationExecution",
+        )
+        _write_operation_location(
+            root,
+            _operation_location_document(
+                resolved_change_id,
+                created_at=created_at,
+                state="live",
+                layout="dated-v1",
+                relative_path=operation_root.relative_to(root),
+                updated_at=created_at,
+            ),
         )
     except Exception:
         for owned_path in (workspace.metadata_path, workspace.execution_path):
@@ -553,7 +675,16 @@ def open_operation_workspace(
     """Open and validate an existing operation workspace."""
     resolved_change_id = validate_change_id(change_id)
     root = Path(operations_root)
-    operation_root = root / resolved_change_id
+    location = load_operation_location(root, resolved_change_id)
+    if location is not None:
+        if location["spec"]["state"] == "archived":
+            raise OperationArchivedError(
+                f"operation is archived: {resolved_change_id}; "
+                "use operation status/inspect"
+            )
+        operation_root = root / location["spec"]["relative_path"]
+    else:
+        operation_root = root / resolved_change_id
     _assert_below_root(root, operation_root)
     if not operation_root.is_dir() or operation_root.is_symlink():
         raise OperationPathError(f"operation does not exist: {operation_root}")
@@ -576,6 +707,426 @@ def open_operation_workspace(
         timezone=metadata["metadata"]["timezone"],
         created_at=created_at,
     )
+
+
+def _dated_operation_root(
+    root: Path,
+    change_id: str,
+    created_at: datetime,
+) -> Path:
+    return (
+        root
+        / "live"
+        / created_at.strftime("%Y")
+        / created_at.strftime("%m")
+        / created_at.strftime("%d")
+        / change_id
+    )
+
+
+def _operation_index_path(root: Path, change_id: str) -> Path:
+    return root / ".index" / f"{validate_change_id(change_id)}.yaml"
+
+
+def _operation_location_document(
+    change_id: str,
+    *,
+    created_at: datetime,
+    state: str,
+    layout: str,
+    relative_path: Path,
+    updated_at: datetime,
+    archive_sha256: str | None = None,
+) -> dict[str, Any]:
+    spec: dict[str, Any] = {
+        "storage_version": 1,
+        "state": state,
+        "layout": layout,
+        "created_date": created_at.date().isoformat(),
+        "relative_path": relative_path.as_posix(),
+    }
+    if archive_sha256 is not None:
+        spec["archive_sha256"] = archive_sha256
+    return {
+        "api_version": API_VERSION,
+        "kind": "OperationLocation",
+        "metadata": {
+            "change_id": change_id,
+            "updated_at": updated_at.isoformat(timespec="seconds"),
+        },
+        "spec": spec,
+    }
+
+
+def _write_operation_location(
+    root: Path,
+    document: Mapping[str, Any],
+) -> Path:
+    _ensure_directory(root / ".index")
+    return atomic_write_yaml(
+        root,
+        _operation_index_path(root, str(document["metadata"]["change_id"])),
+        document,
+        kind="OperationLocation",
+    )
+
+
+def load_operation_location(
+    operations_root: str | Path,
+    change_id: str,
+) -> dict[str, Any] | None:
+    """Load an indexed operation location; legacy flat roots have no index."""
+    root = Path(operations_root)
+    path = _operation_index_path(root, change_id)
+    if not path.exists():
+        return None
+    if not path.is_file() or path.is_symlink():
+        raise OperationPathError(f"operation index is unsafe: {path}")
+    document = yaml.safe_load(path.read_text(encoding="utf-8"))
+    if not isinstance(document, dict):
+        raise OperationPathError(f"operation index is invalid: {path}")
+    validate_document(document, kind="OperationLocation")
+    relative = Path(document["spec"]["relative_path"])
+    if relative.is_absolute() or ".." in relative.parts:
+        raise OperationPathError(f"operation index path is unsafe: {relative}")
+    return document
+
+
+def operation_location_exists(
+    operations_root: str | Path,
+    change_id: str,
+) -> bool:
+    root = Path(operations_root)
+    return (
+        _operation_index_path(root, change_id).exists()
+        or (root / validate_change_id(change_id)).exists()
+    )
+
+
+def list_live_operation_ids(operations_root: str | Path) -> list[str]:
+    """List indexed live IDs and legacy flat IDs without scanning dated data."""
+    root = Path(operations_root)
+    identifiers: set[str] = set()
+    index_root = root / ".index"
+    if index_root.is_dir():
+        for path in index_root.glob("*.yaml"):
+            document = load_operation_location(root, path.stem)
+            if document and document["spec"]["state"] == "live":
+                identifiers.add(path.stem)
+    if root.is_dir():
+        for path in root.iterdir():
+            if path.name.startswith(".") or path.name in {"live", "archive"}:
+                continue
+            if path.is_dir() and not path.is_symlink():
+                try:
+                    identifiers.add(validate_change_id(path.name))
+                except ValueError:
+                    continue
+    return sorted(identifiers)
+
+
+def _file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _archive_members(operation_root: Path) -> list[dict[str, Any]]:
+    members: list[dict[str, Any]] = []
+    for path in sorted(operation_root.rglob("*")):
+        if path.is_symlink():
+            raise OperationPathError(f"operation archive rejects symlink: {path}")
+        if path.is_dir():
+            continue
+        if not path.is_file():
+            raise OperationPathError(
+                f"operation archive rejects special file: {path}"
+            )
+        relative = path.relative_to(operation_root).as_posix()
+        if relative == ".operation.lock":
+            continue
+        members.append({
+            "path": relative,
+            "size": path.stat().st_size,
+            "sha256": _file_sha256(path),
+            "mode": stat.S_IMODE(path.stat().st_mode),
+        })
+    return members
+
+
+def _write_operation_archive(
+    archive_path: Path,
+    operation_root: Path,
+    manifest: Mapping[str, Any],
+) -> None:
+    temporary = archive_path.with_name(f".{archive_path.name}.tmp")
+    manifest_bytes = yaml.safe_dump(
+        dict(manifest), sort_keys=False, allow_unicode=True
+    ).encode("utf-8")
+    try:
+        with temporary.open("wb") as raw:
+            with gzip.GzipFile(fileobj=raw, mode="wb", mtime=0) as compressed:
+                with tarfile.open(fileobj=compressed, mode="w") as archive:
+                    for item in manifest["spec"]["files"]:
+                        path = operation_root / item["path"]
+                        info = tarfile.TarInfo(
+                            f"operation/{item['path']}"
+                        )
+                        info.size = item["size"]
+                        info.mode = item["mode"]
+                        info.mtime = 0
+                        info.uid = info.gid = 0
+                        info.uname = info.gname = ""
+                        with path.open("rb") as stream:
+                            archive.addfile(info, stream)
+                    info = tarfile.TarInfo("operation-archive-manifest.yaml")
+                    info.size = len(manifest_bytes)
+                    info.mode = 0o600
+                    info.mtime = 0
+                    info.uid = info.gid = 0
+                    info.uname = info.gname = ""
+                    archive.addfile(info, io.BytesIO(manifest_bytes))
+        os.replace(temporary, archive_path)
+        archive_path.chmod(0o600)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def read_operation_archive(
+    archive_path: str | Path,
+    *,
+    expected_sha256: str | None = None,
+    verify_files: bool = True,
+) -> tuple[dict[str, Any], dict[str, bytes]]:
+    """Verify an operation archive and return its manifest and selected files."""
+    path = Path(archive_path)
+    if not path.is_file() or path.is_symlink():
+        raise OperationPathError(f"operation archive is missing or unsafe: {path}")
+    actual_archive_sha256 = "sha256:" + _file_sha256(path)
+    if expected_sha256 and actual_archive_sha256 != expected_sha256:
+        raise OperationPathError("operation archive checksum mismatch")
+    selected: dict[str, bytes] = {}
+    observed: dict[str, tuple[int, str]] = {}
+    manifest: dict[str, Any] | None = None
+    with tarfile.open(path, "r:gz") as archive:
+        names: set[str] = set()
+        for member in archive.getmembers():
+            if member.name in names or not member.isfile():
+                raise OperationPathError(
+                    f"operation archive contains unsafe member: {member.name}"
+                )
+            names.add(member.name)
+            if member.name == "operation-archive-manifest.yaml":
+                stream = archive.extractfile(member)
+                if stream is None:
+                    raise OperationPathError("operation archive Manifest is unreadable")
+                loaded = yaml.safe_load(stream.read())
+                if not isinstance(loaded, dict):
+                    raise OperationPathError("operation archive Manifest is invalid")
+                validate_document(loaded, kind="OperationArchiveManifest")
+                manifest = loaded
+                continue
+            if not member.name.startswith("operation/"):
+                raise OperationPathError(
+                    f"operation archive member path is unsafe: {member.name}"
+                )
+            relative = member.name.removeprefix("operation/")
+            candidate = Path(relative)
+            if candidate.is_absolute() or ".." in candidate.parts:
+                raise OperationPathError(
+                    f"operation archive member path is unsafe: {member.name}"
+                )
+            if verify_files or relative in {"metadata.yaml", "execution.json"}:
+                stream = archive.extractfile(member)
+                if stream is None:
+                    raise OperationPathError(
+                        f"operation archive member is unreadable: {member.name}"
+                    )
+                content = stream.read()
+                if verify_files:
+                    observed[relative] = (
+                        len(content),
+                        hashlib.sha256(content).hexdigest(),
+                    )
+                if relative in {"metadata.yaml", "execution.json"}:
+                    selected[relative] = content
+    if manifest is None:
+        raise OperationPathError("operation archive Manifest is missing")
+    if verify_files:
+        expected = {
+            item["path"]: (item["size"], item["sha256"])
+            for item in manifest["spec"]["files"]
+        }
+        if expected != observed:
+            raise OperationPathError("operation archive file Manifest mismatch")
+    return manifest, selected
+
+
+def archive_operation_workspace(
+    operations_root: str | Path,
+    change_id: str,
+    *,
+    older_than_days: int = 14,
+    now: datetime | None = None,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    """Archive one eligible terminal operation without device access."""
+    if older_than_days < 0:
+        raise ValueError("older_than_days must be zero or greater")
+    workspace = open_operation_workspace(operations_root, change_id)
+    metadata = load_operation_metadata(workspace.operation_root)
+    lifecycle = metadata["spec"]["lifecycle"]
+    if lifecycle not in ARCHIVABLE_OPERATION_STATES:
+        raise OperationStateError(
+            f"operation lifecycle is not archivable: {lifecycle}"
+        )
+    if workspace.lock_path.exists():
+        raise OperationLockedError(
+            f"operation archive requires no lock: {workspace.lock_path}"
+        )
+    closed_at = datetime.fromisoformat(
+        metadata["spec"]["last_transition"]["at"]
+    )
+    evaluated_at = now_in_timezone(workspace.timezone, now=now)
+    age_seconds = (evaluated_at - closed_at).total_seconds()
+    if age_seconds < older_than_days * 86400:
+        raise OperationStateError(
+            f"operation is newer than {older_than_days} day(s)"
+        )
+    root = Path(operations_root)
+    created_date = workspace.created_at
+    archive_dir = (
+        root
+        / "archive"
+        / created_date.strftime("%Y")
+        / created_date.strftime("%m")
+        / created_date.strftime("%d")
+    )
+    archive_path = archive_dir / f"{workspace.change_id}.tar.gz"
+    if archive_path.exists():
+        raise OperationPathError(f"operation archive already exists: {archive_path}")
+    if dry_run:
+        return {
+            "change_id": workspace.change_id,
+            "status": "eligible",
+            "lifecycle": lifecycle,
+            "closed_at": closed_at.isoformat(timespec="seconds"),
+            "archive": archive_path,
+        }
+    archive_lock = OperationLock(
+        workspace,
+        "archive",
+        now=evaluated_at,
+    ).acquire()
+    try:
+        _ensure_directory(archive_dir)
+        members = _archive_members(workspace.operation_root)
+        manifest = {
+            "api_version": API_VERSION,
+            "kind": "OperationArchiveManifest",
+            "metadata": {
+                "change_id": workspace.change_id,
+                "archived_at": evaluated_at.isoformat(timespec="seconds"),
+                "tool_version": __version__,
+            },
+            "spec": {
+                "storage_version": 1,
+                "source_relative_path": workspace.operation_root.relative_to(
+                    root
+                ).as_posix(),
+                "lifecycle": lifecycle,
+                "closed_at": closed_at.isoformat(timespec="seconds"),
+                "files": members,
+            },
+        }
+        validate_document(manifest, kind="OperationArchiveManifest")
+        _write_operation_archive(archive_path, workspace.operation_root, manifest)
+        archive_sha256 = "sha256:" + _file_sha256(archive_path)
+        read_operation_archive(
+            archive_path,
+            expected_sha256=archive_sha256,
+            verify_files=True,
+        )
+        checksum_path = archive_path.with_suffix(archive_path.suffix + ".sha256")
+        atomic_write_bytes(
+            root,
+            checksum_path,
+            (
+                f"{archive_sha256.removeprefix('sha256:')}  "
+                f"{archive_path.name}\n"
+            ).encode(),
+        )
+        _write_operation_location(
+            root,
+            _operation_location_document(
+                workspace.change_id,
+                created_at=workspace.created_at,
+                state="archived",
+                layout=(
+                    "dated-v1"
+                    if workspace.operation_root.is_relative_to(root / "live")
+                    else "legacy-flat"
+                ),
+                relative_path=archive_path.relative_to(root),
+                updated_at=evaluated_at,
+                archive_sha256=archive_sha256,
+            ),
+        )
+        remove_latest_operation_link_for(workspace)
+        shutil.rmtree(workspace.operation_root)
+        archive_lock._inode = None
+        return {
+            "change_id": workspace.change_id,
+            "status": "archived",
+            "lifecycle": lifecycle,
+            "closed_at": closed_at.isoformat(timespec="seconds"),
+            "archive": archive_path,
+            "checksum": checksum_path,
+            "archive_sha256": archive_sha256,
+            "file_count": len(members),
+        }
+    except Exception:
+        location = load_operation_location(root, workspace.change_id)
+        if location is None or location["spec"]["state"] == "live":
+            archive_path.unlink(missing_ok=True)
+            archive_path.with_suffix(archive_path.suffix + ".sha256").unlink(
+                missing_ok=True
+            )
+        raise
+    finally:
+        if archive_lock.held and workspace.lock_path.exists():
+            archive_lock.release()
+        elif archive_lock.held:
+            archive_lock._inode = None
+
+
+def load_archived_operation_documents(
+    operations_root: str | Path,
+    change_id: str,
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+    """Load verified metadata/execution directly from an archived operation."""
+    root = Path(operations_root)
+    location = load_operation_location(root, change_id)
+    if location is None or location["spec"]["state"] != "archived":
+        raise OperationPathError(f"archived operation does not exist: {change_id}")
+    archive_path = root / location["spec"]["relative_path"]
+    manifest, selected = read_operation_archive(
+        archive_path,
+        expected_sha256=location["spec"].get("archive_sha256"),
+        verify_files=False,
+    )
+    try:
+        metadata = yaml.safe_load(selected["metadata.yaml"])
+        execution = json.loads(selected["execution.json"])
+    except (KeyError, ValueError) as exc:
+        raise OperationPathError(
+            "archived operation metadata/execution is missing or invalid"
+        ) from exc
+    validate_document(metadata, kind="OperationMetadata", allow_unknown_fields=True)
+    validate_document(execution, kind="OperationExecution", allow_unknown_fields=True)
+    return metadata, execution, manifest
 
 
 def load_operation_metadata(operation_root: str | Path) -> dict[str, Any]:

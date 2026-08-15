@@ -62,16 +62,16 @@ Capabilityが`PLAN_ONLY`の場合、config生成とレビューはできます�
 この例では、2組（4台）のvPC Leafペアへ次を追加します。vPCペア内の2台には同一設定を
 生成し、ペア間で異なるVLANはdevice groupのoverrideで表現します。
 
-| 項目 | leaf01 / leaf02 | leaf03 / leaf04 |
+| 項目 | adc-lfsw0101 / adc-lfsw0102 | adc-lfsw0103 / adc-lfsw0104 |
 |---|---:|---:|
-| logical group | server-leafs | storage-leafs |
-| vPC group | vpc-leaf-pair-01 | vpc-leaf-pair-02 |
-| VRF | TENANT-A | TENANT-A |
-| L3VNI | 50001 | 50001 |
-| L2VNI | 10020 | 10020 |
-| VLAN | 20 | 120 |
-| Gateway IPv4 | 198.51.100.1/24 | 198.51.100.1/24 |
-| Gateway IPv6 | 2001:db8:20::1/64 | 2001:db8:20::1/64 |
+| logical group | adc-vpc-pair-01 | adc-vpc-pair-02 |
+| vPC group | adc-vpc-pair-01 | adc-vpc-pair-02 |
+| VRF | tenant1-vpc1 | tenant1-vpc1 |
+| L3VNI | 19001 | 19001 |
+| L2VNI | 10100 | 10100 |
+| VLAN | 100 | 10 |
+| Gateway IPv4 | 172.16.0.254/24 | 172.16.0.254/24 |
+| Gateway IPv6 | fd21:0:0:1::1/64 | fd21:0:0:1::1/64 |
 | MTU | 9216 | 9216 |
 
 使用するChangeSet（定義方法は[Overlay ChangeSet作成ガイド](./07_OVERLAY_CHANGESET_GUIDE.md)を参照）:
@@ -97,6 +97,10 @@ alred overlay-change prepare-plan \
 
 この段階では機器へ接続しません。結果は`preparation/attempts/<attempt-id>/`へ保存され、
 approve / applyには使用できません。最新の成功attemptは`preparation/current.json`で確認します。
+`--allow-reference-state-warn` は、正常完了した Overlay terminal Operation の `WARN` を参照元として
+明示的に許可する必要がある場合だけ追加します。既定は `PASS` 限定です。
+standalone Health Check の `WARN` は、`--reference-operation-id` で対象を明示した場合だけ同 option で
+許可できます。`latest-known-good` から standalone `WARN` を自動選択しません。
 参照元を明示する方法、選択条件、競合検査の詳細は
 [ChangeSet作成ガイド](./07_OVERLAY_CHANGESET_GUIDE.md#11-過去の正常状態で準備用planを作成)を
 参照してください。
@@ -125,12 +129,12 @@ Hosts     : 4
 Warnings  : 0
 Result    : PASS
 Checks    : PASS=44 WARN=0 FAIL=0 UNKNOWN=0 N/A=8
-Manifest  : operations/CHG-2026-00123/health/before/collection-manifest.yaml
-Snapshot  : operations/CHG-2026-00123/health/before/snapshot.json
-Checklist : operations/CHG-2026-00123/health/before/checklist.md
-Overlay   : operations/CHG-2026-00123/health/before/overlay-state.yaml
-VNI Map   : operations/CHG-2026-00123/health/before/vni-map.md
-VNI CSV   : operations/CHG-2026-00123/health/before/vni-map.csv
+Manifest  : operations/live/2026/08/01/CHG-2026-00123/health/before/collection-manifest.yaml
+Snapshot  : operations/live/2026/08/01/CHG-2026-00123/health/before/snapshot.json
+Checklist : operations/live/2026/08/01/CHG-2026-00123/health/before/checklist.md
+Overlay   : operations/live/2026/08/01/CHG-2026-00123/health/before/overlay-state.yaml
+VNI Map   : operations/live/2026/08/01/CHG-2026-00123/health/before/vni-map.md
+VNI CSV   : operations/live/2026/08/01/CHG-2026-00123/health/before/vni-map.csv
 ```
 
 beforeが`FAIL`または`UNKNOWN`の場合はplanへ進まず、収集不足または既存異常を解消します。
@@ -142,21 +146,21 @@ beforeがplanの条件を満たしたら、レビュー済みChangeSetとgroup�
 
 ```bash
 cp ./changes/CHG-2026-00123/desired-changes.yaml \
-  operations/CHG-2026-00123/desired-changes.yaml
+  operations/live/2026/08/01/CHG-2026-00123/desired-changes.yaml
 cp ./changes/CHG-2026-00123/device-groups.fabric.yaml \
-  operations/CHG-2026-00123/device-groups.fabric.yaml
+  operations/live/2026/08/01/CHG-2026-00123/device-groups.fabric.yaml
 ```
 
 ## 6. planを生成
 
 ```bash
 alred overlay-change plan \
-  --change-set operations/CHG-2026-00123/desired-changes.yaml \
+  --change-set operations/live/2026/08/01/CHG-2026-00123/desired-changes.yaml \
   --hosts ./hosts.lab.yaml
 ```
 
 ChangeSetの`metadata.change_id`から同じoperationの最新成功beforeが自動選択されます。監査上pathを
-明示したい場合だけ`--before operations/CHG-2026-00123/health/before/snapshot.json`を追加します。
+明示したい場合だけ`--before operations/live/2026/08/01/CHG-2026-00123/health/before/snapshot.json`を追加します。
 明示指定でも最新性、hash、HealthResult、operation gateの検査は省略されません。
 
 planは機器へ接続せず、設定を投入しません。出力例:
@@ -166,43 +170,43 @@ planは機器へ接続せず、設定を投入しません。出力例:
 Change ID       : CHG-2026-00123
 Before source   : inferred from ChangeSet change_id
 Before attempt  : before-20260802T091500-p1234-a1b2c3
-Before snapshot : operations/CHG-2026-00123/health/before/snapshot.json
+Before snapshot : operations/live/2026/08/01/CHG-2026-00123/health/before/snapshot.json
 Before result   : PASS
 Capability      : APPLY_VERIFIED
 Devices         : 4
-- leaf01: PLANNED config=operations/CHG-2026-00123/generated-config/leaf01.cfg
-- leaf02: PLANNED config=operations/CHG-2026-00123/generated-config/leaf02.cfg
-- leaf03: PLANNED config=operations/CHG-2026-00123/generated-config/leaf03.cfg
-- leaf04: PLANNED config=operations/CHG-2026-00123/generated-config/leaf04.cfg
-Execution plan  : operations/CHG-2026-00123/plan/execution-plan.json
-Rollback plan   : operations/CHG-2026-00123/plan/rollback-plan.json
-Render manifest : operations/CHG-2026-00123/plan/render-manifest.json
-Input manifest  : operations/CHG-2026-00123/plan/input-manifest.json
-Resolved targets: operations/CHG-2026-00123/plan/resolved-targets.yaml
-Conflict report : operations/CHG-2026-00123/plan/conflict-report.json
-Capability proof : operations/CHG-2026-00123/plan/capability-evaluation.json
+- adc-lfsw0101: PLANNED config: operations/live/2026/08/01/CHG-2026-00123/generated-config/adc-lfsw0101.cfg
+- adc-lfsw0102: PLANNED config: operations/live/2026/08/01/CHG-2026-00123/generated-config/adc-lfsw0102.cfg
+- adc-lfsw0103: PLANNED config: operations/live/2026/08/01/CHG-2026-00123/generated-config/adc-lfsw0103.cfg
+- adc-lfsw0104: PLANNED config: operations/live/2026/08/01/CHG-2026-00123/generated-config/adc-lfsw0104.cfg
+Execution plan  : operations/live/2026/08/01/CHG-2026-00123/plan/execution-plan.json
+Rollback plan   : operations/live/2026/08/01/CHG-2026-00123/plan/rollback-plan.json
+Render manifest : operations/live/2026/08/01/CHG-2026-00123/plan/render-manifest.json
+Input manifest  : operations/live/2026/08/01/CHG-2026-00123/plan/input-manifest.json
+Resolved targets: operations/live/2026/08/01/CHG-2026-00123/plan/resolved-targets.yaml
+Conflict report : operations/live/2026/08/01/CHG-2026-00123/plan/conflict-report.json
+Capability proof : operations/live/2026/08/01/CHG-2026-00123/plan/capability-evaluation.json
 Apply            : ELIGIBLE FOR APPROVAL
 ```
 
 生成される主なファイル:
 
 ```text
-operations/CHG-2026-00123/
+operations/live/2026/08/01/CHG-2026-00123/
 ├── desired-changes.yaml
 ├── device-groups.fabric.yaml
 ├── inputs/
 │   ├── change-set.yaml
 │   └── device-groups.yaml
 ├── generated-config/
-│   ├── leaf01.cfg
-│   ├── leaf02.cfg
-│   ├── leaf03.cfg
-│   └── leaf04.cfg
+│   ├── adc-lfsw0101.cfg
+│   ├── adc-lfsw0102.cfg
+│   ├── adc-lfsw0103.cfg
+│   └── adc-lfsw0104.cfg
 ├── rollback-config/
-│   ├── leaf01.cfg
-│   ├── leaf02.cfg
-│   ├── leaf03.cfg
-│   └── leaf04.cfg
+│   ├── adc-lfsw0101.cfg
+│   ├── adc-lfsw0102.cfg
+│   ├── adc-lfsw0103.cfg
+│   └── adc-lfsw0104.cfg
 └── plan/
     ├── capability-evaluation.json
     ├── conflict-report.json
@@ -217,12 +221,13 @@ operations/CHG-2026-00123/
 
 生成config例:
 
-- [leaf01.cfg](./examples/overlay-changeset/leaf01.cfg)
-- [leaf01-rollback.cfg](./examples/overlay-changeset/leaf01-rollback.cfg)
-- [leaf03.cfg](./examples/overlay-changeset/leaf03.cfg)
-- [leaf03-rollback.cfg](./examples/overlay-changeset/leaf03-rollback.cfg)
+- [adc-lfsw0101.cfg](./examples/overlay-changeset/adc-lfsw0101.cfg)
+- [adc-lfsw0101-rollback.cfg](./examples/overlay-changeset/adc-lfsw0101-rollback.cfg)
+- [adc-lfsw0103.cfg](./examples/overlay-changeset/adc-lfsw0103.cfg)
+- [adc-lfsw0103-rollback.cfg](./examples/overlay-changeset/adc-lfsw0103-rollback.cfg)
 
-`leaf02`は`leaf01`と、`leaf04`は`leaf03`とhostコメント以外は同じconfigになります。
+`adc-lfsw0102` は `adc-lfsw0101` と、`adc-lfsw0104` は `adc-lfsw0103` と host comment 以外は
+同じ config になります。
 
 通常planはprepare-planの結果を信用して省略せず、fresh beforeに対してVLAN、VNI、VRF、SVI IP /
 prefixなどの競合検査を再実行します。
@@ -231,16 +236,16 @@ prefixなどの競合検査を再実行します。
 
 少なくとも次を確認します。
 
-1. 対象deviceが`leaf01`、`leaf02`、`leaf03`、`leaf04`だけである。
+1. 対象 device が `adc-lfsw0101`、`adc-lfsw0102`、`adc-lfsw0103`、`adc-lfsw0104` だけである。
 2. `plan/conflict-report.md`が`PASS`で、VLAN、VNI、VRF、IPの競合がない。
 3. `NO_CHANGE`、`PLANNED`の判定が意図どおりである。
 4. forward configのVNI、VRF、VLAN、Gateway、MTU、BGP ASが正しい。
-5. `server-leafs`が`leaf01/leaf02`、`storage-leafs`が`leaf03/leaf04`へ展開されている。
-6. `leaf01/leaf02`がVLAN 20、`leaf03/leaf04`がVLAN 120へ解決されている。
+5. `adc-vpc-pair-01` と `adc-vpc-pair-02` が各 2 台へ展開されている。
+6. pair 1 が VLAN 100、pair 2 が VLAN 10 へ解決されている。
 7. vPCペア内でVLAN、VNI、VRF、SVI、BGP設定が一致している。
 8. 既存設定と競合するresourceがない。
 9. rollback configがoperation所有resourceだけを削除・復元する。
-10. 新規VRFではBGP VRF設定と`vrf context`の削除順が安全である。
+10. 既存 VRF／L3VNI が rollback の削除対象に含まれていない。
 11. ChangeSet、group、resolved target、config、rollback configのSHA-256を追跡できる。
 12. Capability警告がない。
 
@@ -256,8 +261,8 @@ alred overlay-change approve \
   --change-id CHG-2026-00123
 ```
 
-`--change-id`だけの場合、`operations/CHG-2026-00123/plan/execution-plan.json`と
-`operations/CHG-2026-00123/plan/rollback-plan.json`を使用します。`--save-on-success`の既定値は
+`--change-id`だけの場合、`operations/live/2026/08/01/CHG-2026-00123/plan/execution-plan.json`と
+`operations/live/2026/08/01/CHG-2026-00123/plan/rollback-plan.json`を使用します。`--save-on-success`の既定値は
 有効、`--rollback-policy`の既定値は`manual`です。
 標準path以外を明示的に承認する必要がある場合だけ`--plan`と`--rollback-plan`を指定します。
 
@@ -267,24 +272,24 @@ alred overlay-change approve \
 === OVERLAY CHANGE APPROVAL ===
 Change ID: CHG-2026-00123
 Artifacts:
-  - change_set: operations/CHG-2026-00123/inputs/change-set.yaml
+  - change_set: operations/live/2026/08/01/CHG-2026-00123/inputs/change-set.yaml
     sha256:0000000000000000...
-  - device_groups: operations/CHG-2026-00123/inputs/device-groups.yaml
+  - device_groups: operations/live/2026/08/01/CHG-2026-00123/inputs/device-groups.yaml
     sha256:0000000000000000...
-  - execution_plan: operations/CHG-2026-00123/plan/execution-plan.json
+  - execution_plan: operations/live/2026/08/01/CHG-2026-00123/plan/execution-plan.json
     sha256:1111111111111111...
-  - input_manifest: operations/CHG-2026-00123/plan/input-manifest.json
+  - input_manifest: operations/live/2026/08/01/CHG-2026-00123/plan/input-manifest.json
     sha256:1111111111111111...
-  - resolved_targets: operations/CHG-2026-00123/plan/resolved-targets.yaml
+  - resolved_targets: operations/live/2026/08/01/CHG-2026-00123/plan/resolved-targets.yaml
     sha256:2222222222222222...
-  - rollback_plan: operations/CHG-2026-00123/plan/rollback-plan.json
+  - rollback_plan: operations/live/2026/08/01/CHG-2026-00123/plan/rollback-plan.json
     sha256:2222222222222222...
 Constraints:
   - max_devices: 50
   - rollback_policy: manual
   - save_on_success: true
 Type 'yes' to approve: yes
-Approval: operations/CHG-2026-00123/approval/approval-record.json
+Approval: operations/live/2026/08/01/CHG-2026-00123/approval/approval-record.json
 ```
 
 承認は既定24時間有効です。ただしChangeSet、device group、resolved target、plan、rollback plan、
@@ -305,37 +310,37 @@ apply前にexact phraseを入力します。
 ```text
 === APPROVED OVERLAY APPLY ===
 Change ID : CHG-2026-00123
-Devices   : leaf01, leaf02, leaf03, leaf04
+Devices   : adc-lfsw0101, adc-lfsw0102, adc-lfsw0103, adc-lfsw0104
 Serial    : 1
 Save      : after health only
 Type the exact apply phrase:
 APPLY CHG-2026-00123
 > APPLY CHG-2026-00123
-Execution : operations/CHG-2026-00123/apply/execution.json
-- leaf01: SUCCESS
-- leaf02: SUCCESS
-- leaf03: SUCCESS
-- leaf04: SUCCESS
+Execution : operations/live/2026/08/01/CHG-2026-00123/apply/execution.json
+- adc-lfsw0101: SUCCESS
+- adc-lfsw0102: SUCCESS
+- adc-lfsw0103: SUCCESS
+- adc-lfsw0104: SUCCESS
 Result    : APPLIED_PENDING_HEALTH
 ```
 
 投入したconfigと機器応答はdeviceごとに保存されます。
 
 ```text
-operations/CHG-2026-00123/apply/
+operations/live/2026/08/01/CHG-2026-00123/apply/
 ├── apply.log
 ├── execution.json
 └── devices/
-    ├── leaf01/
+    ├── adc-lfsw0101/
     │   ├── command-results.json
     │   └── commands.log
-    ├── leaf02/
+    ├── adc-lfsw0102/
     │   ├── command-results.json
     │   └── commands.log
-    ├── leaf03/
+    ├── adc-lfsw0103/
     │   ├── command-results.json
     │   └── commands.log
-    └── leaf04/
+    └── adc-lfsw0104/
         ├── command-results.json
         └── commands.log
 ```
@@ -362,12 +367,12 @@ Hosts     : 4
 Warnings  : 0
 Result    : PASS
 Checks    : PASS=44 WARN=0 FAIL=0 UNKNOWN=0 N/A=8
-Manifest  : operations/CHG-2026-00123/health/after/collection-manifest.yaml
-Snapshot  : operations/CHG-2026-00123/health/after/snapshot.json
-Checklist : operations/CHG-2026-00123/health/after/checklist.md
-Overlay   : operations/CHG-2026-00123/health/after/overlay-state.yaml
-VNI Map   : operations/CHG-2026-00123/health/after/vni-map.md
-VNI CSV   : operations/CHG-2026-00123/health/after/vni-map.csv
+Manifest  : operations/live/2026/08/01/CHG-2026-00123/health/after/collection-manifest.yaml
+Snapshot  : operations/live/2026/08/01/CHG-2026-00123/health/after/snapshot.json
+Checklist : operations/live/2026/08/01/CHG-2026-00123/health/after/checklist.md
+Overlay   : operations/live/2026/08/01/CHG-2026-00123/health/after/overlay-state.yaml
+VNI Map   : operations/live/2026/08/01/CHG-2026-00123/health/after/vni-map.md
+VNI CSV   : operations/live/2026/08/01/CHG-2026-00123/health/after/vni-map.csv
 ```
 
 共通healthがPASSした後、宣言済みChangeSetと観測結果を評価します。
@@ -392,19 +397,32 @@ Result        : VERIFIED
 Configuration : PASS
 Operational   : PASS
 Impact        : PASS
-Before        : operations/CHG-2026-00123/health/before/snapshot.json
-After         : operations/CHG-2026-00123/health/after/snapshot.json
-ChangeSet     : operations/CHG-2026-00123/inputs/change-set.yaml
-JSON          : operations/CHG-2026-00123/overlay/health-result.json
-Summary       : operations/CHG-2026-00123/overlay/overlay-summary.md
+Before        : operations/live/2026/08/01/CHG-2026-00123/health/before/snapshot.json
+After         : operations/live/2026/08/01/CHG-2026-00123/health/after/snapshot.json
+ChangeSet     : operations/live/2026/08/01/CHG-2026-00123/inputs/change-set.yaml
+JSON          : operations/live/2026/08/01/CHG-2026-00123/overlay/health-result.json
+Summary       : operations/live/2026/08/01/CHG-2026-00123/overlay/overlay-summary.md
 ```
 
-共通healthまたはOverlay評価がFAIL、UNKNOWNの場合、workflowはrollback判断が必要な状態となり、
-saveを実行できません。
+共通 Health が `PASS`／`WARN` で、Overlay 評価が `VERIFIED`／`OBSERVED_HEALTHY` の場合は save へ進めます。
+共通 Health の `WARN` は Checklist で内容を確認し、保存後も未解消事象として扱います。共通 Health が
+`FAIL`／`UNKNOWN`／`NOT_APPLICABLE`／`PLAN_ERROR`、または Overlay 評価が非成功の場合、workflow は
+rollback 判断が必要な状態となり、save を実行できません。
+
+旧 version で共通 Health の `WARN` だけを理由に `rollback_required` となり、Overlay がすでに
+`VERIFIED`／`OBSERVED_HEALTHY` の場合は、更新後に次を実行して不変 Snapshot を明示的に再評価します。
+
+```bash
+alred overlay-check evaluate \
+  --change-id CHG-2026-00123 \
+  --recheck
+```
+
+成功すると `overlay/recheck/` へ証跡を追加して `after_completed` へ調停します。元の評価成果物は上書きしません。
 
 ## 11. configurationを保存
 
-Approval Recordが`save_on_success: true`で、afterとOverlay評価が成功した場合だけ実行します。
+Approval Record が `save_on_success: true` で、上記 after gate と Overlay 評価が成功した場合だけ実行します。
 
 ```bash
 alred overlay-change save \
@@ -417,35 +435,45 @@ alred overlay-change save \
 ```text
 === APPROVED OVERLAY SAVE ===
 Change ID : CHG-2026-00123
-Devices   : leaf01, leaf02, leaf03, leaf04
-Snapshot  : operations/CHG-2026-00123/health/after/snapshot.json
+Devices   : adc-lfsw0101, adc-lfsw0102, adc-lfsw0103, adc-lfsw0104
+Snapshot  : operations/live/2026/08/01/CHG-2026-00123/health/after/snapshot.json
 Approval  : save_on_success=true
 Serial    : 1
 Retry     : disabled
-Execution : operations/CHG-2026-00123/apply/save-execution.json
-- leaf01: SUCCESS
-  log=operations/CHG-2026-00123/apply/devices/leaf01/save.log
-- leaf02: SUCCESS
-  log=operations/CHG-2026-00123/apply/devices/leaf02/save.log
-- leaf03: SUCCESS
-  log=operations/CHG-2026-00123/apply/devices/leaf03/save.log
-- leaf04: SUCCESS
-  log=operations/CHG-2026-00123/apply/devices/leaf04/save.log
+Execution : operations/live/2026/08/01/CHG-2026-00123/apply/save-execution.json
+- adc-lfsw0101: SUCCESS
+  log=operations/live/2026/08/01/CHG-2026-00123/apply/devices/adc-lfsw0101/save.log
+- adc-lfsw0102: SUCCESS
+  log=operations/live/2026/08/01/CHG-2026-00123/apply/devices/adc-lfsw0102/save.log
+- adc-lfsw0103: SUCCESS
+  log=operations/live/2026/08/01/CHG-2026-00123/apply/devices/adc-lfsw0103/save.log
+- adc-lfsw0104: SUCCESS
+  log=operations/live/2026/08/01/CHG-2026-00123/apply/devices/adc-lfsw0104/save.log
 Result    : APPLIED_AND_VERIFIED
 ```
 
-save前にlive running-configとafter Snapshotを再検証します。save応答はapplyのcommand logと混在
-させず、device別`save.log`と`save-result.json`へ保存します。
+save 前に live running-config と after Snapshot を再検証します。save 応答は apply の command log と混在
+させず、device 別 `save.log` と `save-result.json` へ保存します。
+
+全機器が plan 時点で `NO_CHANGE` の場合は、承認、成果物、after gate を検証したうえで no-op save として
+完了します。機器への接続と保存 command は実行せず、次のように表示します。
+
+```text
+Devices   : (none; all plan devices are NO_CHANGE)
+Result    : APPLIED_AND_VERIFIED
+```
+
+この場合は認証情報を使用しないため、`--ask-pass` は不要です。
 
 ## 12. apply失敗時
 
 最初の設定投入errorで停止します。
 
 ```text
-Execution : operations/CHG-2026-00123/apply/execution.json
-- leaf01: SUCCESS
-- leaf02: SUCCESS
-- leaf03: FAILED
+Execution : operations/live/2026/08/01/CHG-2026-00123/apply/execution.json
+- adc-lfsw0101: SUCCESS
+- adc-lfsw0102: SUCCESS
+- adc-lfsw0103: FAILED
 Result    : APPLY_FAILED
 ```
 
@@ -476,17 +504,17 @@ alred overlay-change rollback \
 ```text
 === APPROVED OVERLAY ROLLBACK ===
 Change ID : CHG-2026-00123
-Snapshot  : operations/CHG-2026-00123/health/after/snapshot.json
+Snapshot  : operations/live/2026/08/01/CHG-2026-00123/health/after/snapshot.json
 Serial    : 1 (reverse order)
 Save      : disabled
 Type the exact rollback phrase:
 ROLLBACK CHG-2026-00123
 > ROLLBACK CHG-2026-00123
-Execution : operations/CHG-2026-00123/rollback/execution.json
-- leaf04: SUCCESS
-- leaf03: SUCCESS
-- leaf02: SUCCESS
-- leaf01: SUCCESS
+Execution : operations/live/2026/08/01/CHG-2026-00123/rollback/execution.json
+- adc-lfsw0104: SUCCESS
+- adc-lfsw0103: SUCCESS
+- adc-lfsw0102: SUCCESS
+- adc-lfsw0101: SUCCESS
 Result    : ROLLED_BACK_PENDING_HEALTH
 Next      : run health-check rollback
 ```
@@ -509,13 +537,14 @@ contextから継承されます。inventoryまたはpolicyの内容が変わっ�
 Result    : ROLLED_BACK_AND_VERIFIED
 Raw config: true
 Semantic  : true
-Evidence  : operations/CHG-2026-00123/rollback/verification-attempts/rollback-.../verification.json
-Checklist : operations/CHG-2026-00123/rollback/verification-attempts/rollback-.../verification-checklist.md
+Evidence  : operations/live/2026/08/01/CHG-2026-00123/rollback/verification-attempts/rollback-.../verification.json
+Checklist : operations/live/2026/08/01/CHG-2026-00123/rollback/verification-attempts/rollback-.../verification-checklist.md
 ```
 
-beforeとrollback後のnormalized raw running-config、およびCanonical Overlay resourceが一致した
-場合だけ`ROLLED_BACK_AND_VERIFIED`です。Checklistには統合gate、機器別raw / semantic比較、
-Health Checkの非PASS理由、証跡pathを表示します。raw config不一致時は秘密情報を含む設定行を
+before と rollback 後の normalized raw running-config、および Canonical Overlay resource の
+一致は `ROLLED_BACK_AND_VERIFIED` の必須条件です。Health Check は `PASS`、または後述する
+明示許可済みの既存 WARN である必要があります。Checklist には統合 gate、機器別 raw／semantic
+比較、Health Check の非 PASS 理由、証跡 path を表示します。raw config 不一致時は秘密情報を含む設定行を
 出力せず、追加・削除行数だけを表示します。semantic不一致時は値を出力せず差分pathを表示します。
 
 Healthまたはverificationが非PASSの場合は、同じchange IDで再実行できます。
@@ -529,6 +558,39 @@ alred health-check rollback \
 再実行は設定rollbackを再送せず、収集・解析・復元検証だけを新しいattemptとして実行します。
 過去attemptは`health/rollback/attempts/`、`health/rollback-report/attempts/`、
 `rollback/verification-attempts/`へ保持され、`current.json`と互換正本は判定完了後だけ更新されます。
+
+rollback 前から存在する警告だけが残り、raw／semantic config が before と一致している場合でも、
+`health-check rollback` は `ROLLBACK_HEALTH_FAILED` として終了します。Checklist と HealthResult の
+classification を確認した後、別の承認コマンドを実行します。
+
+```bash
+alred overlay-change accept-rollback-state-warn \
+  --change-id CHG-2026-00123
+```
+
+画面に WARN check、classification、verification／HealthResult の path と hash が表示されます。
+内容を確認し、次の phrase を完全一致で入力します。
+
+```text
+ACCEPT ROLLBACK STATE WARN CHG-2026-00123
+```
+
+承認対象は、比較 HealthResult が `WARN`、WARN check がすべて `pre_existing`、WARN 件数が
+完全に追跡でき、`FAIL`／`UNKNOWN` がない場合だけです。`regression`、`collection_error`、
+`target_not_ready`、未分類 WARN は許可しません。Snapshot freshness、raw running-config 一致、
+semantic config 一致は引き続き必須です。承認成立時は `ROLLED_BACK_AND_VERIFIED` へ進みますが、
+元の HealthResult、verification、attempt は変更しません。承認証跡は
+`rollback/state-warn-acceptance.json` へ保存されます。
+
+`save-rollback` の state 条件を満たさない場合は、次のように現在の workflow state、verification
+result、HealthResult がエラー末尾に表示されます。
+
+```text
+VALIDATION_ERROR: approved rollback save requires rolled_back_and_verified workflow state (current workflow state: rollback_health_failed; verification result: ROLLBACK_HEALTH_FAILED; next action: overlay-change accept-rollback-state-warn; health result: WARN)
+```
+
+WARN が既存状態だけで config 復元 gate が成功している場合は
+`accept-rollback-state-warn`、それ以外は `health-check rollback` を新しい attempt として再実行します。
 
 変更をすでにstartup-configへ保存した後でrollbackした場合は、検証成功後に次を実行します。
 
@@ -544,7 +606,7 @@ applyをsaveする前にrollbackした場合、startup-configは変更前のま�
 ## 14. 完了時に保存する成果物
 
 ```text
-operations/CHG-2026-00123/
+operations/live/2026/08/01/CHG-2026-00123/
 ├── metadata.yaml
 ├── execution.json
 ├── desired-changes.yaml

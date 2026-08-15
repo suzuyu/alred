@@ -1,0 +1,5 @@
+src_node,src_if,dst_node,dst_if,protocol,confidence,evidence,remote_mgmt_ip,rule_name,warning
+site1-spine01,Ethernet1/1,site1-leaf01,Ethernet1/1,description,low,bidirectional-description,,hostname_interface_space,
+site1-spine01,Ethernet1/2,site1-leaf02,Ethernet1/1,description,low,bidirectional-description,,hostname_interface_space,
+site1-spine02,Ethernet1/1,site1-leaf01,Ethernet1/2,description,low,bidirectional-description,,hostname_interface_space,
+site1-spine02,Ethernet1/2,site1-leaf02,Ethernet1/2,description,low,bidirectional-description,,hostname_interface_space,

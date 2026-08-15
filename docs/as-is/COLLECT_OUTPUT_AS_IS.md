@@ -1,7 +1,7 @@
 # Collect Output As-Is
 
-- Status: As-Is documented
-- Last reviewed: 2026-07-26
+- Status: Integrated
+- Last reviewed: 2026-08-09
 - Scope: `alred/cli.py:collect_from_host`とcollect path helper
 
 ## Evidence
@@ -45,11 +45,11 @@
 
 ## Recommended design disposition
 
-Phase 2では本形式を既存collect adapterの入力契約として扱い、raw保存処理自体は再利用する。
-新しいSnapshot/parserはこのdirectoryを直接変更せず、manifestとprovenanceを別成果物として
-追加する。
+本形式を既存collect adapterの入力契約として維持し、raw保存処理自体は再利用する。
+Snapshot/parserはこのdirectoryを直接変更せず、manifestとprovenanceを別成果物として追加する。
+旧sidecar混入の可能性は保証仕様へ昇格せず、manifestで除外する既知の制約とする。
 
 ## Integration
 
-- Design document: [Health Check Framework Design](../design/HEALTH_CHECK_FRAMEWORK_DESIGN.md)
-- Integrated date: -
+- Design document: [Collection Design](../design/common/COLLECTION_DESIGN.md)、[Health Check Framework Design](../design/network-ops/HEALTH_CHECK_FRAMEWORK_DESIGN.md)
+- Integrated date: 2026-08-09

@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://alred.local/schemas/v1/rollback-state-warn-acceptance.schema.json",
+  "title": "RollbackStateWarnAcceptance",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["api_version", "kind", "metadata", "spec", "status"],
+  "properties": {
+    "api_version": {"const": "alred/v1"},
+    "kind": {"const": "RollbackStateWarnAcceptance"},
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["change_id", "accepted_at", "timezone"],
+      "properties": {
+        "change_id": {"type": "string", "minLength": 1},
+        "accepted_at": {"type": "string", "format": "date-time"},
+        "timezone": {"type": "string", "minLength": 1}
+      }
+    },
+    "spec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "attempt_id",
+        "source_workflow_state",
+        "confirmation_phrase",
+        "verification_kind",
+        "verification_path",
+        "verification_sha256",
+        "health_result_path",
+        "health_result_sha256",
+        "before_snapshot_path",
+        "before_snapshot_sha256",
+        "rollback_snapshot_path",
+        "rollback_snapshot_sha256",
+        "warning_count",
+        "warning_classifications"
+      ],
+      "properties": {
+        "attempt_id": {"type": "string", "minLength": 1},
+        "source_workflow_state": {
+          "enum": ["rollback_health_failed", "rolled_back_and_verified"]
+        },
+        "confirmation_phrase": {"type": "string", "minLength": 1},
+        "verification_kind": {
+          "enum": [
+            "ManagedRollbackVerification",
+            "QualificationRollbackVerification"
+          ]
+        },
+        "verification_path": {"type": "string", "minLength": 1},
+        "verification_sha256": {"$ref": "#/$defs/sha256"},
+        "health_result_path": {"type": "string", "minLength": 1},
+        "health_result_sha256": {"$ref": "#/$defs/sha256"},
+        "before_snapshot_path": {"type": "string", "minLength": 1},
+        "before_snapshot_sha256": {"$ref": "#/$defs/sha256"},
+        "rollback_snapshot_path": {"type": "string", "minLength": 1},
+        "rollback_snapshot_sha256": {"$ref": "#/$defs/sha256"},
+        "warning_count": {"type": "integer", "minimum": 1},
+        "warning_classifications": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {"type": "integer", "minimum": 1}
+        }
+      }
+    },
+    "status": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["result"],
+      "properties": {
+        "result": {"const": "ACCEPTED"}
+      }
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    }
+  }
+}

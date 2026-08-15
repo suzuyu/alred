@@ -1,6 +1,7 @@
 from datetime import datetime
 import json
 
+import pytest
 import yaml
 
 from alred.cli import (
@@ -314,7 +315,11 @@ def test_overlay_evaluate_resolves_operation_inputs_from_change_id(
     assert f"ChangeSet     : {change_set_path}" in output
 
 
-def test_overlay_evaluate_completes_apply_after_workflow(tmp_path):
+@pytest.mark.parametrize("common_result", ["PASS", "WARN"])
+def test_overlay_evaluate_completes_apply_after_workflow(
+    tmp_path,
+    common_result,
+):
     operations_root = tmp_path / "operations"
     workspace = create_operation_workspace(
         operations_root,
@@ -360,10 +365,10 @@ def test_overlay_evaluate_completes_apply_after_workflow(tmp_path):
                 "started_at": NOW.isoformat(),
                 "completed_at": NOW.isoformat(),
                 "profiles": ["nxos-overlay"],
-                "result": "PASS",
+                "result": common_result,
                 "counts": {
-                    "pass": 1,
-                    "warn": 0,
+                    "pass": int(common_result == "PASS"),
+                    "warn": int(common_result == "WARN"),
                     "fail": 0,
                     "unknown": 0,
                     "not_applicable": 0,
@@ -394,6 +399,101 @@ def test_overlay_evaluate_completes_apply_after_workflow(tmp_path):
     )
 
     assert exit_code == 0
+    assert load_operation_metadata(
+        workspace.operation_root
+    )["spec"]["workflow_state"] == "after_completed"
+
+
+def test_overlay_recheck_recovers_legacy_common_health_warn_gate(tmp_path):
+    operations_root = tmp_path / "operations"
+    workspace = create_operation_workspace(
+        operations_root,
+        change_id="CHG-1",
+        now=NOW,
+    )
+    with OperationLock(workspace, "state", now=NOW) as lock:
+        for state in (
+            "planned",
+            "before_running",
+            "before_completed",
+            "plan_ready",
+            "approved",
+            "apply_running",
+            "apply_completed",
+            "after_running",
+            "health_failed",
+            "rollback_required",
+        ):
+            transition_workflow(workspace, state, lock=lock, now=NOW)
+
+    before_path = workspace.operation_root / "health/before/snapshot.json"
+    after_path = workspace.operation_root / "health/after/snapshot.json"
+    change_set_path = workspace.operation_root / "inputs/change-set.yaml"
+    before_path.parent.mkdir(parents=True)
+    after_path.parent.mkdir(parents=True)
+    change_set_path.parent.mkdir(parents=True)
+    before = _snapshot("before", BEFORE_CONFIG)
+    after = _snapshot("after", AFTER_CONFIG)
+    change_set = _change_set()
+    before_path.write_text(json.dumps(before), encoding="utf-8")
+    after_path.write_text(json.dumps(after), encoding="utf-8")
+    change_set_path.write_text(
+        yaml.safe_dump(change_set, sort_keys=False),
+        encoding="utf-8",
+    )
+    original = evaluate_overlay_change(
+        before,
+        after,
+        change_set,
+        started_at=NOW,
+        completed_at=NOW,
+    )
+    original_path = workspace.operation_root / "overlay/health-result.json"
+    original_path.parent.mkdir(parents=True)
+    original_path.write_text(json.dumps(original), encoding="utf-8")
+    common_path = workspace.operation_root / "health/report/health-result.json"
+    common_path.parent.mkdir(parents=True)
+    common_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "change_id": "CHG-1",
+                "phase": "compare",
+                "started_at": NOW.isoformat(),
+                "completed_at": NOW.isoformat(),
+                "profiles": ["nxos-overlay"],
+                "result": "WARN",
+                "counts": {
+                    "pass": 0,
+                    "warn": 1,
+                    "fail": 0,
+                    "unknown": 0,
+                    "not_applicable": 0,
+                },
+                "checks": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    exit_code = cmd_overlay_check_evaluate(
+        build_parser().parse_args(
+            [
+                "overlay-check",
+                "evaluate",
+                "--change-id",
+                "CHG-1",
+                "--operations-root",
+                str(operations_root),
+                "--recheck",
+            ]
+        )
+    )
+
+    assert exit_code == 0
+    assert (
+        workspace.operation_root / "overlay/recheck/health-result.json"
+    ).is_file()
     assert load_operation_metadata(
         workspace.operation_root
     )["spec"]["workflow_state"] == "after_completed"

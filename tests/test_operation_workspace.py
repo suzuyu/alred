@@ -13,15 +13,20 @@ from alred.operation import (
     OperationInterruptGuard,
     OperationLockedError,
     OperationPathError,
+    OperationArchivedError,
     OperationStateError,
     assess_operation_lock,
     atomic_write_bytes,
+    archive_operation_workspace,
     create_operation_workspace,
     generate_attempt_id,
     generate_change_id,
     load_active_change,
     load_operation_execution,
     load_operation_metadata,
+    load_operation_location,
+    load_archived_operation_documents,
+    publish_latest_operation_link,
     open_operation_workspace,
     preflight_operation_workspace,
     read_operation_lock,
@@ -114,8 +119,18 @@ def test_create_workspace_is_secure_valid_and_not_overwritten(tmp_path):
     assert metadata["metadata"]["change_id_source"] == "specified"
     assert metadata["metadata"]["timezone"] == "Asia/Tokyo"
     assert metadata["metadata"]["utc_offset"] == "+09:00"
+    assert metadata["spec"]["purpose"] == "change"
     assert metadata["spec"]["lifecycle"] == "created"
     assert execution["transitions"][0]["to"] == "created"
+    assert workspace.operation_root == (
+        tmp_path
+        / "operations/live/2026/08/01/CHG-2026-00123"
+    )
+    location = load_operation_location(
+        tmp_path / "operations", "CHG-2026-00123"
+    )
+    assert location["spec"]["state"] == "live"
+    assert location["spec"]["layout"] == "dated-v1"
 
     with pytest.raises(OperationPathError, match="already exists"):
         create_operation_workspace(
@@ -143,6 +158,121 @@ def test_generated_workspace_retries_directory_collision(tmp_path):
 
     assert first.change_id.endswith("a1b2c3")
     assert second.change_id.endswith("d4e5f6")
+
+
+def test_terminal_operation_archive_is_verified_and_readable(tmp_path):
+    operations_root = tmp_path / "operations"
+    workspace = create_operation_workspace(
+        operations_root,
+        change_id="CHG-ARCHIVE-1",
+        now=JST_NOW,
+    )
+    with OperationLock(workspace, "test", now=JST_NOW) as lock:
+        transition_operation(workspace, "running", lock=lock, now=JST_NOW)
+        transition_operation(workspace, "completed", lock=lock, now=JST_NOW)
+    latest = publish_latest_operation_link(workspace)
+    assert latest.resolve() == workspace.operation_root.resolve()
+
+    preview = archive_operation_workspace(
+        operations_root,
+        workspace.change_id,
+        older_than_days=14,
+        now=datetime.fromisoformat("2026-08-16T10:02:03+09:00"),
+        dry_run=True,
+    )
+    assert preview["status"] == "eligible"
+    assert workspace.operation_root.is_dir()
+
+    result = archive_operation_workspace(
+        operations_root,
+        workspace.change_id,
+        older_than_days=14,
+        now=datetime.fromisoformat("2026-08-16T10:02:03+09:00"),
+    )
+
+    assert result["status"] == "archived"
+    assert result["archive"].is_file()
+    assert result["checksum"].is_file()
+    assert not workspace.operation_root.exists()
+    assert not latest.exists()
+    assert not latest.is_symlink()
+    location = load_operation_location(operations_root, workspace.change_id)
+    assert location["spec"]["state"] == "archived"
+    metadata, execution, manifest = load_archived_operation_documents(
+        operations_root, workspace.change_id
+    )
+    assert metadata["spec"]["lifecycle"] == "completed"
+    assert execution["lifecycle"] == "completed"
+    assert manifest["metadata"]["change_id"] == workspace.change_id
+    assert ".operation.lock" not in {
+        item["path"] for item in manifest["spec"]["files"]
+    }
+    with pytest.raises(OperationArchivedError):
+        open_operation_workspace(operations_root, workspace.change_id)
+
+
+def test_operation_archive_rejects_nonterminal_and_too_recent(tmp_path):
+    operations_root = tmp_path / "operations"
+    workspace = create_operation_workspace(
+        operations_root,
+        change_id="CHG-ARCHIVE-2",
+        now=JST_NOW,
+    )
+    with pytest.raises(OperationStateError, match="not archivable"):
+        archive_operation_workspace(
+            operations_root,
+            workspace.change_id,
+            older_than_days=0,
+            now=JST_NOW,
+        )
+    with OperationLock(workspace, "test", now=JST_NOW) as lock:
+        transition_operation(workspace, "running", lock=lock, now=JST_NOW)
+        transition_operation(workspace, "completed", lock=lock, now=JST_NOW)
+    with pytest.raises(OperationStateError, match="newer than"):
+        archive_operation_workspace(
+            operations_root,
+            workspace.change_id,
+            older_than_days=14,
+            now=datetime.fromisoformat("2026-08-02T10:02:03+09:00"),
+        )
+
+
+def test_operation_archive_publish_failure_keeps_live_workspace_retryable(
+    tmp_path, monkeypatch
+):
+    operations_root = tmp_path / "operations"
+    workspace = create_operation_workspace(
+        operations_root,
+        change_id="CHG-ARCHIVE-RETRY",
+        now=JST_NOW,
+    )
+    with OperationLock(workspace, "test", now=JST_NOW) as lock:
+        transition_operation(workspace, "running", lock=lock, now=JST_NOW)
+        transition_operation(workspace, "completed", lock=lock, now=JST_NOW)
+
+    def fail_publish(*_args, **_kwargs):
+        raise OSError("simulated index publish failure")
+
+    monkeypatch.setattr(
+        "alred.operation._write_operation_location",
+        fail_publish,
+    )
+    with pytest.raises(OSError, match="simulated index publish failure"):
+        archive_operation_workspace(
+            operations_root,
+            workspace.change_id,
+            older_than_days=0,
+            now=JST_NOW,
+        )
+
+    archive_path = (
+        operations_root
+        / "archive/2026/08/01/CHG-ARCHIVE-RETRY.tar.gz"
+    )
+    assert workspace.operation_root.is_dir()
+    assert not workspace.lock_path.exists()
+    assert not archive_path.exists()
+    assert not archive_path.with_suffix(".gz.sha256").exists()
 
 
 def test_atomic_write_rejects_path_escape_and_symlink(tmp_path):

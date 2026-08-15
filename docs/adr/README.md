@@ -28,6 +28,19 @@ Accepted ADRの内容を変更する場合は本文を上書きせず、新し�
 | [ADR-0006](./0006-external-hierarchical-device-groups.md) | device groupを外部化し階層参照を許可する | Accepted |
 | [ADR-0007](./0007-limit-device-validation-to-nexus-9000v.md) | 動作検証をNexus 9000vに限定しhardwareは文書確認とする | Accepted |
 | [ADR-0008](./0008-use-canonical-multi-role-resolution.md) | canonical な複数 role 解決を利用機能間で共有する | Accepted |
+| [ADR-0009](./0009-share-canonical-link-evidence.md) | LLDP／descriptionのCanonical Link EvidenceをHealth、Topology、Digital Twinで共有する | Accepted |
+| [ADR-0010](./0010-use-portable-evidence-package-boundary.md) | 商用環境と隔離lab／AIの境界に検証可能なEvidence Packageを使用する | Accepted |
+| [ADR-0011](./0011-allow-explicit-verbatim-config.md) | 保護環境向けpackageで明示承認された原文config収録を許可する | Accepted |
+| [ADR-0012](./0012-transform-evidence-config-in-isolated-lab.md) | Evidence configのlab-local変換をContainerlab workflowが所有する | Superseded in part by ADR-0013 |
+| [ADR-0013](./0013-use-package-config-content-for-lab-transform.md) | Containerlab変換元をPackage Manifestの`config_content`で固定する | Accepted |
+| [ADR-0014](./0014-verify-links-after-evidence-import.md) | Evidence import後にlinkを再生成検証してからContainerlabへ渡す | Accepted |
+| [ADR-0015](./0015-import-external-running-config-once.md) | 外部show runを共通Manifestへ一度importしてTopologyとContainerlabで共有する | Accepted |
+| [ADR-0016](./0016-separate-terraform-inventory-generation-from-topology.md) | Terraform inventory生成をTopology renderingから分離する | Accepted |
+| [ADR-0017](./0017-push-nxos-config-after-containerlab-boot.md) | NX-OS 9000v は Containerlab 起動後に config を投入する | Accepted |
+| [ADR-0018](./0018-enable-strict-direct-config-errors-by-default.md) | Direct Config Push の CLI error 検出を default で有効にする | Accepted |
+| [ADR-0019](./0019-auto-select-latest-evidence-source.md) | Evidence Package の最新成功 before source を自動選択する | Accepted |
+| [ADR-0020](./0020-separate-underlay-and-evpn-diagrams.md) | Underlay routing と EVPN control-plane diagram を分離する | Accepted |
+| [ADR-0021](./0021-model-overlay-services-and-route-leaks-separately.md) | Overlay Service と VRF 間 route leak を独立 model で表す | Accepted |
 
 ## 追加基準
 

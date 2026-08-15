@@ -1,0 +1,280 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://alred.local/schemas/v1/lab-transform-parameters.schema.json",
+  "title": "LabTransformParameters",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["api_version", "kind", "metadata", "spec"],
+  "properties": {
+    "api_version": {"const": "alred/v1"},
+    "kind": {"const": "LabTransformParameters"},
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1}
+      }
+    },
+    "spec": {"$ref": "#/$defs/spec"}
+  },
+  "$defs": {
+    "action": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["action"],
+      "properties": {
+        "action": {"enum": ["remove", "replace", "preserve", "inject"]}
+      }
+    },
+    "authentication": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["password_ref"],
+      "properties": {
+        "password_ref": {"type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"}
+      }
+    },
+    "lab_user": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["username", "privilege", "authentication"],
+      "properties": {
+        "username": {"type": "string", "pattern": "^[A-Za-z0-9_.-]+$"},
+        "privilege": {"enum": ["admin", "read-only"]},
+        "primary": {"type": "boolean", "default": false},
+        "authentication": {"$ref": "#/$defs/authentication"}
+      }
+    },
+    "ntp_server": {
+      "oneOf": [
+        {"type": "string", "minLength": 1},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["address"],
+          "properties": {
+            "source_address": {"type": "string", "minLength": 1},
+            "address": {"type": "string", "minLength": 1},
+            "inherit_options": {"type": "boolean", "default": true},
+            "prefer": {"type": "boolean"},
+            "use_vrf": {"type": "string", "minLength": 1},
+            "minpoll": {"type": "integer", "minimum": 0},
+            "maxpoll": {"type": "integer", "minimum": 0}
+          }
+        }
+      ]
+    },
+    "ntp": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["action"],
+      "properties": {
+        "action": {"enum": ["remove", "replace", "preserve", "inject"]},
+        "servers": {"type": "array", "items": {"$ref": "#/$defs/ntp_server"}}
+      }
+    },
+    "endpoint": {
+      "oneOf": [
+        {"type": "string", "minLength": 1},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["address"],
+          "properties": {
+            "address": {"type": "string", "minLength": 1},
+            "use_vrf": {"type": "string", "minLength": 1}
+          }
+        }
+      ]
+    },
+    "logging": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["action"],
+      "properties": {
+        "action": {"enum": ["remove", "replace", "preserve"]},
+        "servers": {
+          "type": "array",
+          "items": {
+            "oneOf": [
+              {"type": "string", "minLength": 1},
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["address"],
+                "properties": {
+                  "address": {"type": "string", "minLength": 1},
+                  "severity": {"oneOf": [{"type": "integer", "minimum": 0, "maximum": 7}, {"type": "string", "minLength": 1}]},
+                  "use_vrf": {"type": "string", "minLength": 1},
+                  "port": {"type": "integer", "minimum": 1, "maximum": 65535}
+                }
+              }
+            ]
+          }
+        },
+        "source_interface": {"type": "string", "minLength": 1}
+      }
+    },
+    "dns": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["action"],
+      "properties": {
+        "action": {"enum": ["remove", "replace", "preserve"]},
+        "name_servers": {"type": "array", "items": {"$ref": "#/$defs/endpoint"}},
+        "domain_name": {"type": "string", "minLength": 1},
+        "lookup_vrf": {"type": "string", "minLength": 1},
+        "source_interface": {"type": "string", "minLength": 1}
+      }
+    },
+    "aaa_server": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["protocol", "address", "credential_ref"],
+      "properties": {
+        "protocol": {"enum": ["tacacs", "radius"]},
+        "name": {"type": "string", "minLength": 1},
+        "address": {"type": "string", "minLength": 1},
+        "credential_ref": {"type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"}
+      }
+    },
+    "aaa": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["action"],
+      "properties": {
+        "action": {"enum": ["remove", "replace", "preserve"]},
+        "servers": {"type": "array", "items": {"$ref": "#/$defs/aaa_server"}},
+        "tacacs_group": {"type": "string", "minLength": 1},
+        "radius_group": {"type": "string", "minLength": 1},
+        "configure_default_login": {"type": "boolean", "default": true}
+      }
+    },
+    "snmp": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["action"],
+      "properties": {
+        "action": {"enum": ["remove", "replace", "preserve"]},
+        "communities": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["credential_ref"],
+            "properties": {
+              "credential_ref": {"type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"},
+              "group": {"type": "string", "minLength": 1}
+            }
+          }
+        },
+        "trap_hosts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["address", "community_ref"],
+            "properties": {
+              "address": {"type": "string", "minLength": 1},
+              "community_ref": {"type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"},
+              "version": {"enum": ["1", "2c"]},
+              "use_vrf": {"type": "string", "minLength": 1}
+            }
+          }
+        },
+        "source_interface": {"type": "string", "minLength": 1}
+      }
+    },
+    "management_access_class": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["action"],
+      "properties": {
+        "action": {"enum": ["remove", "replace", "preserve"]},
+        "name": {"type": "string", "minLength": 1},
+        "rules": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["action", "source"],
+            "properties": {
+              "sequence": {"type": "integer", "minimum": 1},
+              "action": {"enum": ["permit", "deny"]},
+              "source": {"type": "string", "minLength": 1}
+            }
+          }
+        }
+      }
+    },
+    "bootstrap_user": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["action"],
+      "properties": {
+        "action": {"enum": ["preserve", "replace-credential", "remove-after-primary-ready"]},
+        "authentication": {"$ref": "#/$defs/authentication"}
+      }
+    },
+    "spec": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "management": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "ipv4_subnet": {"type": "string", "minLength": 1},
+            "gateway": {"type": "string", "minLength": 1}
+          }
+        },
+        "node_map_ref": {"type": "string", "minLength": 1},
+        "services": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "ntp": {"$ref": "#/$defs/ntp"},
+            "logging": {"$ref": "#/$defs/logging"},
+            "dns": {"$ref": "#/$defs/dns"},
+            "aaa": {"$ref": "#/$defs/aaa"},
+            "snmp": {"$ref": "#/$defs/snmp"}
+          }
+        },
+        "access_control": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "management_access_class": {"$ref": "#/$defs/management_access_class"}
+          }
+        },
+        "credentials": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "certificates": {"$ref": "#/$defs/action"},
+            "private_keys": {"$ref": "#/$defs/action"}
+          }
+        },
+        "source_local_users": {"$ref": "#/$defs/action"},
+        "lab_users": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "users": {"type": "array", "items": {"$ref": "#/$defs/lab_user"}}
+          }
+        },
+        "bootstrap_user": {"$ref": "#/$defs/bootstrap_user"},
+        "vpc_keepalive": {"$ref": "#/$defs/action"},
+        "platform_overrides": {
+          "type": "object",
+          "additionalProperties": {"type": "object"}
+        },
+        "device_overrides": {
+          "type": "object",
+          "additionalProperties": {"type": "object"}
+        }
+      }
+    }
+  }
+}

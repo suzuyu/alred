@@ -1,10 +1,10 @@
 # VNI Mapping
 
-- Change ID: HC-20260802T140000-p1234-a1b2c3
+- Change ID: CHG-2026-00123
 - Phase: after
-- Generated at: 2026-08-02T14:15:31+09:00
-- L2VNIs: 2
-- L3VNIs: 2
+- Generated at: 2026-08-16T10:15:00+09:00
+- L2VNIs: 6
+- L3VNIs: 3
 - Conflicts: 0
 - Unknowns: 0
 
@@ -12,12 +12,17 @@
 
 | L3VNI | VRF | Devices | NVE states | Status |
 |---:|---|---|---|---|
-| 50001 | TENANT-A | leaf01, leaf02 | leaf01=Up, leaf02=Up | CONSISTENT |
-| 50002 | TENANT-B | leaf01, leaf02 | leaf01=Up, leaf02=Up | CONSISTENT |
+| 9001 | controller-vpc1 | adc-lfsw0101, adc-lfsw0102, adc-lfsw0103, adc-lfsw0104 | adc-lfsw0101=Up, adc-lfsw0102=Up, adc-lfsw0103=Up, adc-lfsw0104=Up | CONSISTENT |
+| 19001 | tenant1-vpc1 | adc-lfsw0101, adc-lfsw0102, adc-lfsw0103, adc-lfsw0104 | adc-lfsw0101=Up, adc-lfsw0102=Up, adc-lfsw0103=Up, adc-lfsw0104=Up | CONSISTENT |
+| 29001 | tenant2-vpc1 | adc-lfsw0101, adc-lfsw0102, adc-lfsw0103, adc-lfsw0104 | adc-lfsw0101=Up, adc-lfsw0102=Up, adc-lfsw0103=Up, adc-lfsw0104=Up | CONSISTENT |
 
 ## L2VNI
 
-| L2VNI | VRF | VLAN name | Devices / VLANs | Gateway IPv4 | Gateway IPv6 | NVE states | Status |
-|---:|---|---|---|---|---|---|---|
-| 10010 | TENANT-A | TENANT-A-WEB | leaf01=10, leaf02=110 | ["192.0.2.1/24"] | ["2001:db8:10::1/64"] | leaf01=Up, leaf02=Up | DEVICE_VARIANT |
-| 10020 | TENANT-B | TENANT-B-APP | leaf01=20, leaf02=120 | ["198.51.100.1/24"] | [] | leaf01=Up, leaf02=Up | DEVICE_VARIANT |
+| L2VNI | VRF | VLAN name | Devices / VLANs | Gateway IPv4 | Gateway IPv6 | IPv6 link-local | NVE states | Status |
+|---:|---|---|---|---|---|---|---|---|
+| 100 | controller-vpc1 | controller-vpc1-seg1 | adc-lfsw0101=2001, adc-lfsw0102=2001, adc-lfsw0103=2001, adc-lfsw0104=2001 | ["100.64.0.254/24"] | ["fd12:0:0:1::1/64"] | fe80::1 | adc-lfsw0101=Up, adc-lfsw0102=Up, adc-lfsw0103=Up, adc-lfsw0104=Up | CONSISTENT |
+| 10100 | tenant1-vpc1 | tenant1-vpc1-server-seg1 | adc-lfsw0101=100, adc-lfsw0102=100, adc-lfsw0103=10, adc-lfsw0104=10 | ["172.16.0.254/24"] | ["fd21:0:0:1::1/64"] | fe80::1 | adc-lfsw0101=Up, adc-lfsw0102=Up, adc-lfsw0103=Up, adc-lfsw0104=Up | DEVICE_VARIANT |
+| 10101 | tenant1-vpc1 | tenant1-vpc1-server-seg2 | adc-lfsw0103=11, adc-lfsw0104=11 | ["172.16.1.254/24"] | ["fd21:0:0:2::1/64"] | fe80::1 | adc-lfsw0103=Up, adc-lfsw0104=Up | CONSISTENT |
+| 10103 | tenant1-vpc1 | tenant1-vpc1-k01-cluster-seg1 | adc-lfsw0101=103, adc-lfsw0102=103, adc-lfsw0103=13, adc-lfsw0104=13 | ["172.16.3.1/24"] | ["fd21:0:0:3::1/64"] | fe80::1 | adc-lfsw0101=Up, adc-lfsw0102=Up, adc-lfsw0103=Up, adc-lfsw0104=Up | DEVICE_VARIANT |
+| 10104 | tenant1-vpc1 | tenant1-vpc1-k02-cluster-seg1 | adc-lfsw0101=104, adc-lfsw0102=104, adc-lfsw0103=14, adc-lfsw0104=14 | ["172.16.4.1/24"] | ["fd21:0:0:4::1/64"] | adc-lfsw0101=fe80::1, adc-lfsw0102=fe80::1, adc-lfsw0103=fe80::1, adc-lfsw0104=auto | adc-lfsw0101=Up, adc-lfsw0102=Up, adc-lfsw0103=Up, adc-lfsw0104=Up | DEVICE_VARIANT |
+| 20200 | tenant2-vpc1 | tenant2-vpc1-server-seg1 | adc-lfsw0101=200, adc-lfsw0102=200, adc-lfsw0103=20, adc-lfsw0104=20 | ["172.17.0.254/24"] | ["fd22:0:0:1::1/64"] | fe80::1 | adc-lfsw0101=Up, adc-lfsw0102=Up, adc-lfsw0103=Up, adc-lfsw0104=Up | DEVICE_VARIANT |

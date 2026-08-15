@@ -50,13 +50,33 @@ Hosts     : 2
 Warnings  : 0
 Result    : PASS
 Checks    : PASS=20 WARN=0 FAIL=0 UNKNOWN=0 N/A=2
-Attempt   : operations/HC-20260802T091500-p1234-a1b2c3/health/before/attempts/before-20260802T091500-p0900-a1b2c3
-Manifest  : operations/HC-20260802T091500-p1234-a1b2c3/health/before/collection-manifest.yaml
-Snapshot  : operations/HC-20260802T091500-p1234-a1b2c3/health/before/snapshot.json
-Checklist : operations/HC-20260802T091500-p1234-a1b2c3/health/before/checklist.md
+Attempt   : operations/live/2026/08/02/HC-20260802T091500-p1234-a1b2c3/health/before/attempts/before-20260802T091500-p0900-a1b2c3
+Manifest  : operations/live/2026/08/02/HC-20260802T091500-p1234-a1b2c3/health/before/collection-manifest.yaml
+Snapshot  : operations/live/2026/08/02/HC-20260802T091500-p1234-a1b2c3/health/before/snapshot.json
+Checklist : operations/live/2026/08/02/HC-20260802T091500-p1234-a1b2c3/health/before/checklist.md
 ```
 
 `Input: alred-collect`は、既存collect runnerで機器へ接続して収集したことを示します。
+
+### 2.1.1 変更作業を伴わないinspection
+
+正常性確認、Topology生成、Digital Twin作成のために収集する場合は`--purpose inspection`を指定します。
+
+```bash
+alred health-check before \
+  --purpose inspection \
+  --collect \
+  --hosts ./hosts.lab.yaml \
+  --profile network-baseline-nxos \
+  --mappings ./mappings.yaml \
+  --description-rules ./description_rules.yaml \
+  --ask-pass
+```
+
+収集内容は通常のbeforeと同じで、running config、LLDP、baseline show outputを同じattemptへ保存します。
+inspectionはactive changeへ登録せず、変更継続用Operation Gateを要求しません。異常を修正してafterを取得する場合は、
+自動選択に頼らず表示されたchange IDを`--change-id`へ指定します。mappingsとdescription rulesはbeforeでpathとhashを
+固定し、afterで継承します。
 
 ### 2.2 alredで取得済みのrawログ
 
@@ -80,10 +100,10 @@ Hosts     : 2
 Warnings  : 1
 Result    : UNKNOWN
 Checks    : PASS=17 WARN=0 FAIL=0 UNKNOWN=1 N/A=4
-Attempt   : operations/HC-20260802T100000-p1234-b2c3d4/health/before/attempts/before-20260802T100000-p0900-b2c3d4
-Manifest  : operations/HC-20260802T100000-p1234-b2c3d4/health/before/collection-manifest.yaml
-Snapshot  : operations/HC-20260802T100000-p1234-b2c3d4/health/before/snapshot.json
-Checklist : operations/HC-20260802T100000-p1234-b2c3d4/health/before/checklist.md
+Attempt   : operations/live/2026/08/02/HC-20260802T100000-p1234-b2c3d4/health/before/attempts/before-20260802T100000-p0900-b2c3d4
+Manifest  : operations/live/2026/08/02/HC-20260802T100000-p1234-b2c3d4/health/before/collection-manifest.yaml
+Snapshot  : operations/live/2026/08/02/HC-20260802T100000-p1234-b2c3d4/health/before/snapshot.json
+Checklist : operations/live/2026/08/02/HC-20260802T100000-p1234-b2c3d4/health/before/checklist.md
 ```
 
 この例では機器アクセスは発生していません。`UNKNOWN`の場合は、Manifestで不足コマンド、
@@ -113,10 +133,10 @@ Hosts     : 2
 Warnings  : 2
 Result    : WARN
 Checks    : PASS=18 WARN=1 FAIL=0 UNKNOWN=0 N/A=3
-Attempt   : operations/HC-20260802T103000-p1234-c3d4e5/health/before/attempts/before-20260802T103000-p0900-c3d4e5
-Manifest  : operations/HC-20260802T103000-p1234-c3d4e5/health/before/collection-manifest.yaml
-Snapshot  : operations/HC-20260802T103000-p1234-c3d4e5/health/before/snapshot.json
-Checklist : operations/HC-20260802T103000-p1234-c3d4e5/health/before/checklist.md
+Attempt   : operations/live/2026/08/02/HC-20260802T103000-p1234-c3d4e5/health/before/attempts/before-20260802T103000-p0900-c3d4e5
+Manifest  : operations/live/2026/08/02/HC-20260802T103000-p1234-c3d4e5/health/before/collection-manifest.yaml
+Snapshot  : operations/live/2026/08/02/HC-20260802T103000-p1234-c3d4e5/health/before/snapshot.json
+Checklist : operations/live/2026/08/02/HC-20260802T103000-p1234-c3d4e5/health/before/checklist.md
 ```
 
 `Warnings`はimport時の曖昧区間や重複候補の件数です。判定の`WARN`とは別にManifestの
@@ -261,15 +281,15 @@ Hosts     : 2
 Warnings  : 0
 Result    : PASS
 Checks    : PASS=20 WARN=0 FAIL=0 UNKNOWN=0 N/A=2
-Manifest  : operations/HC-20260802T091500-p1234-a1b2c3/health/after/collection-manifest.yaml
-Snapshot  : operations/HC-20260802T091500-p1234-a1b2c3/health/after/snapshot.json
-Checklist : operations/HC-20260802T091500-p1234-a1b2c3/health/after/checklist.md
+Manifest  : operations/live/2026/08/02/HC-20260802T091500-p1234-a1b2c3/health/after/collection-manifest.yaml
+Snapshot  : operations/live/2026/08/02/HC-20260802T091500-p1234-a1b2c3/health/after/snapshot.json
+Checklist : operations/live/2026/08/02/HC-20260802T091500-p1234-a1b2c3/health/after/checklist.md
 ```
 
 before / after比較が完了すると、次の成果物も生成されます。
 
 ```text
-operations/HC-20260802T091500-p1234-a1b2c3/health/report/
+operations/live/2026/08/02/HC-20260802T091500-p1234-a1b2c3/health/report/
 ├── health-result.json
 └── summary.md
 ```
@@ -307,9 +327,9 @@ Hosts     : 2
 Warnings  : 0
 Result    : PASS
 Checks    : PASS=20 WARN=0 FAIL=0 UNKNOWN=0 N/A=2
-Manifest  : operations/HC-20260802T091500-p1234-a1b2c3/health/rollback/collection-manifest.yaml
-Snapshot  : operations/HC-20260802T091500-p1234-a1b2c3/health/rollback/snapshot.json
-Checklist : operations/HC-20260802T091500-p1234-a1b2c3/health/rollback/checklist.md
+Manifest  : operations/live/2026/08/02/HC-20260802T091500-p1234-a1b2c3/health/rollback/collection-manifest.yaml
+Snapshot  : operations/live/2026/08/02/HC-20260802T091500-p1234-a1b2c3/health/rollback/snapshot.json
+Checklist : operations/live/2026/08/02/HC-20260802T091500-p1234-a1b2c3/health/rollback/checklist.md
 ```
 
 比較結果は`health/rollback-report/`へ保存され、既存のafter成果物を上書きしません。
@@ -330,7 +350,7 @@ neighborやrouteの異常が解消したことを確認します。
 
 ```bash
 alred health-check snapshot \
-  --input operations/HC-20260802T091500-p1234-a1b2c3/health/before/raw \
+  --input operations/live/2026/08/02/HC-20260802T091500-p1234-a1b2c3/health/before/raw \
   --input-format alred-collect \
   --phase before \
   --change-id HC-20260802T091500-p1234-a1b2c3 \
@@ -340,7 +360,7 @@ alred health-check snapshot \
 出力先:
 
 ```text
-operations/HC-20260802T091500-p1234-a1b2c3/health/before-recheck/
+operations/live/2026/08/02/HC-20260802T091500-p1234-a1b2c3/health/before-recheck/
 ```
 recheckの端末出力例:
 
@@ -353,9 +373,9 @@ Hosts     : 2
 Warnings  : 0
 Result    : PASS
 Checks    : PASS=20 WARN=0 FAIL=0 UNKNOWN=0 N/A=2
-Manifest  : operations/HC-20260802T091500-p1234-a1b2c3/health/before-recheck/collection-manifest.yaml
-Snapshot  : operations/HC-20260802T091500-p1234-a1b2c3/health/before-recheck/snapshot.json
-Checklist : operations/HC-20260802T091500-p1234-a1b2c3/health/before-recheck/checklist.md
+Manifest  : operations/live/2026/08/02/HC-20260802T091500-p1234-a1b2c3/health/before-recheck/collection-manifest.yaml
+Snapshot  : operations/live/2026/08/02/HC-20260802T091500-p1234-a1b2c3/health/before-recheck/snapshot.json
+Checklist : operations/live/2026/08/02/HC-20260802T091500-p1234-a1b2c3/health/before-recheck/checklist.md
 ```
 
 recheckは元のbeforeを置換しません。元成果物とparser version、判定差分を比較できます。
@@ -363,7 +383,7 @@ recheckは元のbeforeを置換しません。元成果物とparser version、�
 ## 8. operationの主な成果物
 
 ```text
-operations/<change-id>/
+operations/live/YYYY/MM/DD/<change-id>/
 ├── metadata.yaml
 ├── execution.json
 └── health/
@@ -390,3 +410,52 @@ operations/<change-id>/
 ```
 
 各成果物の読み方は[Output Guide](./04_OUTPUT_GUIDE.md)を参照してください。
+
+## 9. 完了した operation の手動 archive
+
+新規 operation は作成日単位の
+`operations/live/YYYY/MM/DD/<change-id>/`へ保存されます。通常の `health-check`、
+`overlay-change`、`operation status`などは Operation ID から path を解決するため、日付を
+option へ指定する必要はありません。既存の`operations/<change-id>/`も互換 layout として利用できます。
+
+14 日以上経過した完了済み operation の候補だけを確認します。
+
+```bash
+uv run python alred.py operation archive --dry-run
+```
+
+確認後に archive します。自動 archive は実行されません。
+
+```bash
+uv run python alred.py operation archive
+```
+
+1 件だけを対象にする場合や日数を変更する場合は次のように実行します。
+
+```bash
+uv run python alred.py operation archive \
+  --change-id CHG-2026-00123 \
+  --older-than-days 30
+```
+
+`cron`から実行する場合も専用の自動処理ではなく、この CLI を起動します。最初は
+`--dry-run`の結果を log へ保存して対象を確認し、その後に実行 command を登録してください。
+
+```cron
+20 3 * * * cd /opt/alred && uv run python alred.py operation archive >> logs/operation-archive.log 2>&1
+```
+
+archive 対象は`completed`、`completed_with_warnings`、`cancelled`かつ lock がない operation
+だけです。`failed`、`state_unknown`、進行中の operation は保存容量だけを理由に archive しません。
+出力は`operations/archive/YYYY/MM/DD/<change-id>.tar.gz`と checksum file です。
+
+archive 後も次は展開せずに利用できます。
+
+```bash
+uv run python alred.py operation status --change-id CHG-2026-00123
+uv run python alred.py operation inspect --change-id CHG-2026-00123
+```
+
+一方、archive 済み operation に対する phase 追加、apply、rollback、Support Bundle／Evidence Package 作成、
+reference state 利用は暗黙に展開せず`OPERATION_ARCHIVED`で停止します。現時点では restore CLI を
+提供していないため、後からこれらを利用する可能性がある operation は archive しないでください。

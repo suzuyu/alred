@@ -151,6 +151,7 @@ exclude-logging-string.txt
 logging-error-string.txt
 logging-excludes.yaml
 /desired-changes.yaml
+*memo*
 
 # codex
 .codex
@@ -168,3 +169,10 @@ sites.yaml
 
 # support bundle output
 /support-bundles/
+
+# dev evidence-packages
+/evidence-packages/
+/imported-evidence/
+
+# dev change test
+/changes/

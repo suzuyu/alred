@@ -69,17 +69,21 @@ def grouped_role_sort_key(
     roles: Dict[str, Any],
     detect_node_role_func: Callable[[str, Dict[str, Any]], str],
     get_role_priority_func: Callable[[str, Dict[str, Any]], int],
-) -> tuple[int, str]:
+) -> tuple[int, int, str]:
     """
     Return sort key for a displayed role group.
     """
     if role in roles:
-        return (get_role_priority_func(role, roles), role)
+        return (
+            get_role_priority_func(role, roles),
+            int(roles[role].get("layout_order", 99)),
+            role,
+        )
     priorities = [
         resolve_node_role_priority(node, role, roles, detect_node_role_func, get_role_priority_func)
         for node in nodes
     ]
-    return (min(priorities, default=99), role)
+    return (min(priorities, default=99), 99, role)
 
 
 def render_clab_lines(
@@ -245,7 +249,11 @@ def build_mermaid_link_line(
     right_id = mermaid_safe_node_id(right_node)
 
     if candidate:
-        label = f"{left_if} ? {right_if}<br/>{evidence}" if evidence else f"{left_if} ? {right_if}"
+        label = label_override or (
+            f"{left_if} ? {right_if}<br/>{evidence}"
+            if evidence
+            else f"{left_if} ? {right_if}"
+        )
         return f'  {left_id} -.->|"{label}"| {right_id}'
 
     label = label_override or f"{left_if} ↔ {right_if}"
@@ -297,7 +305,6 @@ def render_mermaid_graph_lines(
         extra_node_names: Optional standalone nodes to include.
         node_role_map: Optional node -> role/group override map.
         node_site_map: Optional node -> site/domain override map.
-
     Returns:
         Mermaid graph lines without markdown fences.
     """
@@ -439,6 +446,10 @@ def render_mermaid_graph_lines(
             left_node, left_if = ep1.split(":", 1)
             right_node, right_if = ep2.split(":", 1)
             evidence = link.get("evidence", "")
+            link_key = f"{left_node}|{left_if}|{right_node}|{right_if}"
+            label_override = str(link.get("label", "")) or (
+                link_label_map or {}
+            ).get(link_key, "")
             lines.append(
                 build_mermaid_link_line(
                     left_node,
@@ -447,6 +458,7 @@ def render_mermaid_graph_lines(
                     right_if,
                     candidate=True,
                     evidence=evidence,
+                    label_override=label_override,
                 )
             )
 
@@ -624,8 +636,10 @@ def render_graphviz_dot_lines(
         ),
     )
 
+    all_links = list(rendered_links) + list(candidate_links or [])
+    directed_graph = any(bool(link.get("directed")) for link in all_links)
     lines: List[str] = []
-    lines.append("graph topology {")
+    lines.append("digraph topology {" if directed_graph else "graph topology {")
     lines.append(f'  label="{graphviz_escape(title)}";')
     lines.append('  labelloc="t";')
     lines.append('  rankdir="%s";' % rankdir)
@@ -731,7 +745,12 @@ def render_graphviz_dot_lines(
 
         link_key = f"{left_node}|{left_if}|{right_node}|{right_if}"
         label = (link_label_map or {}).get(link_key, "") or f"{left_if} ↔ {right_if}"
-        lines.append(f'  {left_id} -- {right_id} [label="{graphviz_escape(label)}"];')
+        operator = "->" if directed_graph else "--"
+        direction_attr = "" if link.get("directed") else ", dir=none" if directed_graph else ""
+        lines.append(
+            f'  {left_id} {operator} {right_id} '
+            f'[label="{graphviz_escape(label)}"{direction_attr}];'
+        )
 
     if candidate_links:
         lines.append("")
@@ -741,13 +760,19 @@ def render_graphviz_dot_lines(
             left_node, left_if = ep1.split(":", 1)
             right_node, right_if = ep2.split(":", 1)
             evidence = str(link.get("evidence", "")).strip()
-            label = f"{left_if} ? {right_if}"
+            link_key = f"{left_node}|{left_if}|{right_node}|{right_if}"
+            label = str(link.get("label", "")) or (
+                link_label_map or {}
+            ).get(link_key, "") or f"{left_if} ? {right_if}"
             if evidence:
                 label = f"{label}\n{evidence}"
             left_id = mermaid_safe_node_id(left_node)
             right_id = mermaid_safe_node_id(right_node)
+            operator = "->" if directed_graph else "--"
+            direction_attr = "" if link.get("directed") else ", dir=none" if directed_graph else ""
             lines.append(
-                f'  {left_id} -- {right_id} [label="{graphviz_escape(label)}", style=dashed, color=gray50];'
+                f'  {left_id} {operator} {right_id} '
+                f'[label="{graphviz_escape(label)}", style=dashed, color=gray50{direction_attr}];'
             )
 
     lines.append("}")
@@ -774,8 +799,10 @@ def render_drawio_xml_lines(
     node_interface_label_map: Optional[Dict[str, str]] = None,
     node_role_map: Optional[Dict[str, str]] = None,
     node_site_map: Optional[Dict[str, str]] = None,
+    node_layout_rank_map: Optional[Dict[str, int]] = None,
     sites: Optional[Dict[str, Any]] = None,
     group_by_site: bool = False,
+    align_role_nodes_with_direction: bool = False,
 ) -> List[str]:
     """
     Render draw.io XML lines.
@@ -800,8 +827,11 @@ def render_drawio_xml_lines(
         node_interface_label_map: Optional "node|interface" -> displayed NIC label map.
         node_role_map: Optional node -> role/group override map.
         node_site_map: Optional node -> site/domain override map.
+        node_layout_rank_map: Optional node -> layout rank override map.
         sites: Optional site rules.
         group_by_site: Whether to use site containers.
+        align_role_nodes_with_direction: Whether nodes within one role follow
+            the page direction instead of the normal cross-axis role layout.
 
     Returns:
         draw.io XML lines.
@@ -1147,41 +1177,126 @@ def render_drawio_xml_lines(
             }
         )
 
+    def plan_nodes_in_role(
+        nodes: List[str],
+        *,
+        horizontal_nodes: bool,
+    ) -> Dict[str, Any]:
+        rank_groups: Dict[int, List[str]] = {}
+        for node in nodes:
+            if node not in (node_layout_rank_map or {}):
+                rank_groups = {}
+                break
+            rank_groups.setdefault(int((node_layout_rank_map or {})[node]), []).append(node)
+
+        placements: List[tuple[str, int, int]] = []
+        if len(rank_groups) > 1:
+            bands = [rank_groups[rank] for rank in sorted(rank_groups)]
+            if horizontal:
+                band_widths = [
+                    max(get_node_footprint_width(node) for node in band)
+                    for band in bands
+                ]
+                band_heights = [
+                    sum(get_node_footprint_height(node) for node in band)
+                    + max(len(band) - 1, 0) * node_gap_y
+                    for band in bands
+                ]
+                content_height = max(band_heights)
+                cursor_x = container_padding
+                for band, band_width, band_height in zip(
+                    bands, band_widths, band_heights
+                ):
+                    cursor_y = (
+                        container_header
+                        + container_padding
+                        + (content_height - band_height) // 2
+                    )
+                    for node in band:
+                        placements.append((node, cursor_x, cursor_y))
+                        cursor_y += get_node_footprint_height(node) + node_gap_y
+                    cursor_x += band_width + container_gap
+                width = (
+                    sum(band_widths)
+                    + max(len(bands) - 1, 0) * container_gap
+                    + container_padding * 2
+                )
+                height = content_height + container_header + container_padding * 2
+            else:
+                band_widths = [
+                    sum(get_node_footprint_width(node) for node in band)
+                    + max(len(band) - 1, 0) * node_gap_x
+                    for band in bands
+                ]
+                band_heights = [
+                    max(get_node_footprint_height(node) for node in band)
+                    for band in bands
+                ]
+                content_width = max(band_widths)
+                cursor_y = container_header + container_padding
+                for band, band_width, band_height in zip(
+                    bands, band_widths, band_heights
+                ):
+                    cursor_x = container_padding + (content_width - band_width) // 2
+                    for node in band:
+                        placements.append((node, cursor_x, cursor_y))
+                        cursor_x += get_node_footprint_width(node) + node_gap_x
+                    cursor_y += band_height + container_gap
+                width = content_width + container_padding * 2
+                height = (
+                    sum(band_heights)
+                    + max(len(bands) - 1, 0) * container_gap
+                    + container_header
+                    + container_padding * 2
+                )
+            return {"placements": placements, "width": width, "height": height}
+
+        if horizontal_nodes:
+            cursor_x = container_padding
+            maximum_height = 0
+            for node in nodes:
+                placements.append(
+                    (node, cursor_x, container_header + container_padding)
+                )
+                cursor_x += get_node_footprint_width(node) + node_gap_x
+                maximum_height = max(maximum_height, get_node_footprint_height(node))
+            width = max(
+                cursor_x - node_gap_x + container_padding,
+                node_width + container_padding * 2,
+            )
+            height = maximum_height + container_header + container_padding * 2
+        else:
+            cursor_y = container_header + container_padding
+            maximum_width = 0
+            for node in nodes:
+                placements.append((node, container_padding, cursor_y))
+                cursor_y += get_node_footprint_height(node) + node_gap_y
+                maximum_width = max(maximum_width, get_node_footprint_width(node))
+            width = maximum_width + container_padding * 2
+            height = max(
+                cursor_y - node_gap_y + container_padding,
+                node_height + container_padding * 2,
+            )
+        return {"placements": placements, "width": width, "height": height}
+
     if group_by_site:
         def build_container_style(is_leaf: bool = False) -> str:
             base_style = DRAWIO_STYLE_LEAF_CONTAINER if is_leaf else DRAWIO_STYLE_CONTAINER
             return f"{base_style}startSize={container_header};"
 
         def layout_nodes_in_container(nodes: List[str], parent_id: str, horizontal_nodes: bool) -> tuple[int, int]:
-            max_width = 0
-            max_height = 0
-            if horizontal_nodes:
-                node_cursor_x = container_padding
-                for node in nodes:
-                    add_node(
-                        node=node,
-                        x=node_cursor_x,
-                        y=container_header + container_padding,
-                        parent_id=parent_id,
-                    )
-                    node_cursor_x += get_node_footprint_width(node) + node_gap_x
-                    max_height = max(max_height, get_node_footprint_height(node))
-                max_width = max(node_cursor_x - node_gap_x + container_padding, node_width + container_padding * 2)
-                max_height = max_height + container_header + container_padding * 2
-            else:
-                node_cursor_y = container_header + container_padding
-                for node in nodes:
-                    add_node(
-                        node=node,
-                        x=container_padding,
-                        y=node_cursor_y,
-                        parent_id=parent_id,
-                    )
-                    node_cursor_y += get_node_footprint_height(node) + node_gap_y
-                    max_width = max(max_width, get_node_footprint_width(node))
-                max_width = max_width + container_padding * 2
-                max_height = max(node_cursor_y - node_gap_y + container_padding, node_height + container_padding * 2)
-            return max_width, max_height
+            plan = plan_nodes_in_role(
+                nodes,
+                horizontal_nodes=horizontal_nodes,
+            )
+            for node, node_x, node_y in plan["placements"]:
+                add_node(
+                    node=node,
+                    x=node_x,
+                    y=node_y,
+                    parent_id=parent_id,
+                )
+            return int(plan["width"]), int(plan["height"])
 
         site_to_nodes: Dict[str, List[str]] = {}
         for node in sorted_nodes:
@@ -1216,30 +1331,22 @@ def render_drawio_xml_lines(
                     detect_node_role_func,
                     get_role_priority_func,
                 )[0]
-                horizontal_nodes = not horizontal
-                role_width = (
-                    sum(get_node_footprint_width(node) for node in nodes)
-                    + max(len(nodes) - 1, 0) * node_gap_x
-                    + container_padding * 2
-                    if horizontal_nodes
-                    else max(get_node_footprint_width(node) for node in nodes) + container_padding * 2
+                horizontal_nodes = (
+                    horizontal
+                    if align_role_nodes_with_direction
+                    else not horizontal
                 )
-                role_height = (
-                    max(get_node_footprint_height(node) for node in nodes)
-                    + container_header
-                    + container_padding * 2
-                    if horizontal_nodes
-                    else sum(get_node_footprint_height(node) for node in nodes)
-                    + max(len(nodes) - 1, 0) * node_gap_y
-                    + container_header
-                    + container_padding * 2
+                node_plan = plan_nodes_in_role(
+                    nodes,
+                    horizontal_nodes=horizontal_nodes,
                 )
                 role_specs.append({
                     "role": role,
                     "priority": role_priority,
                     "nodes": nodes,
-                    "width": role_width,
-                    "height": role_height,
+                    "horizontal_nodes": horizontal_nodes,
+                    "width": int(node_plan["width"]),
+                    "height": int(node_plan["height"]),
                 })
 
             role_bands: Dict[int, List[Dict[str, Any]]] = {}
@@ -1309,7 +1416,11 @@ def render_drawio_xml_lines(
                             style=build_container_style(str(role_spec["role"]) == primary_leaf_role),
                             parent_id=site_id,
                         )
-                        layout_nodes_in_container(list(role_spec["nodes"]), role_id, not horizontal)
+                        layout_nodes_in_container(
+                            list(role_spec["nodes"]),
+                            role_id,
+                            bool(role_spec["horizontal_nodes"]),
+                        )
                         role_cursor_y += int(role_spec["height"]) + container_gap
                         band_width = max(band_width, int(role_spec["width"]))
                     role_cursor_x += band_width + container_gap
@@ -1331,7 +1442,11 @@ def render_drawio_xml_lines(
                             style=build_container_style(str(role_spec["role"]) == primary_leaf_role),
                             parent_id=site_id,
                         )
-                        layout_nodes_in_container(list(role_spec["nodes"]), role_id, not horizontal)
+                        layout_nodes_in_container(
+                            list(role_spec["nodes"]),
+                            role_id,
+                            bool(role_spec["horizontal_nodes"]),
+                        )
                         role_cursor_x += int(role_spec["width"]) + container_gap
                         band_height = max(band_height, int(role_spec["height"]))
                     role_cursor_y += band_height + container_gap
@@ -1402,32 +1517,17 @@ def render_drawio_xml_lines(
         for role, nodes in role_items:
             role_to_nodes[role] = sorted(nodes, key=get_node_sort_key)
 
+        role_nodes_horizontal = (
+            horizontal if align_role_nodes_with_direction else not horizontal
+        )
+
         def compute_container_dimensions(role: str, nodes: List[str]) -> tuple[int, int, int]:
-            if horizontal:
-                columns = 1
-            else:
-                columns = max(len(nodes), 1)
-            rows = (len(nodes) + columns - 1) // columns
-            if horizontal:
-                container_width = max(get_node_footprint_width(node) for node in nodes) + container_padding * 2
-                container_height = (
-                    sum(get_node_footprint_height(node) for node in nodes)
-                    + max(len(nodes) - 1, 0) * node_gap_y
-                    + container_padding * 2
-                    + container_header
-                )
-            else:
-                container_width = (
-                    sum(get_node_footprint_width(node) for node in nodes)
-                    + max(len(nodes) - 1, 0) * node_gap_x
-                    + container_padding * 2
-                )
-                container_height = (
-                    max(get_node_footprint_height(node) for node in nodes)
-                    + container_padding * 2
-                    + container_header
-                )
-            return columns, container_width, container_height
+            plan = plan_nodes_in_role(
+                nodes,
+                horizontal_nodes=role_nodes_horizontal,
+            )
+            columns = max(len(nodes), 1) if role_nodes_horizontal else 1
+            return columns, int(plan["width"]), int(plan["height"])
 
         def compute_role_anchor(role: str, nodes: List[str]) -> float | None:
             if role == primary_leaf_role or not leaf_order_map:
@@ -1766,26 +1866,17 @@ def render_drawio_xml_lines(
                     style=build_container_style(),
                 )
 
-                if horizontal:
-                    node_cursor_y = container_header + container_padding
-                    for node in role_to_nodes[role]:
-                        add_node(
-                            node=node,
-                            x=container_padding,
-                            y=node_cursor_y,
-                            parent_id=container_id,
-                        )
-                        node_cursor_y += get_node_footprint_height(node) + node_gap_y
-                else:
-                    node_cursor_x = container_padding
-                    for node in role_to_nodes[role]:
-                        add_node(
-                            node=node,
-                            x=node_cursor_x,
-                            y=container_header + container_padding,
-                            parent_id=container_id,
-                        )
-                        node_cursor_x += get_node_footprint_width(node) + node_gap_x
+                node_plan = plan_nodes_in_role(
+                    role_to_nodes[role],
+                    horizontal_nodes=role_nodes_horizontal,
+                )
+                for node, node_x, node_y in node_plan["placements"]:
+                    add_node(
+                        node=node,
+                        x=node_x,
+                        y=node_y,
+                        parent_id=container_id,
+                    )
 
                 if horizontal:
                     cursor_x += container_width + container_gap
@@ -1821,25 +1912,104 @@ def render_drawio_xml_lines(
             label = f"{label}<br>{evidence}" if label else evidence
         return label
 
-    def build_horizontal_edge_anchor_style(source_side: str, target_side: str) -> str:
-        if not horizontal:
+    vertex_spec_by_id = {
+        str(spec["id"]): spec
+        for spec in cell_specs
+        if spec.get("kind") == "vertex"
+    }
+
+    def absolute_vertex_center(vertex_id: str) -> tuple[float, float]:
+        spec = vertex_spec_by_id[vertex_id]
+        x = float(spec["x"])
+        y = float(spec["y"])
+        parent_id = str(spec.get("parent", "1"))
+        visited: set[str] = set()
+        while parent_id not in {"0", "1"} and parent_id not in visited:
+            visited.add(parent_id)
+            parent = vertex_spec_by_id.get(parent_id)
+            if parent is None:
+                break
+            x += float(parent["x"])
+            y += float(parent["y"])
+            parent_id = str(parent.get("parent", "1"))
+        return (
+            x + float(spec["width"]) / 2,
+            y + float(spec["height"]) / 2,
+        )
+
+    def nearest_node_sides(
+        source_node: str,
+        target_node: str,
+    ) -> tuple[str, str]:
+        source_x, source_y = absolute_vertex_center(node_id_map[source_node])
+        target_x, target_y = absolute_vertex_center(node_id_map[target_node])
+        delta_x = target_x - source_x
+        delta_y = target_y - source_y
+        if abs(delta_x) >= abs(delta_y):
+            return ("right", "left") if delta_x >= 0 else ("left", "right")
+        return ("bottom", "top") if delta_y >= 0 else ("top", "bottom")
+
+    def logical_node_sides(
+        source_node: str,
+        target_node: str,
+    ) -> tuple[str, str]:
+        source_site_priority = get_site_priority(
+            node_site_map.get(source_node, "default"), sites
+        )
+        target_site_priority = get_site_priority(
+            node_site_map.get(target_node, "default"), sites
+        )
+        source_role_priority = node_role_priority_map.get(source_node, 9999)
+        target_role_priority = node_role_priority_map.get(target_node, 9999)
+        if (
+            source_site_priority != target_site_priority
+            or source_role_priority != target_role_priority
+        ):
+            return (
+                infer_interface_side(source_node, target_node),
+                infer_interface_side(target_node, source_node),
+            )
+        return nearest_node_sides(source_node, target_node)
+
+    directed_node_pairs = {
+        (
+            str(link["endpoints"][0]).split(":", 1)[0],
+            str(link["endpoints"][1]).split(":", 1)[0],
+        )
+        for link in all_links
+        if bool(link.get("directed")) and len(link.get("endpoints", [])) == 2
+    }
+
+    def reciprocal_lane(source_node: str, target_node: str) -> float:
+        if (target_node, source_node) not in directed_node_pairs:
+            return 0.5
+        return 0.35 if (source_node, target_node) < (target_node, source_node) else 0.65
+
+    def build_edge_anchor_style(
+        source_side: str,
+        target_side: str,
+        lane: float,
+    ) -> str:
+        if not source_side or not target_side:
             return ""
 
-        exit_x = "0.5"
-        entry_x = "0.5"
-        if source_side == "left":
-            exit_x = "0"
-        elif source_side == "right":
-            exit_x = "1"
+        def point(side: str) -> tuple[str, str]:
+            lane_value = f"{lane:.2f}".rstrip("0").rstrip(".")
+            if side == "left":
+                return "0", lane_value
+            if side == "right":
+                return "1", lane_value
+            if side == "top":
+                return lane_value, "0"
+            if side == "bottom":
+                return lane_value, "1"
+            return "0.5", "0.5"
 
-        if target_side == "left":
-            entry_x = "0"
-        elif target_side == "right":
-            entry_x = "1"
-
+        exit_x, exit_y = point(source_side)
+        entry_x, entry_y = point(target_side)
         return (
-            f"exitX={exit_x};exitY=0.5;exitDx=0;exitDy=0;"
-            f"entryX={entry_x};entryY=0.5;entryDx=0;entryDy=0;"
+            f"exitX={exit_x};exitY={exit_y};exitDx=0;exitDy=0;"
+            f"entryX={entry_x};entryY={entry_y};entryDx=0;entryDy=0;"
         )
 
     def add_edge(
@@ -1847,14 +2017,23 @@ def render_drawio_xml_lines(
         target_id: str,
         label: str,
         dashed: bool = False,
+        directed: bool = False,
+        state: str = "",
         source_side: str = "",
         target_side: str = "",
+        lane: float = 0.5,
     ) -> None:
         edge_id = alloc_id()
         style = DRAWIO_STYLE_EDGE
         if dashed:
             style += DRAWIO_STYLE_EDGE_DASHED_SUFFIX
-        style += build_horizontal_edge_anchor_style(source_side, target_side)
+        if directed:
+            style = style.replace("endArrow=none;", "endArrow=block;endFill=1;")
+        if state == "degraded":
+            style += "strokeColor=#dc2626;fontColor=#b91c1c;"
+        elif state == "conflict":
+            style += "strokeColor=#d97706;fontColor=#b45309;"
+        style += build_edge_anchor_style(source_side, target_side, lane)
         cell_specs.append(
             {
                 "kind": "edge",
@@ -1873,8 +2052,15 @@ def render_drawio_xml_lines(
         right_node, right_if = ep2.split(":", 1)
         source_id = nic_id_map.get((left_node, left_if), node_id_map[left_node])
         target_id = nic_id_map.get((right_node, right_if), node_id_map[right_node])
-        source_side = node_interface_side_map.get((left_node, left_if), "")
-        target_side = node_interface_side_map.get((right_node, right_if), "")
+        nearest_source_side, nearest_target_side = logical_node_sides(
+            left_node, right_node
+        )
+        source_side = node_interface_side_map.get(
+            (left_node, left_if), nearest_source_side
+        )
+        target_side = node_interface_side_map.get(
+            (right_node, right_if), nearest_target_side
+        )
         link_key = f"{left_node}|{left_if}|{right_node}|{right_if}"
         edge_label = ""
         if not node_interface_label_map:
@@ -1886,8 +2072,11 @@ def render_drawio_xml_lines(
             target_id,
             edge_label,
             dashed=False,
+            directed=bool(link.get("directed")),
+            state=str(link.get("state", "")),
             source_side=source_side,
             target_side=target_side,
+            lane=reciprocal_lane(left_node, right_node),
         )
 
     if candidate_links:
@@ -1897,16 +2086,31 @@ def render_drawio_xml_lines(
             right_node, right_if = ep2.split(":", 1)
             source_id = nic_id_map.get((left_node, left_if), node_id_map[left_node])
             target_id = nic_id_map.get((right_node, right_if), node_id_map[right_node])
-            source_side = node_interface_side_map.get((left_node, left_if), "")
-            target_side = node_interface_side_map.get((right_node, right_if), "")
-            label = build_drawio_edge_label(left_node, left_if, right_node, right_if)
+            nearest_source_side, nearest_target_side = logical_node_sides(
+                left_node, right_node
+            )
+            source_side = node_interface_side_map.get(
+                (left_node, left_if), nearest_source_side
+            )
+            target_side = node_interface_side_map.get(
+                (right_node, right_if), nearest_target_side
+            )
+            link_key = f"{left_node}|{left_if}|{right_node}|{right_if}"
+            label = str(link.get("label", "")) or (
+                link_label_map or {}
+            ).get(link_key, "") or build_drawio_edge_label(
+                left_node, left_if, right_node, right_if
+            )
             add_edge(
                 source_id,
                 target_id,
                 label,
                 dashed=True,
+                directed=bool(link.get("directed")),
+                state=str(link.get("state", "")),
                 source_side=source_side,
                 target_side=target_side,
+                lane=reciprocal_lane(left_node, right_node),
             )
 
     def center_vertices_vertically() -> None:

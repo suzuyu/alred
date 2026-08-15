@@ -1,0 +1,172 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://alred.local/schemas/v1/evidence-package-manifest.schema.json",
+  "title": "EvidencePackageManifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["api_version", "kind", "metadata", "spec"],
+  "properties": {
+    "api_version": {"const": "alred/v1"},
+    "kind": {"const": "EvidencePackageManifest"},
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["package_id", "created_at", "tool_version"],
+      "properties": {
+        "package_id": {"type": "string", "minLength": 1},
+        "created_at": {"type": "string", "format": "date-time"},
+        "tool_version": {"type": "string", "minLength": 1}
+      }
+    },
+    "spec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profile", "config_content", "contains_verbatim_config", "source",
+        "disclosure", "secret_scan", "files", "analysis_limitations"
+      ],
+      "properties": {
+        "profile": {"enum": ["digital-twin", "ai-analysis"]},
+        "config_content": {"enum": ["sanitized", "verbatim"]},
+        "contains_verbatim_config": {"type": "boolean"},
+        "source": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "id", "manifest_sha256"],
+          "properties": {
+            "type": {"const": "collection_manifest"},
+            "id": {"type": "string", "minLength": 1},
+            "manifest_sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+          }
+        },
+        "disclosure": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["preset", "policy_sha256"],
+          "properties": {
+            "preset": {"enum": ["protected-preserve", "pseudonymized"]},
+            "policy_sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+          }
+        },
+        "secret_scan": {"$ref": "#/$defs/scan_result"},
+        "files": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/file_entry"}
+        },
+        "resources": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/resource_entry"}
+        },
+        "analysis_limitations": {
+          "type": "array",
+          "items": {"type": "string"}
+        }
+      }
+    }
+  },
+  "$defs": {
+    "location": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["line"],
+          "properties": {"line": {"type": "integer", "minimum": 1}}
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["start_line", "end_line"],
+          "properties": {
+            "start_line": {"type": "integer", "minimum": 1},
+            "end_line": {"type": "integer", "minimum": 1}
+          }
+        }
+      ]
+    },
+    "finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rule_id", "confidence", "artifact_id", "path", "location", "count"],
+      "properties": {
+        "rule_id": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]+$"},
+        "confidence": {"enum": ["high", "low"]},
+        "artifact_id": {"type": "string", "minLength": 1},
+        "path": {"type": "string", "minLength": 1},
+        "location": {"$ref": "#/$defs/location"},
+        "count": {"type": "integer", "minimum": 1}
+      }
+    },
+    "scan_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "catalog_version", "catalog_sha256", "status", "files_scanned",
+        "files_not_scanned", "high_confidence", "low_confidence", "findings"
+      ],
+      "properties": {
+        "catalog_version": {"const": 1},
+        "catalog_sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "status": {
+          "enum": [
+            "CLEAN", "LOW_CONFIDENCE_FINDINGS", "BLOCKED",
+            "ACKNOWLEDGED_SENSITIVE", "NOT_SCANNED"
+          ]
+        },
+        "files_scanned": {"type": "integer", "minimum": 0},
+        "files_not_scanned": {"type": "integer", "minimum": 0},
+        "high_confidence": {"type": "integer", "minimum": 0},
+        "low_confidence": {"type": "integer", "minimum": 0},
+        "findings": {"type": "array", "items": {"$ref": "#/$defs/finding"}}
+      }
+    },
+    "source_range": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "start_line": {"type": "integer", "minimum": 1},
+        "end_line": {"type": "integer", "minimum": 1},
+        "output_start_line": {"type": "integer", "minimum": 1},
+        "output_end_line": {"type": "integer", "minimum": 1}
+      }
+    },
+    "file_entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "artifact_id", "command_id", "device", "path", "source_sha256",
+        "export_sha256", "disclosure", "redaction_count", "secret_scan_finding_count"
+      ],
+      "properties": {
+        "artifact_id": {"type": "string", "minLength": 1},
+        "command_id": {"type": "string", "minLength": 1},
+        "device": {"type": "string", "minLength": 1},
+        "path": {"type": "string", "pattern": "^(raw/sanitized|raw/verbatim)/[^/]+/[^/]+\\.txt$"},
+        "source_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "export_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "disclosure": {"enum": ["protected-preserve", "sanitized", "verbatim"]},
+        "redaction_count": {"type": "integer", "minimum": 0},
+        "secret_scan_finding_count": {"type": "integer", "minimum": 0},
+        "source_range": {"$ref": "#/$defs/source_range"}
+      }
+    },
+    "resource_entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["resource_id", "path", "sha256"],
+      "properties": {
+        "resource_id": {
+          "enum": [
+            "resolved_inventory", "resolved_mappings", "resolved_description_rules",
+            "resolved_roles", "resolved_sites", "canonical_links_confirmed",
+            "canonical_links_candidates"
+          ]
+        },
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "semantic_sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "semantic_version": {"type": "integer", "minimum": 1}
+      }
+    }
+  }
+}

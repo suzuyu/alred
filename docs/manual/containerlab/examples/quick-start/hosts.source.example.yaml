@@ -1,0 +1,14 @@
+all:
+  hosts:
+    site1-spine01:
+      ansible_host: 192.0.2.11
+      device_type: nxos
+    site1-spine02:
+      ansible_host: 192.0.2.12
+      device_type: nxos
+    site1-leaf01:
+      ansible_host: 192.0.2.21
+      device_type: nxos
+    site1-leaf02:
+      ansible_host: 192.0.2.22
+      device_type: nxos
