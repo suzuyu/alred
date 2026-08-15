@@ -1,0 +1,502 @@
+api_version: alred/v1
+kind: LabTransformManifest
+spec:
+  parameter_source_sha256: sha256:742bb6e10e7b4acd04e12693a998865f06e9bae5ec8adb2f6605763d5c92b389
+  resolved_parameter_sha256: sha256:33bd064d5389213501b7f07ec01b2bbd6f92f06dd952e5598eef2026034da574
+  devices:
+  - hostname: adc-bgrt0101
+    platform: nxos
+    source_path: docs/manual/containerlab/examples/single-site-fabric/source-config/adc-bgrt0101_run.txt
+    source_sha256: sha256:6c287769b924802a29240d865c7f107df9d627ad94c02a3cf302bb7e2088a7e6
+    output_path: labconfig/adc-bgrt0101_run.txt
+    output_sha256: sha256:b102b08b38970f6527ecfea9aa06aa0808a0d7745136daf2bf70fcbbe389ff9d
+    legacy_stats:
+      management_section_updates: 2
+      subinterface_conversions: 0
+      generated_parent_interfaces: 0
+      merged_existing_parent_interfaces: 0
+      merged_existing_svis: 0
+      inserted_no_switchport: 0
+      removed_username_lines: 0
+      removed_snmp_user_lines: 0
+      removed_access_class_lines: 0
+      inserted_lab_username: 0
+      renamed_hostname_lines: 0
+      renamed_description_lines: 0
+    adapter_stats:
+      removed_ntp: 3
+      removed_logging: 2
+      removed_dns: 0
+      removed_aaa: 0
+      removed_snmp: 4
+      removed_crypto: 0
+      removed_users: 0
+      removed_access_class: 3
+      generated_ntp: 1
+      generated_lab_users: 0
+      generated_logging: 0
+      generated_dns: 0
+      generated_aaa: 0
+      generated_snmp: 0
+      generated_access_class: 0
+      warning_count: 1
+    warnings:
+    - id: BOOTSTRAP_CREDENTIAL_PRESERVED
+      message: Containerlab bootstrap admin credential is preserved.
+    risk_findings:
+    - id: LAB_MANAGEMENT_CHANGE
+      level: WARN
+      summary: Transformed config changes this connectivity or service category.
+    - id: LAB_VTY_ACCESS_CHANGE
+      level: WARN
+      summary: Transformed config changes this connectivity or service category.
+    - id: LAB_NTP_CHANGE
+      level: INFO
+      summary: Transformed config changes this connectivity or service category.
+    - id: LAB_DNS_CHANGE
+      level: INFO
+      summary: Transformed config changes this connectivity or service category.
+    - id: LAB_HOSTNAME_CHANGE
+      level: INFO
+      summary: Transformed config changes this connectivity or service category.
+    - id: BOOTSTRAP_CREDENTIAL_PRESERVED
+      level: WARN
+      summary: Bootstrap credential handling requires post-apply connectivity verification.
+    primary_username: null
+    post_apply_username: admin
+    post_apply_password_ref: null
+    bootstrap_action: preserve
+  - hostname: adc-bgrt0102
+    platform: nxos
+    source_path: docs/manual/containerlab/examples/single-site-fabric/source-config/adc-bgrt0102_run.txt
+    source_sha256: sha256:23f7d04f04e60b4f4e6885c18d267bd3bd8ca5f6eaff7b78b78ab83c53da87ee
+    output_path: labconfig/adc-bgrt0102_run.txt
+    output_sha256: sha256:eb07c8275bc4b17a886940830fd3c825a56c466cd3b84b3eb8c7751f563226e4
+    legacy_stats:
+      management_section_updates: 2
+      subinterface_conversions: 0
+      generated_parent_interfaces: 0
+      merged_existing_parent_interfaces: 0
+      merged_existing_svis: 0
+      inserted_no_switchport: 0
+      removed_username_lines: 0
+      removed_snmp_user_lines: 0
+      removed_access_class_lines: 0
+      inserted_lab_username: 0
+      renamed_hostname_lines: 0
+      renamed_description_lines: 0
+    adapter_stats:
+      removed_ntp: 3
+      removed_logging: 2
+      removed_dns: 0
+      removed_aaa: 0
+      removed_snmp: 4
+      removed_crypto: 0
+      removed_users: 0
+      removed_access_class: 3
+      generated_ntp: 1
+      generated_lab_users: 0
+      generated_logging: 0
+      generated_dns: 0
+      generated_aaa: 0
+      generated_snmp: 0
+      generated_access_class: 0
+      warning_count: 1
+    warnings:
+    - id: BOOTSTRAP_CREDENTIAL_PRESERVED
+      message: Containerlab bootstrap admin credential is preserved.
+    risk_findings:
+    - id: LAB_MANAGEMENT_CHANGE
+      level: WARN
+      summary: Transformed config changes this connectivity or service category.
+    - id: LAB_VTY_ACCESS_CHANGE
+      level: WARN
+      summary: Transformed config changes this connectivity or service category.
+    - id: LAB_NTP_CHANGE
+      level: INFO
+      summary: Transformed config changes this connectivity or service category.
+    - id: LAB_DNS_CHANGE
+      level: INFO
+      summary: Transformed config changes this connectivity or service category.
+    - id: LAB_HOSTNAME_CHANGE
+      level: INFO
+      summary: Transformed config changes this connectivity or service category.
+    - id: BOOTSTRAP_CREDENTIAL_PRESERVED
+      level: WARN
+      summary: Bootstrap credential handling requires post-apply connectivity verification.
+    primary_username: null
+    post_apply_username: admin
+    post_apply_password_ref: null
+    bootstrap_action: preserve
+  - hostname: adc-lfsw0101
+    platform: nxos
+    source_path: docs/manual/containerlab/examples/single-site-fabric/source-config/adc-lfsw0101_run.txt
+    source_sha256: sha256:d81657f152897ce5873c314185e7631eed6de04271bdb86e8036f1aff74773bd
+    output_path: labconfig/adc-lfsw0101_run.txt
+    output_sha256: sha256:14c7b22269a23d1865dfc84531b89e27133ecd90324498eabfd9ef53961843bb
+    legacy_stats:
+      management_section_updates: 3
+      subinterface_conversions: 0
+      generated_parent_interfaces: 0
+      merged_existing_parent_interfaces: 0
+      merged_existing_svis: 0
+      inserted_no_switchport: 0
+      removed_username_lines: 0
+      removed_snmp_user_lines: 0
+      removed_access_class_lines: 0
+      inserted_lab_username: 0
+      renamed_hostname_lines: 0
+      renamed_description_lines: 0
+    adapter_stats:
+      removed_ntp: 3
+      removed_logging: 2
+      removed_dns: 0
+      removed_aaa: 0
+      removed_snmp: 4
+      removed_crypto: 0
+      removed_users: 0
+      removed_access_class: 3
+      generated_ntp: 1
+      generated_lab_users: 0
+      generated_logging: 0
+      generated_dns: 0
+      generated_aaa: 0
+      generated_snmp: 0
+      generated_access_class: 0
+      warning_count: 1
+    warnings:
+    - id: BOOTSTRAP_CREDENTIAL_PRESERVED
+      message: Containerlab bootstrap admin credential is preserved.
+    risk_findings:
+    - id: LAB_MANAGEMENT_CHANGE
+      level: WARN
+      summary: Transformed config changes this connectivity or service category.
+    - id: LAB_VTY_ACCESS_CHANGE
+      level: WARN
+      summary: Transformed config changes this connectivity or service category.
+    - id: LAB_NTP_CHANGE
+      level: INFO
+      summary: Transformed config changes this connectivity or service category.
+    - id: LAB_DNS_CHANGE
+      level: INFO
+      summary: Transformed config changes this connectivity or service category.
+    - id: LAB_HOSTNAME_CHANGE
+      level: INFO
+      summary: Transformed config changes this connectivity or service category.
+    - id: BOOTSTRAP_CREDENTIAL_PRESERVED
+      level: WARN
+      summary: Bootstrap credential handling requires post-apply connectivity verification.
+    primary_username: null
+    post_apply_username: admin
+    post_apply_password_ref: null
+    bootstrap_action: preserve
+  - hostname: adc-lfsw0102
+    platform: nxos
+    source_path: docs/manual/containerlab/examples/single-site-fabric/source-config/adc-lfsw0102_run.txt
+    source_sha256: sha256:e69ba2d557e37dd71ab1007dbb05232b35d0d1278b17949c51f792ddde453fb3
+    output_path: labconfig/adc-lfsw0102_run.txt
+    output_sha256: sha256:47e6fbc6186a497498aac5ad1e0da79e5e20057697116af3054eacf46e0b98b7
+    legacy_stats:
+      management_section_updates: 3
+      subinterface_conversions: 0
+      generated_parent_interfaces: 0
+      merged_existing_parent_interfaces: 0
+      merged_existing_svis: 0
+      inserted_no_switchport: 0
+      removed_username_lines: 0
+      removed_snmp_user_lines: 0
+      removed_access_class_lines: 0
+      inserted_lab_username: 0
+      renamed_hostname_lines: 0
+      renamed_description_lines: 0
+    adapter_stats:
+      removed_ntp: 3
+      removed_logging: 2
+      removed_dns: 0
+      removed_aaa: 0
+      removed_snmp: 4
+      removed_crypto: 0
+      removed_users: 0
+      removed_access_class: 3
+      generated_ntp: 1
+      generated_lab_users: 0
+      generated_logging: 0
+      generated_dns: 0
+      generated_aaa: 0
+      generated_snmp: 0
+      generated_access_class: 0
+      warning_count: 1
+    warnings:
+    - id: BOOTSTRAP_CREDENTIAL_PRESERVED
+      message: Containerlab bootstrap admin credential is preserved.
+    risk_findings:
+    - id: LAB_MANAGEMENT_CHANGE
+      level: WARN
+      summary: Transformed config changes this connectivity or service category.
+    - id: LAB_VTY_ACCESS_CHANGE
+      level: WARN
+      summary: Transformed config changes this connectivity or service category.
+    - id: LAB_NTP_CHANGE
+      level: INFO
+      summary: Transformed config changes this connectivity or service category.
+    - id: LAB_DNS_CHANGE
+      level: INFO
+      summary: Transformed config changes this connectivity or service category.
+    - id: LAB_HOSTNAME_CHANGE
+      level: INFO
+      summary: Transformed config changes this connectivity or service category.
+    - id: BOOTSTRAP_CREDENTIAL_PRESERVED
+      level: WARN
+      summary: Bootstrap credential handling requires post-apply connectivity verification.
+    primary_username: null
+    post_apply_username: admin
+    post_apply_password_ref: null
+    bootstrap_action: preserve
+  - hostname: adc-lfsw0103
+    platform: nxos
+    source_path: docs/manual/containerlab/examples/single-site-fabric/source-config/adc-lfsw0103_run.txt
+    source_sha256: sha256:4716111355de1067fac298b5abae4e53c9f5efcdf21b8b00d1e74ec95e059989
+    output_path: labconfig/adc-lfsw0103_run.txt
+    output_sha256: sha256:bb832a88102aeab58c1f3b4c69808076607e5d53fb0f904b6685f14932700101
+    legacy_stats:
+      management_section_updates: 3
+      subinterface_conversions: 0
+      generated_parent_interfaces: 0
+      merged_existing_parent_interfaces: 0
+      merged_existing_svis: 0
+      inserted_no_switchport: 0
+      removed_username_lines: 0
+      removed_snmp_user_lines: 0
+      removed_access_class_lines: 0
+      inserted_lab_username: 0
+      renamed_hostname_lines: 0
+      renamed_description_lines: 0
+    adapter_stats:
+      removed_ntp: 3
+      removed_logging: 2
+      removed_dns: 0
+      removed_aaa: 0
+      removed_snmp: 4
+      removed_crypto: 0
+      removed_users: 0
+      removed_access_class: 3
+      generated_ntp: 1
+      generated_lab_users: 0
+      generated_logging: 0
+      generated_dns: 0
+      generated_aaa: 0
+      generated_snmp: 0
+      generated_access_class: 0
+      warning_count: 1
+    warnings:
+    - id: BOOTSTRAP_CREDENTIAL_PRESERVED
+      message: Containerlab bootstrap admin credential is preserved.
+    risk_findings:
+    - id: LAB_MANAGEMENT_CHANGE
+      level: WARN
+      summary: Transformed config changes this connectivity or service category.
+    - id: LAB_VTY_ACCESS_CHANGE
+      level: WARN
+      summary: Transformed config changes this connectivity or service category.
+    - id: LAB_NTP_CHANGE
+      level: INFO
+      summary: Transformed config changes this connectivity or service category.
+    - id: LAB_DNS_CHANGE
+      level: INFO
+      summary: Transformed config changes this connectivity or service category.
+    - id: LAB_HOSTNAME_CHANGE
+      level: INFO
+      summary: Transformed config changes this connectivity or service category.
+    - id: BOOTSTRAP_CREDENTIAL_PRESERVED
+      level: WARN
+      summary: Bootstrap credential handling requires post-apply connectivity verification.
+    primary_username: null
+    post_apply_username: admin
+    post_apply_password_ref: null
+    bootstrap_action: preserve
+  - hostname: adc-lfsw0104
+    platform: nxos
+    source_path: docs/manual/containerlab/examples/single-site-fabric/source-config/adc-lfsw0104_run.txt
+    source_sha256: sha256:5daba26d190d45e3b0e150fb77ef362e81c0f309500e288e5db5298115b25806
+    output_path: labconfig/adc-lfsw0104_run.txt
+    output_sha256: sha256:345c365eaa97eb6e49b7162ba4efc08a8161ca8b6fc8b7f15478a106789ca14f
+    legacy_stats:
+      management_section_updates: 3
+      subinterface_conversions: 0
+      generated_parent_interfaces: 0
+      merged_existing_parent_interfaces: 0
+      merged_existing_svis: 0
+      inserted_no_switchport: 0
+      removed_username_lines: 0
+      removed_snmp_user_lines: 0
+      removed_access_class_lines: 0
+      inserted_lab_username: 0
+      renamed_hostname_lines: 0
+      renamed_description_lines: 0
+    adapter_stats:
+      removed_ntp: 3
+      removed_logging: 2
+      removed_dns: 0
+      removed_aaa: 0
+      removed_snmp: 4
+      removed_crypto: 0
+      removed_users: 0
+      removed_access_class: 3
+      generated_ntp: 1
+      generated_lab_users: 0
+      generated_logging: 0
+      generated_dns: 0
+      generated_aaa: 0
+      generated_snmp: 0
+      generated_access_class: 0
+      warning_count: 1
+    warnings:
+    - id: BOOTSTRAP_CREDENTIAL_PRESERVED
+      message: Containerlab bootstrap admin credential is preserved.
+    risk_findings:
+    - id: LAB_MANAGEMENT_CHANGE
+      level: WARN
+      summary: Transformed config changes this connectivity or service category.
+    - id: LAB_VTY_ACCESS_CHANGE
+      level: WARN
+      summary: Transformed config changes this connectivity or service category.
+    - id: LAB_NTP_CHANGE
+      level: INFO
+      summary: Transformed config changes this connectivity or service category.
+    - id: LAB_DNS_CHANGE
+      level: INFO
+      summary: Transformed config changes this connectivity or service category.
+    - id: LAB_HOSTNAME_CHANGE
+      level: INFO
+      summary: Transformed config changes this connectivity or service category.
+    - id: BOOTSTRAP_CREDENTIAL_PRESERVED
+      level: WARN
+      summary: Bootstrap credential handling requires post-apply connectivity verification.
+    primary_username: null
+    post_apply_username: admin
+    post_apply_password_ref: null
+    bootstrap_action: preserve
+  - hostname: adc-spsw0101
+    platform: nxos
+    source_path: docs/manual/containerlab/examples/single-site-fabric/source-config/adc-spsw0101_run.txt
+    source_sha256: sha256:4b97079d5e873a06ace766c1e25a8729e0e2d64b4b2312b6daaeeb70d6b05780
+    output_path: labconfig/adc-spsw0101_run.txt
+    output_sha256: sha256:6126de2574aa25904f41ff0311e748d59961f825db1337c56345f05c3552a42b
+    legacy_stats:
+      management_section_updates: 2
+      subinterface_conversions: 0
+      generated_parent_interfaces: 0
+      merged_existing_parent_interfaces: 0
+      merged_existing_svis: 0
+      inserted_no_switchport: 0
+      removed_username_lines: 0
+      removed_snmp_user_lines: 0
+      removed_access_class_lines: 0
+      inserted_lab_username: 0
+      renamed_hostname_lines: 0
+      renamed_description_lines: 0
+    adapter_stats:
+      removed_ntp: 3
+      removed_logging: 2
+      removed_dns: 0
+      removed_aaa: 0
+      removed_snmp: 4
+      removed_crypto: 0
+      removed_users: 0
+      removed_access_class: 3
+      generated_ntp: 1
+      generated_lab_users: 0
+      generated_logging: 0
+      generated_dns: 0
+      generated_aaa: 0
+      generated_snmp: 0
+      generated_access_class: 0
+      warning_count: 1
+    warnings:
+    - id: BOOTSTRAP_CREDENTIAL_PRESERVED
+      message: Containerlab bootstrap admin credential is preserved.
+    risk_findings:
+    - id: LAB_MANAGEMENT_CHANGE
+      level: WARN
+      summary: Transformed config changes this connectivity or service category.
+    - id: LAB_VTY_ACCESS_CHANGE
+      level: WARN
+      summary: Transformed config changes this connectivity or service category.
+    - id: LAB_NTP_CHANGE
+      level: INFO
+      summary: Transformed config changes this connectivity or service category.
+    - id: LAB_DNS_CHANGE
+      level: INFO
+      summary: Transformed config changes this connectivity or service category.
+    - id: LAB_HOSTNAME_CHANGE
+      level: INFO
+      summary: Transformed config changes this connectivity or service category.
+    - id: BOOTSTRAP_CREDENTIAL_PRESERVED
+      level: WARN
+      summary: Bootstrap credential handling requires post-apply connectivity verification.
+    primary_username: null
+    post_apply_username: admin
+    post_apply_password_ref: null
+    bootstrap_action: preserve
+  - hostname: adc-spsw0102
+    platform: nxos
+    source_path: docs/manual/containerlab/examples/single-site-fabric/source-config/adc-spsw0102_run.txt
+    source_sha256: sha256:9d41598653b81f9517a870d83a7fd388568648d87c429cadde4478376499ad29
+    output_path: labconfig/adc-spsw0102_run.txt
+    output_sha256: sha256:dd6bf23952c3c5896def7542f69ecd57f2897cb3bc3a4d86956cc5e00cf4cec5
+    legacy_stats:
+      management_section_updates: 2
+      subinterface_conversions: 0
+      generated_parent_interfaces: 0
+      merged_existing_parent_interfaces: 0
+      merged_existing_svis: 0
+      inserted_no_switchport: 0
+      removed_username_lines: 0
+      removed_snmp_user_lines: 0
+      removed_access_class_lines: 0
+      inserted_lab_username: 0
+      renamed_hostname_lines: 0
+      renamed_description_lines: 0
+    adapter_stats:
+      removed_ntp: 3
+      removed_logging: 2
+      removed_dns: 1
+      removed_aaa: 0
+      removed_snmp: 4
+      removed_crypto: 0
+      removed_users: 0
+      removed_access_class: 3
+      generated_ntp: 1
+      generated_lab_users: 0
+      generated_logging: 0
+      generated_dns: 0
+      generated_aaa: 0
+      generated_snmp: 0
+      generated_access_class: 0
+      warning_count: 1
+    warnings:
+    - id: BOOTSTRAP_CREDENTIAL_PRESERVED
+      message: Containerlab bootstrap admin credential is preserved.
+    risk_findings:
+    - id: LAB_MANAGEMENT_CHANGE
+      level: WARN
+      summary: Transformed config changes this connectivity or service category.
+    - id: LAB_VTY_ACCESS_CHANGE
+      level: WARN
+      summary: Transformed config changes this connectivity or service category.
+    - id: LAB_NTP_CHANGE
+      level: INFO
+      summary: Transformed config changes this connectivity or service category.
+    - id: LAB_DNS_CHANGE
+      level: INFO
+      summary: Transformed config changes this connectivity or service category.
+    - id: LAB_HOSTNAME_CHANGE
+      level: INFO
+      summary: Transformed config changes this connectivity or service category.
+    - id: BOOTSTRAP_CREDENTIAL_PRESERVED
+      level: WARN
+      summary: Bootstrap credential handling requires post-apply connectivity verification.
+    primary_username: null
+    post_apply_username: admin
+    post_apply_password_ref: null
+    bootstrap_action: preserve

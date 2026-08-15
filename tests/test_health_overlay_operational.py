@@ -13,13 +13,15 @@ FIXTURE_ROOT = Path(__file__).parent / "fixtures" / "nxos"
 
 def test_overlay_operational_fixtures_parse_expected_resources() -> None:
     parsed = {}
+    common_interfaces = {}
     for identifier, directory in (
         ("vlan_brief", "show_vlan_brief"),
         ("vrf", "show_vrf"),
         ("interface_brief", "show_interface_brief"),
     ):
         output = (FIXTURE_ROOT / directory / "documented_sample.txt").read_text(encoding="utf-8")
-        _, profile = parse_nxos_command(identifier, output)
+        common, profile = parse_nxos_command(identifier, output)
+        common_interfaces.update(common.get("interfaces", {}))
         parsed.update(profile["nxos-overlay"])
 
     assert parsed["vlans"]["vlans"]["10"]["status"] == "active"
@@ -31,6 +33,13 @@ def test_overlay_operational_fixtures_parse_expected_resources() -> None:
         "reason": "--",
     }
     assert parsed["svis"]["interfaces"]["Vlan1"]["admin_state"] == "down"
+    assert common_interfaces["Vlan10"]["status"] == "connected"
+    assert common_interfaces["Vlan1"] == {
+        "admin_state": "down",
+        "operational_state": "down",
+        "status": "disabled",
+        "reason": "Administratively down",
+    }
 
 
 def _snapshot(resolved: dict) -> dict:

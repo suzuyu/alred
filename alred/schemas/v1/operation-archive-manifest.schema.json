@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://alred.local/schemas/v1/operation-archive-manifest.schema.json",
+  "title": "OperationArchiveManifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["api_version", "kind", "metadata", "spec"],
+  "properties": {
+    "api_version": {"const": "alred/v1"},
+    "kind": {"const": "OperationArchiveManifest"},
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["change_id", "archived_at", "tool_version"],
+      "properties": {
+        "change_id": {"type": "string", "minLength": 1},
+        "archived_at": {"type": "string", "format": "date-time"},
+        "tool_version": {"type": "string", "minLength": 1}
+      }
+    },
+    "spec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["storage_version", "source_relative_path", "lifecycle", "closed_at", "files"],
+      "properties": {
+        "storage_version": {"const": 1},
+        "source_relative_path": {"type": "string", "minLength": 1},
+        "lifecycle": {"enum": ["completed", "completed_with_warnings", "cancelled"]},
+        "closed_at": {"type": "string", "format": "date-time"},
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["path", "size", "sha256", "mode"],
+            "properties": {
+              "path": {"type": "string", "minLength": 1},
+              "size": {"type": "integer", "minimum": 0},
+              "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+              "mode": {"type": "integer", "minimum": 0}
+            }
+          }
+        }
+      }
+    }
+  }
+}

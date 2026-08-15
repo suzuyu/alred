@@ -145,7 +145,7 @@ Netmiko hidden importは`tests/test_packaging.py`で回帰確認する。
 5. 未確認または非対応capabilityを`unknown`または`unsupported`として安全側で記録する。
 6. 文書確認が完了してもCapability Registryへ`APPLY_VERIFIED` entryを登録しない。
 
-詳細は[NX-OS Hardware Document Review](../design/NXOS_HARDWARE_DOCUMENT_REVIEW.md)と
+詳細は[NX-OS Hardware Document Review](../design/network-ops/NXOS_HARDWARE_DOCUMENT_REVIEW.md)と
 [`docs/compatibility/nxos/10.4.5M/`](../compatibility/nxos/10.4.5M/README.md)を参照する。
 
 ### 4.2 Releaseと配布先

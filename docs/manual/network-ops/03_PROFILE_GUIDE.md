@@ -219,7 +219,7 @@ plan前に固定profileを変更する必要がある場合は、通常の再実
 実行後:
 
 ```bash
-less operations/<change-id>/health/resolved-profiles.yaml
+less operations/live/YYYY/MM/DD/<change-id>/health/resolved-profiles.yaml
 ```
 
 出力例:

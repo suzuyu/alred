@@ -1,0 +1,1986 @@
+api_version: alred/v1
+kind: OverlayServiceModel
+metadata:
+  source:
+    type: file
+    value: docs/manual/containerlab/examples/single-site-fabric/topology.clab.example.yaml
+spec:
+  status: complete
+  parser_versions:
+    running_config: '1.0'
+    evpn_control_plane: '1.0'
+    operational: '1.13'
+  services:
+  - service_id: adc/controller-vpc1
+    site: adc
+    vrf: controller-vpc1
+    l3vni: 9001
+    address_families:
+    - ipv4
+    - ipv6
+    route_distinguisher: auto
+    import_route_targets:
+    - 65001:19001
+    - 65001:29001
+    - 65001:9001
+    export_route_targets:
+    - 65001:9001
+    route_target_observations:
+    - node: adc-lfsw0101
+      address_family: ipv4
+      scope: evpn
+      direction: export
+      configured_value: auto
+      resolved_value: 65001:9001
+      resolution: nxos-asn-vni
+      evidence_ref: adc-lfsw0101:running_config
+    - node: adc-lfsw0101
+      address_family: ipv4
+      scope: evpn
+      direction: import
+      configured_value: 65001:19001
+      resolved_value: 65001:19001
+      resolution: explicit
+      evidence_ref: adc-lfsw0101:running_config
+    - node: adc-lfsw0101
+      address_family: ipv4
+      scope: evpn
+      direction: import
+      configured_value: 65001:29001
+      resolved_value: 65001:29001
+      resolution: explicit
+      evidence_ref: adc-lfsw0101:running_config
+    - node: adc-lfsw0101
+      address_family: ipv4
+      scope: evpn
+      direction: import
+      configured_value: auto
+      resolved_value: 65001:9001
+      resolution: nxos-asn-vni
+      evidence_ref: adc-lfsw0101:running_config
+    - node: adc-lfsw0101
+      address_family: ipv4
+      scope: vpn
+      direction: export
+      configured_value: auto
+      resolved_value: 65001:9001
+      resolution: nxos-asn-vni
+      evidence_ref: adc-lfsw0101:running_config
+    - node: adc-lfsw0101
+      address_family: ipv4
+      scope: vpn
+      direction: import
+      configured_value: 65001:19001
+      resolved_value: 65001:19001
+      resolution: explicit
+      evidence_ref: adc-lfsw0101:running_config
+    - node: adc-lfsw0101
+      address_family: ipv4
+      scope: vpn
+      direction: import
+      configured_value: 65001:29001
+      resolved_value: 65001:29001
+      resolution: explicit
+      evidence_ref: adc-lfsw0101:running_config
+    - node: adc-lfsw0101
+      address_family: ipv4
+      scope: vpn
+      direction: import
+      configured_value: auto
+      resolved_value: 65001:9001
+      resolution: nxos-asn-vni
+      evidence_ref: adc-lfsw0101:running_config
+    - node: adc-lfsw0101
+      address_family: ipv6
+      scope: evpn
+      direction: export
+      configured_value: auto
+      resolved_value: 65001:9001
+      resolution: nxos-asn-vni
+      evidence_ref: adc-lfsw0101:running_config
+    - node: adc-lfsw0101
+      address_family: ipv6
+      scope: evpn
+      direction: import
+      configured_value: 65001:19001
+      resolved_value: 65001:19001
+      resolution: explicit
+      evidence_ref: adc-lfsw0101:running_config
+    - node: adc-lfsw0101
+      address_family: ipv6
+      scope: evpn
+      direction: import
+      configured_value: 65001:29001
+      resolved_value: 65001:29001
+      resolution: explicit
+      evidence_ref: adc-lfsw0101:running_config
+    - node: adc-lfsw0101
+      address_family: ipv6
+      scope: evpn
+      direction: import
+      configured_value: auto
+      resolved_value: 65001:9001
+      resolution: nxos-asn-vni
+      evidence_ref: adc-lfsw0101:running_config
+    - node: adc-lfsw0101
+      address_family: ipv6
+      scope: vpn
+      direction: export
+      configured_value: auto
+      resolved_value: 65001:9001
+      resolution: nxos-asn-vni
+      evidence_ref: adc-lfsw0101:running_config
+    - node: adc-lfsw0101
+      address_family: ipv6
+      scope: vpn
+      direction: import
+      configured_value: 65001:19001
+      resolved_value: 65001:19001
+      resolution: explicit
+      evidence_ref: adc-lfsw0101:running_config
+    - node: adc-lfsw0101
+      address_family: ipv6
+      scope: vpn
+      direction: import
+      configured_value: 65001:29001
+      resolved_value: 65001:29001
+      resolution: explicit
+      evidence_ref: adc-lfsw0101:running_config
+    - node: adc-lfsw0101
+      address_family: ipv6
+      scope: vpn
+      direction: import
+      configured_value: auto
+      resolved_value: 65001:9001
+      resolution: nxos-asn-vni
+      evidence_ref: adc-lfsw0101:running_config
+    - node: adc-lfsw0102
+      address_family: ipv4
+      scope: evpn
+      direction: export
+      configured_value: auto
+      resolved_value: 65001:9001
+      resolution: nxos-asn-vni
+      evidence_ref: adc-lfsw0102:running_config
+    - node: adc-lfsw0102
+      address_family: ipv4
+      scope: evpn
+      direction: import
+      configured_value: 65001:19001
+      resolved_value: 65001:19001
+      resolution: explicit
+      evidence_ref: adc-lfsw0102:running_config
+    - node: adc-lfsw0102
+      address_family: ipv4
+      scope: evpn
+      direction: import
+      configured_value: 65001:29001
+      resolved_value: 65001:29001
+      resolution: explicit
+      evidence_ref: adc-lfsw0102:running_config
+    - node: adc-lfsw0102
+      address_family: ipv4
+      scope: evpn
+      direction: import
+      configured_value: auto
+      resolved_value: 65001:9001
+      resolution: nxos-asn-vni
+      evidence_ref: adc-lfsw0102:running_config
+    - node: adc-lfsw0102
+      address_family: ipv4
+      scope: vpn
+      direction: export
+      configured_value: auto
+      resolved_value: 65001:9001
+      resolution: nxos-asn-vni
+      evidence_ref: adc-lfsw0102:running_config
+    - node: adc-lfsw0102
+      address_family: ipv4
+      scope: vpn
+      direction: import
+      configured_value: 65001:19001
+      resolved_value: 65001:19001
+      resolution: explicit
+      evidence_ref: adc-lfsw0102:running_config
+    - node: adc-lfsw0102
+      address_family: ipv4
+      scope: vpn
+      direction: import
+      configured_value: 65001:29001
+      resolved_value: 65001:29001
+      resolution: explicit
+      evidence_ref: adc-lfsw0102:running_config
+    - node: adc-lfsw0102
+      address_family: ipv4
+      scope: vpn
+      direction: import
+      configured_value: auto
+      resolved_value: 65001:9001
+      resolution: nxos-asn-vni
+      evidence_ref: adc-lfsw0102:running_config
+    - node: adc-lfsw0102
+      address_family: ipv6
+      scope: evpn
+      direction: export
+      configured_value: auto
+      resolved_value: 65001:9001
+      resolution: nxos-asn-vni
+      evidence_ref: adc-lfsw0102:running_config
+    - node: adc-lfsw0102
+      address_family: ipv6
+      scope: evpn
+      direction: import
+      configured_value: 65001:19001
+      resolved_value: 65001:19001
+      resolution: explicit
+      evidence_ref: adc-lfsw0102:running_config
+    - node: adc-lfsw0102
+      address_family: ipv6
+      scope: evpn
+      direction: import
+      configured_value: 65001:29001
+      resolved_value: 65001:29001
+      resolution: explicit
+      evidence_ref: adc-lfsw0102:running_config
+    - node: adc-lfsw0102
+      address_family: ipv6
+      scope: evpn
+      direction: import
+      configured_value: auto
+      resolved_value: 65001:9001
+      resolution: nxos-asn-vni
+      evidence_ref: adc-lfsw0102:running_config
+    - node: adc-lfsw0102
+      address_family: ipv6
+      scope: vpn
+      direction: export
+      configured_value: auto
+      resolved_value: 65001:9001
+      resolution: nxos-asn-vni
+      evidence_ref: adc-lfsw0102:running_config
+    - node: adc-lfsw0102
+      address_family: ipv6
+      scope: vpn
+      direction: import
+      configured_value: 65001:19001
+      resolved_value: 65001:19001
+      resolution: explicit
+      evidence_ref: adc-lfsw0102:running_config
+    - node: adc-lfsw0102
+      address_family: ipv6
+      scope: vpn
+      direction: import
+      configured_value: 65001:29001
+      resolved_value: 65001:29001
+      resolution: explicit
+      evidence_ref: adc-lfsw0102:running_config
+    - node: adc-lfsw0102
+      address_family: ipv6
+      scope: vpn
+      direction: import
+      configured_value: auto
+      resolved_value: 65001:9001
+      resolution: nxos-asn-vni
+      evidence_ref: adc-lfsw0102:running_config
+    - node: adc-lfsw0103
+      address_family: ipv4
+      scope: evpn
+      direction: export
+      configured_value: auto
+      resolved_value: 65001:9001
+      resolution: nxos-asn-vni
+      evidence_ref: adc-lfsw0103:running_config
+    - node: adc-lfsw0103
+      address_family: ipv4
+      scope: evpn
+      direction: import
+      configured_value: 65001:19001
+      resolved_value: 65001:19001
+      resolution: explicit
+      evidence_ref: adc-lfsw0103:running_config
+    - node: adc-lfsw0103
+      address_family: ipv4
+      scope: evpn
+      direction: import
+      configured_value: 65001:29001
+      resolved_value: 65001:29001
+      resolution: explicit
+      evidence_ref: adc-lfsw0103:running_config
+    - node: adc-lfsw0103
+      address_family: ipv4
+      scope: evpn
+      direction: import
+      configured_value: auto
+      resolved_value: 65001:9001
+      resolution: nxos-asn-vni
+      evidence_ref: adc-lfsw0103:running_config
+    - node: adc-lfsw0103
+      address_family: ipv4
+      scope: vpn
+      direction: export
+      configured_value: auto
+      resolved_value: 65001:9001
+      resolution: nxos-asn-vni
+      evidence_ref: adc-lfsw0103:running_config
+    - node: adc-lfsw0103
+      address_family: ipv4
+      scope: vpn
+      direction: import
+      configured_value: 65001:19001
+      resolved_value: 65001:19001
+      resolution: explicit
+      evidence_ref: adc-lfsw0103:running_config
+    - node: adc-lfsw0103
+      address_family: ipv4
+      scope: vpn
+      direction: import
+      configured_value: 65001:29001
+      resolved_value: 65001:29001
+      resolution: explicit
+      evidence_ref: adc-lfsw0103:running_config
+    - node: adc-lfsw0103
+      address_family: ipv4
+      scope: vpn
+      direction: import
+      configured_value: auto
+      resolved_value: 65001:9001
+      resolution: nxos-asn-vni
+      evidence_ref: adc-lfsw0103:running_config
+    - node: adc-lfsw0103
+      address_family: ipv6
+      scope: evpn
+      direction: export
+      configured_value: auto
+      resolved_value: 65001:9001
+      resolution: nxos-asn-vni
+      evidence_ref: adc-lfsw0103:running_config
+    - node: adc-lfsw0103
+      address_family: ipv6
+      scope: evpn
+      direction: import
+      configured_value: 65001:19001
+      resolved_value: 65001:19001
+      resolution: explicit
+      evidence_ref: adc-lfsw0103:running_config
+    - node: adc-lfsw0103
+      address_family: ipv6
+      scope: evpn
+      direction: import
+      configured_value: 65001:29001
+      resolved_value: 65001:29001
+      resolution: explicit
+      evidence_ref: adc-lfsw0103:running_config
+    - node: adc-lfsw0103
+      address_family: ipv6
+      scope: evpn
+      direction: import
+      configured_value: auto
+      resolved_value: 65001:9001
+      resolution: nxos-asn-vni
+      evidence_ref: adc-lfsw0103:running_config
+    - node: adc-lfsw0103
+      address_family: ipv6
+      scope: vpn
+      direction: export
+      configured_value: auto
+      resolved_value: 65001:9001
+      resolution: nxos-asn-vni
+      evidence_ref: adc-lfsw0103:running_config
+    - node: adc-lfsw0103
+      address_family: ipv6
+      scope: vpn
+      direction: import
+      configured_value: 65001:19001
+      resolved_value: 65001:19001
+      resolution: explicit
+      evidence_ref: adc-lfsw0103:running_config
+    - node: adc-lfsw0103
+      address_family: ipv6
+      scope: vpn
+      direction: import
+      configured_value: 65001:29001
+      resolved_value: 65001:29001
+      resolution: explicit
+      evidence_ref: adc-lfsw0103:running_config
+    - node: adc-lfsw0103
+      address_family: ipv6
+      scope: vpn
+      direction: import
+      configured_value: auto
+      resolved_value: 65001:9001
+      resolution: nxos-asn-vni
+      evidence_ref: adc-lfsw0103:running_config
+    - node: adc-lfsw0104
+      address_family: ipv4
+      scope: evpn
+      direction: export
+      configured_value: auto
+      resolved_value: 65001:9001
+      resolution: nxos-asn-vni
+      evidence_ref: adc-lfsw0104:running_config
+    - node: adc-lfsw0104
+      address_family: ipv4
+      scope: evpn
+      direction: import
+      configured_value: 65001:19001
+      resolved_value: 65001:19001
+      resolution: explicit
+      evidence_ref: adc-lfsw0104:running_config
+    - node: adc-lfsw0104
+      address_family: ipv4
+      scope: evpn
+      direction: import
+      configured_value: 65001:29001
+      resolved_value: 65001:29001
+      resolution: explicit
+      evidence_ref: adc-lfsw0104:running_config
+    - node: adc-lfsw0104
+      address_family: ipv4
+      scope: evpn
+      direction: import
+      configured_value: auto
+      resolved_value: 65001:9001
+      resolution: nxos-asn-vni
+      evidence_ref: adc-lfsw0104:running_config
+    - node: adc-lfsw0104
+      address_family: ipv4
+      scope: vpn
+      direction: export
+      configured_value: auto
+      resolved_value: 65001:9001
+      resolution: nxos-asn-vni
+      evidence_ref: adc-lfsw0104:running_config
+    - node: adc-lfsw0104
+      address_family: ipv4
+      scope: vpn
+      direction: import
+      configured_value: 65001:19001
+      resolved_value: 65001:19001
+      resolution: explicit
+      evidence_ref: adc-lfsw0104:running_config
+    - node: adc-lfsw0104
+      address_family: ipv4
+      scope: vpn
+      direction: import
+      configured_value: 65001:29001
+      resolved_value: 65001:29001
+      resolution: explicit
+      evidence_ref: adc-lfsw0104:running_config
+    - node: adc-lfsw0104
+      address_family: ipv4
+      scope: vpn
+      direction: import
+      configured_value: auto
+      resolved_value: 65001:9001
+      resolution: nxos-asn-vni
+      evidence_ref: adc-lfsw0104:running_config
+    - node: adc-lfsw0104
+      address_family: ipv6
+      scope: evpn
+      direction: export
+      configured_value: auto
+      resolved_value: 65001:9001
+      resolution: nxos-asn-vni
+      evidence_ref: adc-lfsw0104:running_config
+    - node: adc-lfsw0104
+      address_family: ipv6
+      scope: evpn
+      direction: import
+      configured_value: 65001:19001
+      resolved_value: 65001:19001
+      resolution: explicit
+      evidence_ref: adc-lfsw0104:running_config
+    - node: adc-lfsw0104
+      address_family: ipv6
+      scope: evpn
+      direction: import
+      configured_value: 65001:29001
+      resolved_value: 65001:29001
+      resolution: explicit
+      evidence_ref: adc-lfsw0104:running_config
+    - node: adc-lfsw0104
+      address_family: ipv6
+      scope: evpn
+      direction: import
+      configured_value: auto
+      resolved_value: 65001:9001
+      resolution: nxos-asn-vni
+      evidence_ref: adc-lfsw0104:running_config
+    - node: adc-lfsw0104
+      address_family: ipv6
+      scope: vpn
+      direction: export
+      configured_value: auto
+      resolved_value: 65001:9001
+      resolution: nxos-asn-vni
+      evidence_ref: adc-lfsw0104:running_config
+    - node: adc-lfsw0104
+      address_family: ipv6
+      scope: vpn
+      direction: import
+      configured_value: 65001:19001
+      resolved_value: 65001:19001
+      resolution: explicit
+      evidence_ref: adc-lfsw0104:running_config
+    - node: adc-lfsw0104
+      address_family: ipv6
+      scope: vpn
+      direction: import
+      configured_value: 65001:29001
+      resolved_value: 65001:29001
+      resolution: explicit
+      evidence_ref: adc-lfsw0104:running_config
+    - node: adc-lfsw0104
+      address_family: ipv6
+      scope: vpn
+      direction: import
+      configured_value: auto
+      resolved_value: 65001:9001
+      resolution: nxos-asn-vni
+      evidence_ref: adc-lfsw0104:running_config
+    l2_services:
+    - l2vni: 100
+      vlan: 2001
+      svi: Vlan2001
+      rd: auto
+      nodes:
+      - adc-lfsw0101
+      - adc-lfsw0102
+      - adc-lfsw0103
+      - adc-lfsw0104
+      nve_member: true
+      bindings:
+      - node: adc-lfsw0101
+        vlan: 2001
+        svi: Vlan2001
+        nve_member: true
+        gateway: true
+        gateway_mode: anycast
+        ipv4_addresses:
+        - 100.64.0.254/24
+        ipv6_addresses:
+        - fd12:0:0:1::1/64
+        ip_forward: false
+      - node: adc-lfsw0102
+        vlan: 2001
+        svi: Vlan2001
+        nve_member: true
+        gateway: true
+        gateway_mode: anycast
+        ipv4_addresses:
+        - 100.64.0.254/24
+        ipv6_addresses:
+        - fd12:0:0:1::1/64
+        ip_forward: false
+      - node: adc-lfsw0103
+        vlan: 2001
+        svi: Vlan2001
+        nve_member: true
+        gateway: true
+        gateway_mode: anycast
+        ipv4_addresses:
+        - 100.64.0.254/24
+        ipv6_addresses:
+        - fd12:0:0:1::1/64
+        ip_forward: false
+      - node: adc-lfsw0104
+        vlan: 2001
+        svi: Vlan2001
+        nve_member: true
+        gateway: true
+        gateway_mode: anycast
+        ipv4_addresses:
+        - 100.64.0.254/24
+        ipv6_addresses:
+        - fd12:0:0:1::1/64
+        ip_forward: false
+      gateway_state: 'yes'
+      gateway_modes:
+      - anycast
+      ipv4_addresses:
+      - 100.64.0.254/24
+      ipv6_addresses:
+      - fd12:0:0:1::1/64
+      vlan_state: common
+    l3vni_mode: traditional_vlan_svi
+    l3vni_mode_state: consistent
+    l3vni_bindings:
+    - node: adc-lfsw0101
+      mode: traditional_vlan_svi
+      vlan: 3000
+      svi: Vlan3000
+      svi_behavior: ip-forward
+      nve_associate_vrf: true
+      ipv4_addresses: []
+      ipv6_addresses: []
+      ipv6_use_link_local_only: true
+    - node: adc-lfsw0102
+      mode: traditional_vlan_svi
+      vlan: 3000
+      svi: Vlan3000
+      svi_behavior: ip-forward
+      nve_associate_vrf: true
+      ipv4_addresses: []
+      ipv6_addresses: []
+      ipv6_use_link_local_only: true
+    - node: adc-lfsw0103
+      mode: traditional_vlan_svi
+      vlan: 3000
+      svi: Vlan3000
+      svi_behavior: ip-forward
+      nve_associate_vrf: true
+      ipv4_addresses: []
+      ipv6_addresses: []
+      ipv6_use_link_local_only: true
+    - node: adc-lfsw0104
+      mode: traditional_vlan_svi
+      vlan: 3000
+      svi: Vlan3000
+      svi_behavior: ip-forward
+      nve_associate_vrf: true
+      ipv4_addresses: []
+      ipv6_addresses: []
+      ipv6_use_link_local_only: true
+    placements:
+    - node: adc-lfsw0101
+      placement_type: evpn-vtep
+      vtep_addresses:
+      - 10.0.1.1
+      - 10.0.2.1
+      vpc_domain: '1'
+      vpc_shared_vtep_addresses:
+      - 10.0.2.1
+      nve_l3_member: true
+    - node: adc-lfsw0102
+      placement_type: evpn-vtep
+      vtep_addresses:
+      - 10.0.1.2
+      - 10.0.2.1
+      vpc_domain: '1'
+      vpc_shared_vtep_addresses:
+      - 10.0.2.1
+      nve_l3_member: true
+    - node: adc-lfsw0103
+      placement_type: evpn-vtep
+      vtep_addresses:
+      - 10.0.1.3
+      - 10.0.2.2
+      vpc_domain: '1'
+      vpc_shared_vtep_addresses:
+      - 10.0.2.2
+      nve_l3_member: true
+    - node: adc-lfsw0104
+      placement_type: evpn-vtep
+      vtep_addresses:
+      - 10.0.1.4
+      - 10.0.2.2
+      vpc_domain: '1'
+      vpc_shared_vtep_addresses:
+      - 10.0.2.2
+      nve_l3_member: true
+    route_type_summary:
+      type2: null
+      type3: null
+      type5: null
+    status: configured
+    conflicts: []
+    evidence_refs:
+    - adc-lfsw0101:running_config
+    - adc-lfsw0102:running_config
+    - adc-lfsw0103:running_config
+    - adc-lfsw0104:running_config
+  - service_id: adc/tenant1-vpc1
+    site: adc
+    vrf: tenant1-vpc1
+    l3vni: 19001
+    address_families:
+    - ipv4
+    - ipv6
+    route_distinguisher: auto
+    import_route_targets:
+    - 65001:19001
+    - 65001:9001
+    export_route_targets:
+    - 65001:19001
+    route_target_observations:
+    - node: adc-lfsw0101
+      address_family: ipv4
+      scope: evpn
+      direction: export
+      configured_value: auto
+      resolved_value: 65001:19001
+      resolution: nxos-asn-vni
+      evidence_ref: adc-lfsw0101:running_config
+    - node: adc-lfsw0101
+      address_family: ipv4
+      scope: evpn
+      direction: import
+      configured_value: auto
+      resolved_value: 65001:19001
+      resolution: nxos-asn-vni
+      evidence_ref: adc-lfsw0101:running_config
+    - node: adc-lfsw0101
+      address_family: ipv4
+      scope: vpn
+      direction: export
+      configured_value: auto
+      resolved_value: 65001:19001
+      resolution: nxos-asn-vni
+      evidence_ref: adc-lfsw0101:running_config
+    - node: adc-lfsw0101
+      address_family: ipv4
+      scope: vpn
+      direction: import
+      configured_value: auto
+      resolved_value: 65001:19001
+      resolution: nxos-asn-vni
+      evidence_ref: adc-lfsw0101:running_config
+    - node: adc-lfsw0101
+      address_family: ipv6
+      scope: evpn
+      direction: export
+      configured_value: auto
+      resolved_value: 65001:19001
+      resolution: nxos-asn-vni
+      evidence_ref: adc-lfsw0101:running_config
+    - node: adc-lfsw0101
+      address_family: ipv6
+      scope: evpn
+      direction: import
+      configured_value: auto
+      resolved_value: 65001:19001
+      resolution: nxos-asn-vni
+      evidence_ref: adc-lfsw0101:running_config
+    - node: adc-lfsw0101
+      address_family: ipv6
+      scope: evpn
+      direction: import
+      configured_value: 65001:9001
+      resolved_value: 65001:9001
+      resolution: explicit
+      evidence_ref: adc-lfsw0101:running_config
+    - node: adc-lfsw0101
+      address_family: ipv6
+      scope: vpn
+      direction: export
+      configured_value: auto
+      resolved_value: 65001:19001
+      resolution: nxos-asn-vni
+      evidence_ref: adc-lfsw0101:running_config
+    - node: adc-lfsw0101
+      address_family: ipv6
+      scope: vpn
+      direction: import
+      configured_value: auto
+      resolved_value: 65001:19001
+      resolution: nxos-asn-vni
+      evidence_ref: adc-lfsw0101:running_config
+    - node: adc-lfsw0101
+      address_family: ipv6
+      scope: vpn
+      direction: import
+      configured_value: 65001:9001
+      resolved_value: 65001:9001
+      resolution: explicit
+      evidence_ref: adc-lfsw0101:running_config
+    - node: adc-lfsw0102
+      address_family: ipv4
+      scope: evpn
+      direction: export
+      configured_value: auto
+      resolved_value: 65001:19001
+      resolution: nxos-asn-vni
+      evidence_ref: adc-lfsw0102:running_config
+    - node: adc-lfsw0102
+      address_family: ipv4
+      scope: evpn
+      direction: import
+      configured_value: auto
+      resolved_value: 65001:19001
+      resolution: nxos-asn-vni
+      evidence_ref: adc-lfsw0102:running_config
+    - node: adc-lfsw0102
+      address_family: ipv4
+      scope: vpn
+      direction: export
+      configured_value: auto
+      resolved_value: 65001:19001
+      resolution: nxos-asn-vni
+      evidence_ref: adc-lfsw0102:running_config
+    - node: adc-lfsw0102
+      address_family: ipv4
+      scope: vpn
+      direction: import
+      configured_value: auto
+      resolved_value: 65001:19001
+      resolution: nxos-asn-vni
+      evidence_ref: adc-lfsw0102:running_config
+    - node: adc-lfsw0102
+      address_family: ipv6
+      scope: evpn
+      direction: export
+      configured_value: auto
+      resolved_value: 65001:19001
+      resolution: nxos-asn-vni
+      evidence_ref: adc-lfsw0102:running_config
+    - node: adc-lfsw0102
+      address_family: ipv6
+      scope: evpn
+      direction: import
+      configured_value: auto
+      resolved_value: 65001:19001
+      resolution: nxos-asn-vni
+      evidence_ref: adc-lfsw0102:running_config
+    - node: adc-lfsw0102
+      address_family: ipv6
+      scope: evpn
+      direction: import
+      configured_value: 65001:9001
+      resolved_value: 65001:9001
+      resolution: explicit
+      evidence_ref: adc-lfsw0102:running_config
+    - node: adc-lfsw0102
+      address_family: ipv6
+      scope: vpn
+      direction: export
+      configured_value: auto
+      resolved_value: 65001:19001
+      resolution: nxos-asn-vni
+      evidence_ref: adc-lfsw0102:running_config
+    - node: adc-lfsw0102
+      address_family: ipv6
+      scope: vpn
+      direction: import
+      configured_value: auto
+      resolved_value: 65001:19001
+      resolution: nxos-asn-vni
+      evidence_ref: adc-lfsw0102:running_config
+    - node: adc-lfsw0102
+      address_family: ipv6
+      scope: vpn
+      direction: import
+      configured_value: 65001:9001
+      resolved_value: 65001:9001
+      resolution: explicit
+      evidence_ref: adc-lfsw0102:running_config
+    - node: adc-lfsw0103
+      address_family: ipv4
+      scope: evpn
+      direction: export
+      configured_value: auto
+      resolved_value: 65001:19001
+      resolution: nxos-asn-vni
+      evidence_ref: adc-lfsw0103:running_config
+    - node: adc-lfsw0103
+      address_family: ipv4
+      scope: evpn
+      direction: import
+      configured_value: auto
+      resolved_value: 65001:19001
+      resolution: nxos-asn-vni
+      evidence_ref: adc-lfsw0103:running_config
+    - node: adc-lfsw0103
+      address_family: ipv4
+      scope: vpn
+      direction: export
+      configured_value: auto
+      resolved_value: 65001:19001
+      resolution: nxos-asn-vni
+      evidence_ref: adc-lfsw0103:running_config
+    - node: adc-lfsw0103
+      address_family: ipv4
+      scope: vpn
+      direction: import
+      configured_value: auto
+      resolved_value: 65001:19001
+      resolution: nxos-asn-vni
+      evidence_ref: adc-lfsw0103:running_config
+    - node: adc-lfsw0103
+      address_family: ipv6
+      scope: evpn
+      direction: export
+      configured_value: auto
+      resolved_value: 65001:19001
+      resolution: nxos-asn-vni
+      evidence_ref: adc-lfsw0103:running_config
+    - node: adc-lfsw0103
+      address_family: ipv6
+      scope: evpn
+      direction: import
+      configured_value: auto
+      resolved_value: 65001:19001
+      resolution: nxos-asn-vni
+      evidence_ref: adc-lfsw0103:running_config
+    - node: adc-lfsw0103
+      address_family: ipv6
+      scope: evpn
+      direction: import
+      configured_value: 65001:9001
+      resolved_value: 65001:9001
+      resolution: explicit
+      evidence_ref: adc-lfsw0103:running_config
+    - node: adc-lfsw0103
+      address_family: ipv6
+      scope: vpn
+      direction: export
+      configured_value: auto
+      resolved_value: 65001:19001
+      resolution: nxos-asn-vni
+      evidence_ref: adc-lfsw0103:running_config
+    - node: adc-lfsw0103
+      address_family: ipv6
+      scope: vpn
+      direction: import
+      configured_value: auto
+      resolved_value: 65001:19001
+      resolution: nxos-asn-vni
+      evidence_ref: adc-lfsw0103:running_config
+    - node: adc-lfsw0103
+      address_family: ipv6
+      scope: vpn
+      direction: import
+      configured_value: 65001:9001
+      resolved_value: 65001:9001
+      resolution: explicit
+      evidence_ref: adc-lfsw0103:running_config
+    - node: adc-lfsw0104
+      address_family: ipv4
+      scope: evpn
+      direction: export
+      configured_value: auto
+      resolved_value: 65001:19001
+      resolution: nxos-asn-vni
+      evidence_ref: adc-lfsw0104:running_config
+    - node: adc-lfsw0104
+      address_family: ipv4
+      scope: evpn
+      direction: import
+      configured_value: auto
+      resolved_value: 65001:19001
+      resolution: nxos-asn-vni
+      evidence_ref: adc-lfsw0104:running_config
+    - node: adc-lfsw0104
+      address_family: ipv4
+      scope: vpn
+      direction: export
+      configured_value: auto
+      resolved_value: 65001:19001
+      resolution: nxos-asn-vni
+      evidence_ref: adc-lfsw0104:running_config
+    - node: adc-lfsw0104
+      address_family: ipv4
+      scope: vpn
+      direction: import
+      configured_value: auto
+      resolved_value: 65001:19001
+      resolution: nxos-asn-vni
+      evidence_ref: adc-lfsw0104:running_config
+    - node: adc-lfsw0104
+      address_family: ipv6
+      scope: evpn
+      direction: export
+      configured_value: auto
+      resolved_value: 65001:19001
+      resolution: nxos-asn-vni
+      evidence_ref: adc-lfsw0104:running_config
+    - node: adc-lfsw0104
+      address_family: ipv6
+      scope: evpn
+      direction: import
+      configured_value: auto
+      resolved_value: 65001:19001
+      resolution: nxos-asn-vni
+      evidence_ref: adc-lfsw0104:running_config
+    - node: adc-lfsw0104
+      address_family: ipv6
+      scope: evpn
+      direction: import
+      configured_value: 65001:9001
+      resolved_value: 65001:9001
+      resolution: explicit
+      evidence_ref: adc-lfsw0104:running_config
+    - node: adc-lfsw0104
+      address_family: ipv6
+      scope: vpn
+      direction: export
+      configured_value: auto
+      resolved_value: 65001:19001
+      resolution: nxos-asn-vni
+      evidence_ref: adc-lfsw0104:running_config
+    - node: adc-lfsw0104
+      address_family: ipv6
+      scope: vpn
+      direction: import
+      configured_value: auto
+      resolved_value: 65001:19001
+      resolution: nxos-asn-vni
+      evidence_ref: adc-lfsw0104:running_config
+    - node: adc-lfsw0104
+      address_family: ipv6
+      scope: vpn
+      direction: import
+      configured_value: 65001:9001
+      resolved_value: 65001:9001
+      resolution: explicit
+      evidence_ref: adc-lfsw0104:running_config
+    l2_services:
+    - l2vni: 10100
+      vlan: null
+      svi: null
+      rd: auto
+      nodes:
+      - adc-lfsw0101
+      - adc-lfsw0102
+      - adc-lfsw0103
+      - adc-lfsw0104
+      nve_member: true
+      bindings:
+      - node: adc-lfsw0101
+        vlan: 100
+        svi: Vlan100
+        nve_member: true
+        gateway: true
+        gateway_mode: anycast
+        ipv4_addresses:
+        - 172.16.0.254/24
+        ipv6_addresses:
+        - fd21:0:0:1::1/64
+        ip_forward: false
+      - node: adc-lfsw0102
+        vlan: 100
+        svi: Vlan100
+        nve_member: true
+        gateway: true
+        gateway_mode: anycast
+        ipv4_addresses:
+        - 172.16.0.254/24
+        ipv6_addresses:
+        - fd21:0:0:1::1/64
+        ip_forward: false
+      - node: adc-lfsw0103
+        vlan: 10
+        svi: Vlan10
+        nve_member: true
+        gateway: true
+        gateway_mode: anycast
+        ipv4_addresses:
+        - 172.16.0.254/24
+        ipv6_addresses:
+        - fd21:0:0:1::1/64
+        ip_forward: false
+      - node: adc-lfsw0104
+        vlan: 10
+        svi: Vlan10
+        nve_member: true
+        gateway: true
+        gateway_mode: anycast
+        ipv4_addresses:
+        - 172.16.0.254/24
+        ipv6_addresses:
+        - fd21:0:0:1::1/64
+        ip_forward: false
+      gateway_state: 'yes'
+      gateway_modes:
+      - anycast
+      ipv4_addresses:
+      - 172.16.0.254/24
+      ipv6_addresses:
+      - fd21:0:0:1::1/64
+      vlan_state: per-device
+    - l2vni: 10101
+      vlan: 11
+      svi: Vlan11
+      rd: auto
+      nodes:
+      - adc-lfsw0103
+      - adc-lfsw0104
+      nve_member: true
+      bindings:
+      - node: adc-lfsw0103
+        vlan: 11
+        svi: Vlan11
+        nve_member: true
+        gateway: true
+        gateway_mode: anycast
+        ipv4_addresses:
+        - 172.16.1.254/24
+        ipv6_addresses:
+        - fd21:0:0:2::1/64
+        ip_forward: false
+      - node: adc-lfsw0104
+        vlan: 11
+        svi: Vlan11
+        nve_member: true
+        gateway: true
+        gateway_mode: anycast
+        ipv4_addresses:
+        - 172.16.1.254/24
+        ipv6_addresses:
+        - fd21:0:0:2::1/64
+        ip_forward: false
+      gateway_state: 'yes'
+      gateway_modes:
+      - anycast
+      ipv4_addresses:
+      - 172.16.1.254/24
+      ipv6_addresses:
+      - fd21:0:0:2::1/64
+      vlan_state: common
+    - l2vni: 10103
+      vlan: null
+      svi: null
+      rd: auto
+      nodes:
+      - adc-lfsw0101
+      - adc-lfsw0102
+      - adc-lfsw0103
+      - adc-lfsw0104
+      nve_member: true
+      bindings:
+      - node: adc-lfsw0101
+        vlan: 103
+        svi: Vlan103
+        nve_member: true
+        gateway: true
+        gateway_mode: anycast
+        ipv4_addresses:
+        - 172.16.3.1/24
+        ipv6_addresses:
+        - fd21:0:0:3::1/64
+        ip_forward: false
+      - node: adc-lfsw0102
+        vlan: 103
+        svi: Vlan103
+        nve_member: true
+        gateway: true
+        gateway_mode: anycast
+        ipv4_addresses:
+        - 172.16.3.1/24
+        ipv6_addresses:
+        - fd21:0:0:3::1/64
+        ip_forward: false
+      - node: adc-lfsw0103
+        vlan: 13
+        svi: Vlan13
+        nve_member: true
+        gateway: true
+        gateway_mode: anycast
+        ipv4_addresses:
+        - 172.16.3.1/24
+        ipv6_addresses:
+        - fd21:0:0:3::1/64
+        ip_forward: false
+      - node: adc-lfsw0104
+        vlan: 13
+        svi: Vlan13
+        nve_member: true
+        gateway: true
+        gateway_mode: anycast
+        ipv4_addresses:
+        - 172.16.3.1/24
+        ipv6_addresses:
+        - fd21:0:0:3::1/64
+        ip_forward: false
+      gateway_state: 'yes'
+      gateway_modes:
+      - anycast
+      ipv4_addresses:
+      - 172.16.3.1/24
+      ipv6_addresses:
+      - fd21:0:0:3::1/64
+      vlan_state: per-device
+    - l2vni: 10104
+      vlan: null
+      svi: null
+      rd: auto
+      nodes:
+      - adc-lfsw0101
+      - adc-lfsw0102
+      - adc-lfsw0103
+      - adc-lfsw0104
+      nve_member: true
+      bindings:
+      - node: adc-lfsw0101
+        vlan: 104
+        svi: Vlan104
+        nve_member: true
+        gateway: true
+        gateway_mode: anycast
+        ipv4_addresses:
+        - 172.16.4.1/24
+        ipv6_addresses:
+        - fd21:0:0:4::1/64
+        ip_forward: false
+      - node: adc-lfsw0102
+        vlan: 104
+        svi: Vlan104
+        nve_member: true
+        gateway: true
+        gateway_mode: anycast
+        ipv4_addresses:
+        - 172.16.4.1/24
+        ipv6_addresses:
+        - fd21:0:0:4::1/64
+        ip_forward: false
+      - node: adc-lfsw0103
+        vlan: 14
+        svi: Vlan14
+        nve_member: true
+        gateway: true
+        gateway_mode: anycast
+        ipv4_addresses:
+        - 172.16.4.1/24
+        ipv6_addresses:
+        - fd21:0:0:4::1/64
+        ip_forward: false
+      - node: adc-lfsw0104
+        vlan: 14
+        svi: Vlan14
+        nve_member: true
+        gateway: true
+        gateway_mode: anycast
+        ipv4_addresses:
+        - 172.16.4.1/24
+        ipv6_addresses:
+        - fd21:0:0:4::1/64
+        ip_forward: false
+      gateway_state: 'yes'
+      gateway_modes:
+      - anycast
+      ipv4_addresses:
+      - 172.16.4.1/24
+      ipv6_addresses:
+      - fd21:0:0:4::1/64
+      vlan_state: per-device
+    l3vni_mode: traditional_vlan_svi
+    l3vni_mode_state: consistent
+    l3vni_bindings:
+    - node: adc-lfsw0101
+      mode: traditional_vlan_svi
+      vlan: 3001
+      svi: Vlan3001
+      svi_behavior: ip-forward
+      nve_associate_vrf: true
+      ipv4_addresses: []
+      ipv6_addresses: []
+      ipv6_use_link_local_only: true
+    - node: adc-lfsw0102
+      mode: traditional_vlan_svi
+      vlan: 3001
+      svi: Vlan3001
+      svi_behavior: ip-forward
+      nve_associate_vrf: true
+      ipv4_addresses: []
+      ipv6_addresses: []
+      ipv6_use_link_local_only: true
+    - node: adc-lfsw0103
+      mode: traditional_vlan_svi
+      vlan: 3001
+      svi: Vlan3001
+      svi_behavior: ip-forward
+      nve_associate_vrf: true
+      ipv4_addresses: []
+      ipv6_addresses: []
+      ipv6_use_link_local_only: true
+    - node: adc-lfsw0104
+      mode: traditional_vlan_svi
+      vlan: 3001
+      svi: Vlan3001
+      svi_behavior: ip-forward
+      nve_associate_vrf: true
+      ipv4_addresses: []
+      ipv6_addresses: []
+      ipv6_use_link_local_only: true
+    placements:
+    - node: adc-bgrt0101
+      placement_type: service-edge
+      vtep_addresses: []
+      vpc_domain: null
+      vpc_shared_vtep_addresses: []
+      nve_l3_member: false
+    - node: adc-bgrt0102
+      placement_type: service-edge
+      vtep_addresses: []
+      vpc_domain: null
+      vpc_shared_vtep_addresses: []
+      nve_l3_member: false
+    - node: adc-lfsw0101
+      placement_type: evpn-vtep
+      vtep_addresses:
+      - 10.0.1.1
+      - 10.0.2.1
+      vpc_domain: '1'
+      vpc_shared_vtep_addresses:
+      - 10.0.2.1
+      nve_l3_member: true
+    - node: adc-lfsw0102
+      placement_type: evpn-vtep
+      vtep_addresses:
+      - 10.0.1.2
+      - 10.0.2.1
+      vpc_domain: '1'
+      vpc_shared_vtep_addresses:
+      - 10.0.2.1
+      nve_l3_member: true
+    - node: adc-lfsw0103
+      placement_type: evpn-vtep
+      vtep_addresses:
+      - 10.0.1.3
+      - 10.0.2.2
+      vpc_domain: '1'
+      vpc_shared_vtep_addresses:
+      - 10.0.2.2
+      nve_l3_member: true
+    - node: adc-lfsw0104
+      placement_type: evpn-vtep
+      vtep_addresses:
+      - 10.0.1.4
+      - 10.0.2.2
+      vpc_domain: '1'
+      vpc_shared_vtep_addresses:
+      - 10.0.2.2
+      nve_l3_member: true
+    route_type_summary:
+      type2: null
+      type3: null
+      type5: null
+    status: configured
+    conflicts: []
+    evidence_refs:
+    - adc-bgrt0101:running_config
+    - adc-bgrt0102:running_config
+    - adc-lfsw0101:running_config
+    - adc-lfsw0102:running_config
+    - adc-lfsw0103:running_config
+    - adc-lfsw0104:running_config
+  - service_id: adc/tenant2-vpc1
+    site: adc
+    vrf: tenant2-vpc1
+    l3vni: 29001
+    address_families:
+    - ipv4
+    - ipv6
+    route_distinguisher: auto
+    import_route_targets:
+    - 65001:29001
+    - 65001:9001
+    export_route_targets:
+    - 65001:29001
+    route_target_observations:
+    - node: adc-lfsw0101
+      address_family: ipv4
+      scope: evpn
+      direction: export
+      configured_value: auto
+      resolved_value: 65001:29001
+      resolution: nxos-asn-vni
+      evidence_ref: adc-lfsw0101:running_config
+    - node: adc-lfsw0101
+      address_family: ipv4
+      scope: evpn
+      direction: import
+      configured_value: auto
+      resolved_value: 65001:29001
+      resolution: nxos-asn-vni
+      evidence_ref: adc-lfsw0101:running_config
+    - node: adc-lfsw0101
+      address_family: ipv4
+      scope: vpn
+      direction: export
+      configured_value: auto
+      resolved_value: 65001:29001
+      resolution: nxos-asn-vni
+      evidence_ref: adc-lfsw0101:running_config
+    - node: adc-lfsw0101
+      address_family: ipv4
+      scope: vpn
+      direction: import
+      configured_value: auto
+      resolved_value: 65001:29001
+      resolution: nxos-asn-vni
+      evidence_ref: adc-lfsw0101:running_config
+    - node: adc-lfsw0101
+      address_family: ipv6
+      scope: evpn
+      direction: export
+      configured_value: auto
+      resolved_value: 65001:29001
+      resolution: nxos-asn-vni
+      evidence_ref: adc-lfsw0101:running_config
+    - node: adc-lfsw0101
+      address_family: ipv6
+      scope: evpn
+      direction: import
+      configured_value: auto
+      resolved_value: 65001:29001
+      resolution: nxos-asn-vni
+      evidence_ref: adc-lfsw0101:running_config
+    - node: adc-lfsw0101
+      address_family: ipv6
+      scope: evpn
+      direction: import
+      configured_value: 65001:9001
+      resolved_value: 65001:9001
+      resolution: explicit
+      evidence_ref: adc-lfsw0101:running_config
+    - node: adc-lfsw0101
+      address_family: ipv6
+      scope: vpn
+      direction: export
+      configured_value: auto
+      resolved_value: 65001:29001
+      resolution: nxos-asn-vni
+      evidence_ref: adc-lfsw0101:running_config
+    - node: adc-lfsw0101
+      address_family: ipv6
+      scope: vpn
+      direction: import
+      configured_value: auto
+      resolved_value: 65001:29001
+      resolution: nxos-asn-vni
+      evidence_ref: adc-lfsw0101:running_config
+    - node: adc-lfsw0101
+      address_family: ipv6
+      scope: vpn
+      direction: import
+      configured_value: 65001:9001
+      resolved_value: 65001:9001
+      resolution: explicit
+      evidence_ref: adc-lfsw0101:running_config
+    - node: adc-lfsw0102
+      address_family: ipv4
+      scope: evpn
+      direction: export
+      configured_value: auto
+      resolved_value: 65001:29001
+      resolution: nxos-asn-vni
+      evidence_ref: adc-lfsw0102:running_config
+    - node: adc-lfsw0102
+      address_family: ipv4
+      scope: evpn
+      direction: import
+      configured_value: auto
+      resolved_value: 65001:29001
+      resolution: nxos-asn-vni
+      evidence_ref: adc-lfsw0102:running_config
+    - node: adc-lfsw0102
+      address_family: ipv4
+      scope: vpn
+      direction: export
+      configured_value: auto
+      resolved_value: 65001:29001
+      resolution: nxos-asn-vni
+      evidence_ref: adc-lfsw0102:running_config
+    - node: adc-lfsw0102
+      address_family: ipv4
+      scope: vpn
+      direction: import
+      configured_value: auto
+      resolved_value: 65001:29001
+      resolution: nxos-asn-vni
+      evidence_ref: adc-lfsw0102:running_config
+    - node: adc-lfsw0102
+      address_family: ipv6
+      scope: evpn
+      direction: export
+      configured_value: auto
+      resolved_value: 65001:29001
+      resolution: nxos-asn-vni
+      evidence_ref: adc-lfsw0102:running_config
+    - node: adc-lfsw0102
+      address_family: ipv6
+      scope: evpn
+      direction: import
+      configured_value: auto
+      resolved_value: 65001:29001
+      resolution: nxos-asn-vni
+      evidence_ref: adc-lfsw0102:running_config
+    - node: adc-lfsw0102
+      address_family: ipv6
+      scope: evpn
+      direction: import
+      configured_value: 65001:9001
+      resolved_value: 65001:9001
+      resolution: explicit
+      evidence_ref: adc-lfsw0102:running_config
+    - node: adc-lfsw0102
+      address_family: ipv6
+      scope: vpn
+      direction: export
+      configured_value: auto
+      resolved_value: 65001:29001
+      resolution: nxos-asn-vni
+      evidence_ref: adc-lfsw0102:running_config
+    - node: adc-lfsw0102
+      address_family: ipv6
+      scope: vpn
+      direction: import
+      configured_value: auto
+      resolved_value: 65001:29001
+      resolution: nxos-asn-vni
+      evidence_ref: adc-lfsw0102:running_config
+    - node: adc-lfsw0102
+      address_family: ipv6
+      scope: vpn
+      direction: import
+      configured_value: 65001:9001
+      resolved_value: 65001:9001
+      resolution: explicit
+      evidence_ref: adc-lfsw0102:running_config
+    - node: adc-lfsw0103
+      address_family: ipv4
+      scope: evpn
+      direction: export
+      configured_value: auto
+      resolved_value: 65001:29001
+      resolution: nxos-asn-vni
+      evidence_ref: adc-lfsw0103:running_config
+    - node: adc-lfsw0103
+      address_family: ipv4
+      scope: evpn
+      direction: import
+      configured_value: auto
+      resolved_value: 65001:29001
+      resolution: nxos-asn-vni
+      evidence_ref: adc-lfsw0103:running_config
+    - node: adc-lfsw0103
+      address_family: ipv4
+      scope: vpn
+      direction: export
+      configured_value: auto
+      resolved_value: 65001:29001
+      resolution: nxos-asn-vni
+      evidence_ref: adc-lfsw0103:running_config
+    - node: adc-lfsw0103
+      address_family: ipv4
+      scope: vpn
+      direction: import
+      configured_value: auto
+      resolved_value: 65001:29001
+      resolution: nxos-asn-vni
+      evidence_ref: adc-lfsw0103:running_config
+    - node: adc-lfsw0103
+      address_family: ipv6
+      scope: evpn
+      direction: export
+      configured_value: auto
+      resolved_value: 65001:29001
+      resolution: nxos-asn-vni
+      evidence_ref: adc-lfsw0103:running_config
+    - node: adc-lfsw0103
+      address_family: ipv6
+      scope: evpn
+      direction: import
+      configured_value: auto
+      resolved_value: 65001:29001
+      resolution: nxos-asn-vni
+      evidence_ref: adc-lfsw0103:running_config
+    - node: adc-lfsw0103
+      address_family: ipv6
+      scope: evpn
+      direction: import
+      configured_value: 65001:9001
+      resolved_value: 65001:9001
+      resolution: explicit
+      evidence_ref: adc-lfsw0103:running_config
+    - node: adc-lfsw0103
+      address_family: ipv6
+      scope: vpn
+      direction: export
+      configured_value: auto
+      resolved_value: 65001:29001
+      resolution: nxos-asn-vni
+      evidence_ref: adc-lfsw0103:running_config
+    - node: adc-lfsw0103
+      address_family: ipv6
+      scope: vpn
+      direction: import
+      configured_value: auto
+      resolved_value: 65001:29001
+      resolution: nxos-asn-vni
+      evidence_ref: adc-lfsw0103:running_config
+    - node: adc-lfsw0103
+      address_family: ipv6
+      scope: vpn
+      direction: import
+      configured_value: 65001:9001
+      resolved_value: 65001:9001
+      resolution: explicit
+      evidence_ref: adc-lfsw0103:running_config
+    - node: adc-lfsw0104
+      address_family: ipv4
+      scope: evpn
+      direction: export
+      configured_value: auto
+      resolved_value: 65001:29001
+      resolution: nxos-asn-vni
+      evidence_ref: adc-lfsw0104:running_config
+    - node: adc-lfsw0104
+      address_family: ipv4
+      scope: evpn
+      direction: import
+      configured_value: auto
+      resolved_value: 65001:29001
+      resolution: nxos-asn-vni
+      evidence_ref: adc-lfsw0104:running_config
+    - node: adc-lfsw0104
+      address_family: ipv4
+      scope: vpn
+      direction: export
+      configured_value: auto
+      resolved_value: 65001:29001
+      resolution: nxos-asn-vni
+      evidence_ref: adc-lfsw0104:running_config
+    - node: adc-lfsw0104
+      address_family: ipv4
+      scope: vpn
+      direction: import
+      configured_value: auto
+      resolved_value: 65001:29001
+      resolution: nxos-asn-vni
+      evidence_ref: adc-lfsw0104:running_config
+    - node: adc-lfsw0104
+      address_family: ipv6
+      scope: evpn
+      direction: export
+      configured_value: auto
+      resolved_value: 65001:29001
+      resolution: nxos-asn-vni
+      evidence_ref: adc-lfsw0104:running_config
+    - node: adc-lfsw0104
+      address_family: ipv6
+      scope: evpn
+      direction: import
+      configured_value: auto
+      resolved_value: 65001:29001
+      resolution: nxos-asn-vni
+      evidence_ref: adc-lfsw0104:running_config
+    - node: adc-lfsw0104
+      address_family: ipv6
+      scope: evpn
+      direction: import
+      configured_value: 65001:9001
+      resolved_value: 65001:9001
+      resolution: explicit
+      evidence_ref: adc-lfsw0104:running_config
+    - node: adc-lfsw0104
+      address_family: ipv6
+      scope: vpn
+      direction: export
+      configured_value: auto
+      resolved_value: 65001:29001
+      resolution: nxos-asn-vni
+      evidence_ref: adc-lfsw0104:running_config
+    - node: adc-lfsw0104
+      address_family: ipv6
+      scope: vpn
+      direction: import
+      configured_value: auto
+      resolved_value: 65001:29001
+      resolution: nxos-asn-vni
+      evidence_ref: adc-lfsw0104:running_config
+    - node: adc-lfsw0104
+      address_family: ipv6
+      scope: vpn
+      direction: import
+      configured_value: 65001:9001
+      resolved_value: 65001:9001
+      resolution: explicit
+      evidence_ref: adc-lfsw0104:running_config
+    l2_services:
+    - l2vni: 20200
+      vlan: null
+      svi: null
+      rd: auto
+      nodes:
+      - adc-lfsw0101
+      - adc-lfsw0102
+      - adc-lfsw0103
+      - adc-lfsw0104
+      nve_member: true
+      bindings:
+      - node: adc-lfsw0101
+        vlan: 200
+        svi: Vlan200
+        nve_member: true
+        gateway: true
+        gateway_mode: anycast
+        ipv4_addresses:
+        - 172.17.0.254/24
+        ipv6_addresses:
+        - fd22:0:0:1::1/64
+        ip_forward: false
+      - node: adc-lfsw0102
+        vlan: 200
+        svi: Vlan200
+        nve_member: true
+        gateway: true
+        gateway_mode: anycast
+        ipv4_addresses:
+        - 172.17.0.254/24
+        ipv6_addresses:
+        - fd22:0:0:1::1/64
+        ip_forward: false
+      - node: adc-lfsw0103
+        vlan: 20
+        svi: Vlan20
+        nve_member: true
+        gateway: true
+        gateway_mode: anycast
+        ipv4_addresses:
+        - 172.17.0.254/24
+        ipv6_addresses:
+        - fd22:0:0:1::1/64
+        ip_forward: false
+      - node: adc-lfsw0104
+        vlan: 20
+        svi: Vlan20
+        nve_member: true
+        gateway: true
+        gateway_mode: anycast
+        ipv4_addresses:
+        - 172.17.0.254/24
+        ipv6_addresses:
+        - fd22:0:0:1::1/64
+        ip_forward: false
+      gateway_state: 'yes'
+      gateway_modes:
+      - anycast
+      ipv4_addresses:
+      - 172.17.0.254/24
+      ipv6_addresses:
+      - fd22:0:0:1::1/64
+      vlan_state: per-device
+    l3vni_mode: traditional_vlan_svi
+    l3vni_mode_state: consistent
+    l3vni_bindings:
+    - node: adc-lfsw0101
+      mode: traditional_vlan_svi
+      vlan: 3002
+      svi: Vlan3002
+      svi_behavior: ip-forward
+      nve_associate_vrf: true
+      ipv4_addresses: []
+      ipv6_addresses: []
+      ipv6_use_link_local_only: true
+    - node: adc-lfsw0102
+      mode: traditional_vlan_svi
+      vlan: 3002
+      svi: Vlan3002
+      svi_behavior: ip-forward
+      nve_associate_vrf: true
+      ipv4_addresses: []
+      ipv6_addresses: []
+      ipv6_use_link_local_only: true
+    - node: adc-lfsw0103
+      mode: traditional_vlan_svi
+      vlan: 3002
+      svi: Vlan3002
+      svi_behavior: ip-forward
+      nve_associate_vrf: true
+      ipv4_addresses: []
+      ipv6_addresses: []
+      ipv6_use_link_local_only: true
+    - node: adc-lfsw0104
+      mode: traditional_vlan_svi
+      vlan: 3002
+      svi: Vlan3002
+      svi_behavior: ip-forward
+      nve_associate_vrf: true
+      ipv4_addresses: []
+      ipv6_addresses: []
+      ipv6_use_link_local_only: true
+    placements:
+    - node: adc-lfsw0101
+      placement_type: evpn-vtep
+      vtep_addresses:
+      - 10.0.1.1
+      - 10.0.2.1
+      vpc_domain: '1'
+      vpc_shared_vtep_addresses:
+      - 10.0.2.1
+      nve_l3_member: true
+    - node: adc-lfsw0102
+      placement_type: evpn-vtep
+      vtep_addresses:
+      - 10.0.1.2
+      - 10.0.2.1
+      vpc_domain: '1'
+      vpc_shared_vtep_addresses:
+      - 10.0.2.1
+      nve_l3_member: true
+    - node: adc-lfsw0103
+      placement_type: evpn-vtep
+      vtep_addresses:
+      - 10.0.1.3
+      - 10.0.2.2
+      vpc_domain: '1'
+      vpc_shared_vtep_addresses:
+      - 10.0.2.2
+      nve_l3_member: true
+    - node: adc-lfsw0104
+      placement_type: evpn-vtep
+      vtep_addresses:
+      - 10.0.1.4
+      - 10.0.2.2
+      vpc_domain: '1'
+      vpc_shared_vtep_addresses:
+      - 10.0.2.2
+      nve_l3_member: true
+    route_type_summary:
+      type2: null
+      type3: null
+      type5: null
+    status: configured
+    conflicts: []
+    evidence_refs:
+    - adc-lfsw0101:running_config
+    - adc-lfsw0102:running_config
+    - adc-lfsw0103:running_config
+    - adc-lfsw0104:running_config
+  route_leaks:
+  - leak_id: route-leak-6acc3fb168dfcaae
+    source_service: adc/controller-vpc1
+    destination_service: adc/tenant1-vpc1
+    address_families:
+    - ipv6
+    scope: evpn
+    matched_route_targets:
+    - 65001:9001
+    policy_state: configured
+    policy_coverage:
+      source_observed: 4
+      source_placements: 4
+      destination_observed: 4
+      destination_placements: 4
+    operational_state: unknown
+    verification_scope: unknown
+    prefix_summary:
+      expected: 0
+      received: 0
+    evidence_refs:
+    - adc-lfsw0101:running_config
+    - adc-lfsw0102:running_config
+    - adc-lfsw0103:running_config
+    - adc-lfsw0104:running_config
+  - leak_id: route-leak-bb9a7d7370f5ea96
+    source_service: adc/controller-vpc1
+    destination_service: adc/tenant2-vpc1
+    address_families:
+    - ipv6
+    scope: evpn
+    matched_route_targets:
+    - 65001:9001
+    policy_state: configured
+    policy_coverage:
+      source_observed: 4
+      source_placements: 4
+      destination_observed: 4
+      destination_placements: 4
+    operational_state: unknown
+    verification_scope: unknown
+    prefix_summary:
+      expected: 0
+      received: 0
+    evidence_refs:
+    - adc-lfsw0101:running_config
+    - adc-lfsw0102:running_config
+    - adc-lfsw0103:running_config
+    - adc-lfsw0104:running_config
+  - leak_id: route-leak-34131c0262dd1e1d
+    source_service: adc/tenant1-vpc1
+    destination_service: adc/controller-vpc1
+    address_families:
+    - ipv4
+    scope: evpn
+    matched_route_targets:
+    - 65001:19001
+    policy_state: configured
+    policy_coverage:
+      source_observed: 4
+      source_placements: 4
+      destination_observed: 4
+      destination_placements: 4
+    operational_state: unknown
+    verification_scope: unknown
+    prefix_summary:
+      expected: 0
+      received: 0
+    evidence_refs:
+    - adc-lfsw0101:running_config
+    - adc-lfsw0102:running_config
+    - adc-lfsw0103:running_config
+    - adc-lfsw0104:running_config
+  - leak_id: route-leak-6a3abd8dc0c3999f
+    source_service: adc/tenant1-vpc1
+    destination_service: adc/controller-vpc1
+    address_families:
+    - ipv6
+    scope: evpn
+    matched_route_targets:
+    - 65001:19001
+    policy_state: configured
+    policy_coverage:
+      source_observed: 4
+      source_placements: 4
+      destination_observed: 4
+      destination_placements: 4
+    operational_state: unknown
+    verification_scope: unknown
+    prefix_summary:
+      expected: 0
+      received: 0
+    evidence_refs:
+    - adc-lfsw0101:running_config
+    - adc-lfsw0102:running_config
+    - adc-lfsw0103:running_config
+    - adc-lfsw0104:running_config
+  - leak_id: route-leak-24aa954be700c8f0
+    source_service: adc/tenant2-vpc1
+    destination_service: adc/controller-vpc1
+    address_families:
+    - ipv4
+    scope: evpn
+    matched_route_targets:
+    - 65001:29001
+    policy_state: configured
+    policy_coverage:
+      source_observed: 4
+      source_placements: 4
+      destination_observed: 4
+      destination_placements: 4
+    operational_state: unknown
+    verification_scope: unknown
+    prefix_summary:
+      expected: 0
+      received: 0
+    evidence_refs:
+    - adc-lfsw0101:running_config
+    - adc-lfsw0102:running_config
+    - adc-lfsw0103:running_config
+    - adc-lfsw0104:running_config
+  - leak_id: route-leak-5eb13cae1ee18da1
+    source_service: adc/tenant2-vpc1
+    destination_service: adc/controller-vpc1
+    address_families:
+    - ipv6
+    scope: evpn
+    matched_route_targets:
+    - 65001:29001
+    policy_state: configured
+    policy_coverage:
+      source_observed: 4
+      source_placements: 4
+      destination_observed: 4
+      destination_placements: 4
+    operational_state: unknown
+    verification_scope: unknown
+    prefix_summary:
+      expected: 0
+      received: 0
+    evidence_refs:
+    - adc-lfsw0101:running_config
+    - adc-lfsw0102:running_config
+    - adc-lfsw0103:running_config
+    - adc-lfsw0104:running_config
+  diagnostics: []

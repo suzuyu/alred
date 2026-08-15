@@ -86,7 +86,13 @@ As-Is記録をIntegratedとして完了
 ## 6. 現在のAs-Is記録
 
 - [CLI Framework](./CLI_FRAMEWORK_AS_IS.md)
+- [CLI, Configuration, and Resources](./CLI_CONFIGURATION_AND_RESOURCES_AS_IS.md)
 - [Collect Output](./COLLECT_OUTPUT_AS_IS.md)
+- [Inventory, Credentials, and Transport](./INVENTORY_CREDENTIALS_AND_TRANSPORT_AS_IS.md)
 - [VNI Config Renderer](./VNI_CONFIG_RENDERER_AS_IS.md)
+- [VNI Map](./VNI_MAP_AS_IS.md)
 - [Config Push / Save](./PUSH_CONFIG_AS_IS.md)
 - [Role Detection and Resolution](./ROLE_RESOLUTION_AS_IS.md)
+- [Containerlab Workflow](./CONTAINERLAB_WORKFLOW_AS_IS.md)
+- [Topology and Rendering](./TOPOLOGY_AND_RENDERING_AS_IS.md)
+- [Development and Packaging](./DEVELOPMENT_AND_PACKAGING_AS_IS.md)

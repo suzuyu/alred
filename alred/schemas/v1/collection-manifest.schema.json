@@ -70,7 +70,7 @@
         "command": {"type": "string"},
         "normalized_command": {"type": "string"},
         "source": {
-          "enum": ["alred_collect", "external_transcript", "running_config"]
+          "enum": ["alred_collect", "external_transcript", "running_config", "lldp"]
         },
         "transport": {"type": "string"},
         "error": {"type": "string"},

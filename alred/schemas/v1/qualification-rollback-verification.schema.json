@@ -25,6 +25,12 @@
       "properties": {
         "result": {"enum": ["ROLLED_BACK_AND_VERIFIED", "ROLLBACK_HEALTH_FAILED"]},
         "health_result": {"type": "string", "minLength": 1},
+        "health_gate": {
+          "oneOf": [
+            {"$ref": "#/$defs/healthGate"},
+            {"$ref": "#/$defs/legacyHealthGate"}
+          ]
+        },
         "snapshot_fresh": {"type": "boolean"},
         "raw_config_equal": {"type": "boolean"},
         "semantic_config_equal": {"type": "boolean"}
@@ -68,6 +74,35 @@
         "health_result": {"type": "string", "minLength": 1},
         "verification_json": {"type": "string", "minLength": 1},
         "verification_checklist": {"type": "string", "minLength": 1}
+      }
+    }
+  },
+  "$defs": {
+    "healthGate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["result", "passed", "state_warn_eligible", "warning_count", "warning_count_complete", "warning_classifications"],
+      "properties": {
+        "result": {"enum": ["PASS", "WARN", "FAIL", "UNKNOWN", "NOT_APPLICABLE", "PLAN_ERROR"]},
+        "passed": {"type": "boolean"},
+        "state_warn_eligible": {"type": "boolean"},
+        "warning_count": {"type": "integer", "minimum": 0},
+        "warning_count_complete": {"type": "boolean"},
+        "warning_classifications": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 1}}
+      }
+    },
+    "legacyHealthGate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["result", "allow_state_warn", "accepted", "warn_allowed", "warning_count", "warning_count_complete", "warning_classifications"],
+      "properties": {
+        "result": {"enum": ["PASS", "WARN", "FAIL", "UNKNOWN", "NOT_APPLICABLE", "PLAN_ERROR"]},
+        "allow_state_warn": {"type": "boolean"},
+        "accepted": {"type": "boolean"},
+        "warn_allowed": {"type": "boolean"},
+        "warning_count": {"type": "integer", "minimum": 0},
+        "warning_count_complete": {"type": "boolean"},
+        "warning_classifications": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 1}}
       }
     }
   }

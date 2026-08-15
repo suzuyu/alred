@@ -45,6 +45,7 @@ from .schema import (
 )
 from .rollback_verification import (
     build_device_verification,
+    evaluate_rollback_health_gate,
     render_rollback_verification_checklist,
     rollback_snapshot_is_fresh,
     rollback_verification_passes,
@@ -1401,6 +1402,7 @@ def verify_qualification_rollback(
     semantic_equal = all(
         value["semantic_config_equal"] for value in devices.values()
     )
+    health_gate = evaluate_rollback_health_gate(health_result)
     verified = rollback_verification_passes(
         snapshot_fresh=snapshot_fresh,
         health_result=health_result["result"],
@@ -1422,6 +1424,7 @@ def verify_qualification_rollback(
                 else "ROLLBACK_HEALTH_FAILED"
             ),
             "health_result": health_result["result"],
+            "health_gate": health_gate,
             "snapshot_fresh": snapshot_fresh,
             "raw_config_equal": raw_equal,
             "semantic_config_equal": semantic_equal,

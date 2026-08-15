@@ -51,7 +51,7 @@ uv run python alred.py --help
 ### Fixture acceptance gate
 
 実機またはlab fixtureは、認証情報、管理IP、serial、実在hostname等をsanitizeし、
-[NX-OS Capability and Fixture Matrix](../design/NXOS_CAPABILITY_AND_FIXTURE_MATRIX.md)のmetadataを
+[NX-OS Capability and Fixture Matrix](../design/network-ops/NXOS_CAPABILITY_AND_FIXTURE_MATRIX.md)のmetadataを
 添付する。手作りfixtureは`synthetic`としてparser開発には使用できるが、release/modelの
 capability証明には使用しない。
 
@@ -72,4 +72,4 @@ Phase 0の自動開発環境ではNexus 9000vをreference platformとする。de
 - [実装状況](./IMPLEMENTATION_STATUS.md)
 - [Phase 0 Progress Report](./PHASE_0_COMPLETION_REPORT.md)
 - [既存機能の設計書化状況](./EXISTING_FEATURE_DOCUMENTATION_STATUS.md)
-- [NX-OS Capability and Fixture Matrix](../design/NXOS_CAPABILITY_AND_FIXTURE_MATRIX.md)
+- [NX-OS Capability and Fixture Matrix](../design/network-ops/NXOS_CAPABILITY_AND_FIXTURE_MATRIX.md)

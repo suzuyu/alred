@@ -1,0 +1,58 @@
+all:
+  hosts:
+    adc-lfsw0101:
+      ansible_host: 192.168.129.81
+      device_type: nxos
+      os_type: nxos
+      ansible_network_os: cisco.nxos.nxos
+      ansible_connection: network_cli
+      netmiko_device_type: cisco_nxos
+    adc-lfsw0102:
+      ansible_host: 192.168.129.82
+      device_type: nxos
+      os_type: nxos
+      ansible_network_os: cisco.nxos.nxos
+      ansible_connection: network_cli
+      netmiko_device_type: cisco_nxos
+    adc-lfsw0103:
+      ansible_host: 192.168.129.83
+      device_type: nxos
+      os_type: nxos
+      ansible_network_os: cisco.nxos.nxos
+      ansible_connection: network_cli
+      netmiko_device_type: cisco_nxos
+    adc-lfsw0104:
+      ansible_host: 192.168.129.84
+      device_type: nxos
+      os_type: nxos
+      ansible_network_os: cisco.nxos.nxos
+      ansible_connection: network_cli
+      netmiko_device_type: cisco_nxos
+    adc-spsw0102:
+      ansible_host: 192.168.129.89
+      device_type: nxos
+      os_type: nxos
+      ansible_network_os: cisco.nxos.nxos
+      ansible_connection: network_cli
+      netmiko_device_type: cisco_nxos
+    adc-spsw0101:
+      ansible_host: 192.168.129.90
+      device_type: nxos
+      os_type: nxos
+      ansible_network_os: cisco.nxos.nxos
+      ansible_connection: network_cli
+      netmiko_device_type: cisco_nxos
+    adc-bgrt0101:
+      ansible_host: 192.168.129.101
+      device_type: nxos
+      os_type: nxos
+      ansible_network_os: cisco.nxos.nxos
+      ansible_connection: network_cli
+      netmiko_device_type: cisco_nxos
+    adc-bgrt0102:
+      ansible_host: 192.168.129.102
+      device_type: nxos
+      os_type: nxos
+      ansible_network_os: cisco.nxos.nxos
+      ansible_connection: network_cli
+      netmiko_device_type: cisco_nxos

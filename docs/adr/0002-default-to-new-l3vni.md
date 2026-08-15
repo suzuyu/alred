@@ -22,5 +22,5 @@ NX-OSのL3VNI設定生成では`new_l3vni`と`traditional_vlan_svi`の両方式�
 
 ## References
 
-- [Overlay Change Management Design](../design/OVERLAY_CHANGE_MANAGEMENT_DESIGN.md)
-- [NX-OS Overlay Config Rendering Design](../design/NXOS_OVERLAY_CONFIG_RENDERING_DESIGN.md)
+- [Overlay Change Management Design](../design/network-ops/OVERLAY_CHANGE_MANAGEMENT_DESIGN.md)
+- [NX-OS Overlay Config Rendering Design](../design/network-ops/NXOS_OVERLAY_CONFIG_RENDERING_DESIGN.md)

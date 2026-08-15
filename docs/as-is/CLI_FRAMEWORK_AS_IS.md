@@ -1,7 +1,7 @@
 # CLI Framework As-Is
 
-- Status: As-Is documented
-- Last reviewed: 2026-07-26
+- Status: Integrated
+- Last reviewed: 2026-08-09
 - Scope: `alred/cli.py:build_parser`、`alred/cli.py:main`、`alred.py`
 
 ## Evidence
@@ -27,14 +27,15 @@
 
 - 全subcommandの全optionとhelp文言はまだgolden化していない。文言全体のsnapshotは軽微な
   help改善も破壊的変更として扱うため、Phase 0ではtop-level command集合と終了codeを固定する。
-- 新設計の`health-check`、`overlay-check`、`overlay-change`は未実装であり、この一覧にない。
+- 全subcommandのoption catalogは未整備だが、`health-check`、`overlay-check`、`overlay-change`を含む
+  現行top-level command集合はfixtureで固定されている。
 
 ## Recommended design disposition
 
-Phase 1以降も現行`build_parser()`へ段階的にcommandを追加し、既存command名と終了codeを
-互換性policyに従って維持する。
+現行`build_parser()`へ段階的にcommandを追加し、既存command名と終了codeを互換性policyに
+従って維持する。共通CLI契約は用途別設計の`common`へ統合する。
 
 ## Integration
 
-- Design document: [Schema and Compatibility Policy](../design/SCHEMA_AND_COMPATIBILITY_POLICY.md)
-- Integrated date: -
+- Design document: [CLI, Configuration, and Resource Design](../design/common/CLI_CONFIGURATION_AND_RESOURCES_DESIGN.md)
+- Integrated date: 2026-08-09

@@ -1,0 +1,92 @@
+api_version: alred/v1
+kind: NetworkDiagramManifest
+spec:
+  source:
+    type: file
+    value: docs/manual/containerlab/examples/single-site-fabric/topology.clab.example.yaml
+  options:
+    min_confidence: low
+    direction: TD
+    group_by_role: true
+    group_by_site: true
+    all_graph: true
+    overlay_service: true
+    overlay_detail_limit: 20
+    all_overlay_details: true
+    overlay_detail_formats:
+    - markdown
+    - drawio
+    overlay_selectors:
+      sites: []
+      vrfs: []
+      l2vnis: []
+      l3vnis: []
+      services: []
+    overlay_detail_selection:
+      generated_service_ids:
+      - adc/controller-vpc1
+      - adc/tenant1-vpc1
+      - adc/tenant2-vpc1
+      omitted_service_ids: []
+    drawio_directions:
+    - TD
+    - LR
+    views:
+    - physical
+    - underlay
+    - evpn
+    - overlay-service
+  inputs:
+  - path: docs/manual/containerlab/examples/single-site-fabric/topology.clab.example.yaml
+    sha256: sha256:34047c951059ce98a38d5acf7235440e9dca24a109f81e3ce9e6637b351206ab
+  - path: docs/manual/containerlab/examples/single-site-fabric/roles.example.yaml
+    sha256: sha256:4cfd6d19d420f43e6340b5a09822922cc5196bb13d8bfa0df7f95c660210aca5
+  - path: docs/manual/containerlab/examples/single-site-fabric/sites.example.yaml
+    sha256: sha256:5b6a59a46872dac78e6950b508ebf57269f8c293adfe940598a36ef920247f2b
+  - path: docs/manual/containerlab/examples/single-site-fabric/labconfig/adc-bgrt0101_run.txt
+    sha256: sha256:b102b08b38970f6527ecfea9aa06aa0808a0d7745136daf2bf70fcbbe389ff9d
+  - path: docs/manual/containerlab/examples/single-site-fabric/labconfig/adc-bgrt0102_run.txt
+    sha256: sha256:eb07c8275bc4b17a886940830fd3c825a56c466cd3b84b3eb8c7751f563226e4
+  - path: docs/manual/containerlab/examples/single-site-fabric/labconfig/adc-lfsw0101_run.txt
+    sha256: sha256:14c7b22269a23d1865dfc84531b89e27133ecd90324498eabfd9ef53961843bb
+  - path: docs/manual/containerlab/examples/single-site-fabric/labconfig/adc-lfsw0102_run.txt
+    sha256: sha256:47e6fbc6186a497498aac5ad1e0da79e5e20057697116af3054eacf46e0b98b7
+  - path: docs/manual/containerlab/examples/single-site-fabric/labconfig/adc-lfsw0103_run.txt
+    sha256: sha256:bb832a88102aeab58c1f3b4c69808076607e5d53fb0f904b6685f14932700101
+  - path: docs/manual/containerlab/examples/single-site-fabric/labconfig/adc-lfsw0104_run.txt
+    sha256: sha256:345c365eaa97eb6e49b7162ba4efc08a8161ca8b6fc8b7f15478a106789ca14f
+  - path: docs/manual/containerlab/examples/single-site-fabric/labconfig/adc-spsw0101_run.txt
+    sha256: sha256:6126de2574aa25904f41ff0311e748d59961f825db1337c56345f05c3552a42b
+  - path: docs/manual/containerlab/examples/single-site-fabric/labconfig/adc-spsw0102_run.txt
+    sha256: sha256:dd6bf23952c3c5896def7542f69ecd57f2897cb3bc3a4d86956cc5e00cf4cec5
+  artifacts:
+  - path: docs/manual/topology/examples/single-site-fabric/topology-graph.md
+    sha256: sha256:724374496074b123c4a877015456b68a5325c26f2902259ea74219545de2aff9
+  - path: docs/manual/topology/examples/single-site-fabric/topology_underlay.md
+    sha256: sha256:4e39a576bd9e1eb0cf036216a5bc4cd4093be8ec46d9219b790d2514d038f533
+  - path: docs/manual/topology/examples/single-site-fabric/topology_evpn.md
+    sha256: sha256:b5d4275561a1282f3ed3bfdd2f2bc0ddd9ed2d14b0d5b1c56149d41f94948313
+  - path: docs/manual/topology/examples/single-site-fabric/evpn-control-plane-model.yaml
+    sha256: sha256:9487e98ba26ad9ae42f8aeff4b20f859d0b9d2b8d596884f55ace1d35929adb3
+  - path: docs/manual/topology/examples/single-site-fabric/evpn-session-links.csv
+    sha256: sha256:658383655f684b816e8dfe0193688f1347263685fddd48a73b659d5c263605d5
+  - path: docs/manual/topology/examples/single-site-fabric/topology_overlay_service.md
+    sha256: sha256:f0eafdd9aceb81bf66633bdf24a167bdaf918be768f89090f5fc372cea05d9f7
+  - path: docs/manual/topology/examples/single-site-fabric/overlay-service-model.yaml
+    sha256: sha256:ca963765e6e61496456baef9b4a38df705bd8ed03332c8b3fff627ebbda0a8c6
+  - path: docs/manual/topology/examples/single-site-fabric/overlay-service-links.csv
+    sha256: sha256:c1bdd789f498058b8494202e95d5674993117332107e5fc7c19e235f54d6e391
+  - path: docs/manual/topology/examples/single-site-fabric/topology-graph-all.drawio
+    sha256: sha256:1ad5909f02ce4f42a228024fa298095c4d17bfeab4537db67291ca0670e30894
+  - path: docs/manual/topology/examples/single-site-fabric/overlay-services/adc_controller-vpc1-fb38d5fd.md
+    sha256: sha256:98f509391d9b95920cf02cbf7857826c4c066a54ced453653bc1c9de8221ab47
+  - path: docs/manual/topology/examples/single-site-fabric/overlay-services/adc_controller-vpc1-fb38d5fd.drawio
+    sha256: sha256:11abde83e83898aa9e0ed26282b578dd7f8308ab5563692f9210715e9ae0c226
+  - path: docs/manual/topology/examples/single-site-fabric/overlay-services/adc_tenant1-vpc1-faa720c4.md
+    sha256: sha256:88bc69631e70d2fd6b73b019977040cdd9c111b4f5214eefe2718c3400740b6f
+  - path: docs/manual/topology/examples/single-site-fabric/overlay-services/adc_tenant1-vpc1-faa720c4.drawio
+    sha256: sha256:1886ac5b20197bf9935322997744e41702b6e9bb5ee00d3243e4ee9c674276b8
+  - path: docs/manual/topology/examples/single-site-fabric/overlay-services/adc_tenant2-vpc1-b5c5d6e3.md
+    sha256: sha256:964d8610d4f899ac4f8c3c061c9ca2e2c3f03666f298611f0e1c1bedea99ebdf
+  - path: docs/manual/topology/examples/single-site-fabric/overlay-services/adc_tenant2-vpc1-b5c5d6e3.drawio
+    sha256: sha256:97b3efe1f3b9deee717d1b01e9a4c5c1e19313dd4548b835f54fb0d48bf7312e

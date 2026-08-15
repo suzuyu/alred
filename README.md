@@ -1,1075 +1,154 @@
 # alred
 
-`alred` は、ネットワーク機器の情報収集、リンク情報の正規化、構成図や lab 用トポロジの生成を行う CLI ツールです。
+alred は、ネットワーク環境の情報収集、正常性確認、それらをまとめた Evidence Package によるデータ搬送、
+Containerlab 環境の生成、Overlay（VNI）設定、ネットワーク構成図の作成を支援する CLI ツールです。
 
-個人ラボ向けに作成しているため、動作保証はしていません。
-現時点では alpha 版として公開しており、機能や仕様は今後変更される可能性があります。
+**alred**: **A**utomated **L**aboratory **R**esource & **E**nvironment **D**eployment
 
-開発中機能の設計資料は[設計書一覧](./docs/design/README.md)を参照してください。
-health checkの利用手順は[User Manual](./docs/manual/README.md)を参照してください。
-開発・Pull Requestは[CONTRIBUTING.md](./CONTRIBUTING.md)、脆弱性報告は
-[SECURITY.md](./SECURITY.md)を参照してください。
+読み方: **オールレッド**
 
-## できること
+> [!WARNING]
+> 現在は alpha 版です。機能や仕様は変更される可能性があります。
+> 設定投入機能は、対象機器、Capability、生成 config、rollback 手順を検証したうえで使用してください。
 
-- ネットワーク機器から LLDP と `running-config` を収集する
-- 収集データから接続情報を正規化し、リンク一覧を作成する
-- containerlab 用の topology YAML と Mermaid / Graphviz / draw.io 図を生成する
-- 実機 config を containerlab / NX-OS 9000v 向けに変換する
-- NX-OS の設定から VNI / VRF / Gateway の対応表を生成する
-- VNI 差分から追加・削除・rollback 用の config を生成する
-- 必要に応じて config を対象機器へ投入する
-- インベントリ情報から Terraform 用の `main.tf` を生成する
+## 全体像
+
+### Observe／Transfer／Reproduce
+
+商用環境などの実機に対して、正常性確認（Health Check）とログ収集（Collection）を実施します。
+正常性確認では、Overlay の VNI／VRF／Gateway のリスト化も実施します。
+正常性確認とログ収集の結果を Evidence Package にまとめ、別環境へ搬送可能な情報源とします。
+その Evidence Package をもとに構成図の作成や AI 解析へ再利用できるようにします。
+また、Evidence Package をもとに、隔離 lab 環境で Containerlab を生成します。
+
+```mermaid
+flowchart TD
+    NXOS["NX-OS / Nexus 9000"]
+    HEALTH["Health Check / Collection"]
+    OPERATION["Operation Evidence"]
+    VNI["Overlay State<br/>VNI / VRF / Gateway Mapping"]
+    PACKAGE["Portable Evidence Package"]
+
+    NXOS --> HEALTH
+    HEALTH --> OPERATION
+    OPERATION --> VNI
+    OPERATION --> PACKAGE
+
+    PACKAGE --> LAB["Isolated Containerlab"]
+    PACKAGE --> DIAGRAM["Topology / Mermaid / draw.io"]
+    PACKAGE --> AI["Protected AI Analysis"]
+```
+
+| 目的 | 内容 | 最初に読む手順 |
+|---|---|---|
+| Observe | 情報収集、Health Check、VNI／VRF／Gateway の状態確認 | [Network Operations Quick Start](./docs/manual/network-ops/01_QUICK_START.md) |
+| Transfer／Reproduce | Evidence Package から隔離された Containerlab 環境を生成 | [Containerlab Quick Start](./docs/manual/containerlab/01_QUICK_START.md) |
+| Visualize | Evidence Package から Mermaid／`draw.io` 構成図を生成 | [Topology Quick Start](./docs/manual/topology/01_QUICK_START.md) |
+
+### Overlay Configuration
+
+Overlay（VNI）の設定変更を実施します。
+ChangeSet の定義後、実機状態との整合性を確認して config を生成し、
+機器への投入、正常性確認、rollback までを一連の Operation として管理します。
+
+```mermaid
+flowchart TD
+    CHANGESET["Overlay ChangeSet<br/>VNI / VRF / SVI"]
+    PLAN["Plan / Approval"]
+    APPLY["Apply to NX-OS"]
+    VERIFY["Health Check / Verification"]
+    RESULT["Save or Rollback"]
+
+    CHANGESET --> PLAN
+    PLAN --> APPLY
+    APPLY --> VERIFY
+    VERIFY --> RESULT
+```
+
+| 目的 | 内容 | 最初に読む手順 |
+|---|---|---|
+| Managed Overlay Operation | VNI／VRF／SVI の変更を plan、approval、verification、rollback とともに管理 | [Overlay Configuration Quick Start](./docs/manual/network-ops/11_OVERLAY_CONFIGURATION_QUICK_START.md) |
+
+### Direct Config Push
+
+config をそのまま投入する場合は Direct Config Push を使用します。
+機器単位の config list や、初期設定／config backup 由来の config の投入に利用できます。
+対象機器への接続性と投入対象を確認してから実行します。
+
+```mermaid
+flowchart TD
+    CONFIG["Single Config<br/>or Host Config Directory"]
+    SAFETY["Target Selection<br/>Connection Safety Check"]
+    PUSH["Direct Config Push<br/>push-config / push-config-dir"]
+    RESULT["Strict CLI Error Check"]
+    SAVE["Optional Config Save"]
+
+    CONFIG --> SAFETY
+    SAFETY --> PUSH
+    PUSH --> RESULT
+    RESULT -->|"Explicit command"| SAVE
+```
+
+| 目的 | 内容 | 最初に読む手順 |
+|---|---|---|
+| Direct Config Push | 単一または host 別 config を直接投入し、確認後に明示的に保存 | [Direct Config Push Quick Start](./docs/manual/network-ops/12_DIRECT_CONFIG_PUSH_QUICK_START.md) |
+
+## 主な成果物
+
+| 成果物 | 主な内容 | 代表 sample／手順 |
+|---|---|---|
+| Operation Evidence | 収集結果、Health Check、before／after 比較、VNI map、実行 metadata | [NX-OS Overlay sample](./docs/manual/network-ops/examples/nxos-overlay/README.md) |
+| Evidence Package | Manifest、hash、開示 policy で固定した Portable Evidence | [Evidence Package 生成手順](./docs/manual/containerlab/02_EXISTING_NETWORK_TO_LAB.md) |
+| Containerlab | `topology.clab.yaml`、`hosts.lab.yaml`、変換済み config、変換 Manifest | [Single-site Fabric sample](./docs/manual/containerlab/examples/single-site-fabric/README.md) |
+| Network Diagram | Physical、Underlay、EVPN、Overlay Service の Mermaid／`draw.io` | [Network Diagram sample](./docs/manual/topology/examples/single-site-fabric/README.md) |
+| Overlay Operation | ChangeSet、forward／rollback config、plan、approval、device 応答、検証結果 | [Overlay ChangeSet sample](./docs/manual/network-ops/examples/overlay-changeset/README.md) |
+
+## 現在の対象プラットフォーム
+
+主要な利用対象は Cisco NX-OS／Nexus 9000 series です。
+実機を含む環境での収集、Health Check、VNI 状態確認、Overlay 設定を想定していますが、
+設定投入可否は model、NX-OS release、role、Capability の組み合わせごとに判定します。
+
+| 区分 | 対象 | 状態 |
+|---|---|---|
+| 開発・継続試験の主要対象 | Nexus 9000v／N9K-C9300V | NX-OS 10.5(4) の限定 Capability で apply／save／rollback を検証済み |
+| hardware 文書確認対象 | N9K-C9336C-FX2、N9K-C93180YC-FX3、N9K-C9348GC-FX3、N9K-C9364C-H1 | 公式資料と golden config の静的確認。`APPLY_VERIFIED` ではない |
+| その他の model／release／role | Cisco NX-OS／Nexus 9000 family | 未登録 Capability を上位 Level として扱わず fail closed |
+
+正確な対応範囲は[NX-OS Capability and Fixture Matrix](./docs/design/network-ops/NXOS_CAPABILITY_AND_FIXTURE_MATRIX.md)を参照してください。
 
 ## インストール
 
-用途に応じて、次の 3 つの方法を使い分ける想定です。
+通常利用では、GitHub Releases の Linux x86_64／glibc 2.17 binary と checksum を使用します。
 
-1. 通常利用: GitHub Releases から PyInstaller で作成した binary を取得する
-2. Python 環境が利用できる場合: `pip install git+https://...` でインストールする
-3. 開発・検証用途: リポジトリを clone して `uv sync` で利用する
-
-### 1. 通常利用: PyInstaller binary を使う
-
-Python 環境や追加パッケージのインストールができない環境、特にエアギャップ環境向けには、GitHub Releases で配布する PyInstaller binary の利用を想定しています。
-
-この方法では、通常は Python の追加セットアップは不要です。
-
-基本的な流れ:
-
-1. GitHub Releases から対象 OS 向け binary を取得する
-2. 実行しやすいディレクトリに配置する
-3. 実行権限を付与する
-4. `PATH` の通ったディレクトリへ配置する、または `PATH` を追加する
-
-配布ファイル名の例:
-
-- `alred-linux-x86_64-glibc217`
-
-checksum ファイル名の例:
-
-- `alred-linux-x86_64-glibc217.sha256`
-
-標準ReleaseはLinux x86_64向けglibc 2.17 binaryとchecksumを配布する。glibc 2.28／2.34は
-配布先を限定したbinaryが必要なReleaseでだけ追加する。
-
-`curl` で取得する例:
-
-```sh
-curl -fL -o alred-linux-x86_64-glibc217 \
+```bash
+curl -fL -O \
   https://github.com/suzuyu/alred/releases/latest/download/alred-linux-x86_64-glibc217
-curl -fL -o alred-linux-x86_64-glibc217.sha256 \
+curl -fL -O \
   https://github.com/suzuyu/alred/releases/latest/download/alred-linux-x86_64-glibc217.sha256
-```
-
-特定 version を指定する場合の例:
-
-```sh
-curl -fL -o alred-linux-x86_64-glibc217 \
-  https://github.com/suzuyu/alred/releases/download/<tag>/alred-linux-x86_64-glibc217
-curl -fL -o alred-linux-x86_64-glibc217.sha256 \
-  https://github.com/suzuyu/alred/releases/download/<tag>/alred-linux-x86_64-glibc217.sha256
-```
-
-例:
-
-```sh
-mkdir -p "$HOME/bin"
-cp ./alred-linux-x86_64-glibc217 "$HOME/bin/alred"
-chmod +x "$HOME/bin/alred"
-echo 'export PATH=$HOME/bin:$PATH' >> ~/.bashrc
-source ~/.bashrc
-alred --version
-alred --help
-```
-
-checksum 確認例:
-
-```sh
 sha256sum -c alred-linux-x86_64-glibc217.sha256
-```
-
-補足:
-
-- エアギャップ環境へ持ち込む場合は、接続可能な環境で事前に binary と checksum を取得しておく運用を想定します
-- OS やアーキテクチャに合った binary を選んでください
-- Linux x86_64では標準の`glibc217`を使用する。Releaseに追加variantがある場合だけ配布先に合わせて選択する
-- 配布者向けの build 手順は [BUILD.md](./BUILD.md) を参照してください
-
-Linux x86_64 向け variant の選び方の目安:
-
-| artifact | 想定する最小 glibc | 推奨する OS の例 |
-| --- | --- | --- |
-| `alred-linux-x86_64-glibc217` | 2.17 以上 | RHEL 7 / 8 / 9、Rocky Linux 8 / 9、AlmaLinux 8 / 9、Ubuntu 18.04 / 20.04 / 22.04 / 24.04 |
-| `alred-linux-x86_64-glibc228` | 2.28 以上 | RHEL 8 / 9、Rocky Linux 8 / 9、AlmaLinux 8 / 9、Ubuntu 20.04 / 22.04 / 24.04 |
-| `alred-linux-x86_64-glibc234` | 2.34 以上 | RHEL 9、Rocky Linux 9、AlmaLinux 9、Ubuntu 22.04 / 24.04 |
-
-追加variantが提供されている場合の使い分け:
-
-- 配布先が混在していて迷う場合は、もっとも互換性が広い `glibc217` を選ぶのが無難です
-- RHEL 8 系、Rocky 8 系、AlmaLinux 8 系が中心なら `glibc228` が選びやすいです
-- RHEL 9 系、Rocky 9 系、AlmaLinux 9 系、Ubuntu 22.04 以降に限定できるなら `glibc234` を選べます
-
-### 2. Python 環境が利用できる場合: `pip install`
-
-この方法では Python 3.11 以上が必要です。
-
-GitHub から直接取得できる場合は次の方法でも利用できます。
-
-```sh
-pip install "git+https://github.com/suzuyu/alred.git"
-```
-
-ブランチやタグを固定する場合:
-
-```sh
-pip install "git+https://github.com/suzuyu/alred.git@main"
-```
-
-確認:
-
-```sh
+mkdir -p "$HOME/.local/bin"
+install -m 0755 alred-linux-x86_64-glibc217 "$HOME/.local/bin/alred"
 alred --version
 alred --help
 ```
 
-Tab 補完を使いたい場合は、`alred` 自身が補完スクリプトを出力できます。`alred <TAB>` でサブコマンドやオプション、`--target-hosts` / `--show-hosts` では `hosts.yaml` / `hosts.lab.yaml` 由来のホスト名候補を補完できます。
-
-```sh
-source <(alred completion bash)
-```
-
-bash に永続化する場合は `~/.bashrc` に次を追加します。
-
-```sh
-source <(alred completion bash)
-```
-
-zsh に永続化する場合は `~/.zshrc` に次を追加します。
-
-```sh
-source <(alred completion zsh)
-```
-
-### 3. 開発・検証用途: リポジトリをそのまま使う
-
-開発やローカル検証では、Python 3.11 以上と `uv` が必要です。
-
-まずリポジトリを clone します。
-
-```sh
-git clone https://github.com/suzuyu/alred.git
-cd alred
-```
-
-その後、`uv sync` を実行します。
-
-```sh
-uv sync
-```
-
-その後は次のように実行できます。
-
-```sh
-uv run python alred.py --version
-uv run python alred.py --help
-```
-
-
-## クイックスタート
-
-まずは `clab-set-cmds` を使うのがおすすめです。  
-このコマンドは、containerlab 向けの基本パイプラインをまとめて実行します。
-
-実行内容:
-
-- `collect-clab`
-- `clab-transform-config`
-- `normalize-links`
-- `generate-clab`
-- `generate-mermaid`
-- `generate-mermaid` (`No Candidate`)
-- `generate-mermaid --underlay`
-- `generate-drawio --all-graph`
-- `generate-vni-map`
-
-基本的な流れは次の通りです。
-
-1. `.env` を用意する
-2. `hosts.txt` を作成する
-3. `hosts.yaml` を生成する
-4. `clab-set-cmds` を実行する
-
-`hosts.txt` は次のように作成します。
-
-```text
-192.168.129.81 lfsw0101 # nxos
-192.168.129.82 lfsw0102 # nxos
-192.168.129.90 spsw0101 # nxos
-192.168.129.89 spsw0102 # nxos
-```
-
-形式は `<IP> <hostname> # <device_type>` です。
-
-最小構成の例:
-
-```sh
-cp .env.example .env
-cat > hosts.txt <<'HOSTS'
-192.168.129.81 lfsw0101 # nxos
-192.168.129.82 lfsw0102 # nxos
-192.168.129.90 spsw0101 # nxos
-192.168.129.89 spsw0102 # nxos
-HOSTS
-alred prepare-hosts --input hosts.txt --output hosts.yaml
-alred --version
-alred clab-set-cmds --hosts hosts.yaml
-```
-
-未インストールのローカル checkout から試す場合は、`alred ...` の代わりに `uv run python alred.py ...` を利用してください。
-
-`clab_merge.yaml`、`clab_lab_profile.yaml`、`clab_linux_server.csv`、`clab_kind_cluster.csv` がカレントディレクトリに存在する場合は、自動で取り込まれます。
-`collect` / `push-config` / `check-clab-startup-config` などの接続系コマンドでは、`clab_credentials.yaml` がカレントディレクトリに存在する場合に認証情報として自動で参照されます。
-
-設定ファイルや入力形式の詳細は [CONFIG.md](./CONFIG.md) を参照してください。
-
-containerlab を起動したあとは、必要に応じて `check-clab-startup-config` で lab ノードの `running-config` と `raw/labconfig/` の投入元 config を比較できます。
-
-## 設定準備
-
-`clab-set-cmds` の実行前に、必要に応じて設定ファイルを用意します。
-
-まず、サンプルファイルを一括生成できます。
-
-```sh
-alred generate-sample-config
-```
-
-未インストールのローカル checkout から試す場合:
-
-```sh
-uv run python alred.py generate-sample-config
-```
-
-これにより、`samples/` 配下へ各種サンプルファイルが生成されます。
-
-最低限よく使うもの:
-
-- `samples/hosts.example.txt`
-- `samples/mappings.example.yaml`
-- `samples/roles.example.yaml`
-- `samples/sites.example.yaml`
-- `samples/description_rules.example.yaml`
-- `samples/underlay_render.example.yaml`
-- `samples/show_commands.example.txt`
-- `samples/health-check-profile.logging-excludes.example.yaml`
-- `samples/health-check-profile.network-baseline-logging-3days.example.yaml`
-
-最小構成で始める場合の目安:
-
-1. `.env` を用意する
-2. `hosts.txt` を作成する
-3. 必要に応じて `mappings.yaml` を用意する
-4. 必要に応じて `roles.yaml` を用意する
-5. 必要に応じて `sites.yaml` を用意する
-6. 必要に応じて `description_rules.yaml` を用意する
-7. 必要に応じて `underlay_render.yaml` を用意する
-8. 必要に応じて `show_commands.txt` を用意する
-
-サンプルから作成する例:
-
-```sh
-cp -p samples/mappings.example.yaml mappings.yaml
-cp -p samples/roles.example.yaml roles.yaml
-cp -p samples/sites.example.yaml sites.yaml
-cp -p samples/description_rules.example.yaml description_rules.yaml
-cp -p samples/underlay_render.example.yaml underlay_render.yaml
-cp -p samples/show_commands.example.txt show_commands.txt
-cp -p samples/health-check-profile.logging-excludes.example.yaml logging-excludes.yaml
-```
-
-`logging-excludes.yaml`の`exclude_patterns`を編集し、共通baselineの後へ指定します。
-profileは実行ディレクトリ直下に配置でき、`profiles/`ディレクトリは必須ではありません。
-
-```sh
-alred health-check before \
-  --collect \
-  --hosts ./hosts.lab.yaml \
-  --profile network-baseline-nxos \
-  --profile ./logging-excludes.yaml
-```
-
-beforeが直接収集で完了した後は、収集条件をoperationから継承してchange-idだけでafterを
-実行できます。
-
-```sh
-alred health-check after --change-id <beforeで使用したchange-id>
-```
-
-beforeを自動採番し、activeな作業が一意に検証できる場合は`--change-id`も省略できます。
-beforeが`--input`によるoffline解析だった場合は、新しいログを`--input`で指定します。
-passwordとenable secretはoperationへ保存されません。
-
-`exclude_patterns`は大文字小文字を区別しない部分文字列照合です。後段profileの配列が
-前段profileの配列を置換するため、除外したい文字列をすべて記載します。after・rollbackでは
-beforeのresolved profileを継承するため、通常は再指定しません。
-
-`clab-set-cmds` だけを最短で試すなら、必須なのは通常 `.env` と `hosts.txt` です。  
-ただし、実際には `mappings.yaml`、`roles.yaml`、`sites.yaml`、`description_rules.yaml`、`underlay_render.yaml`、`show_commands.txt` を実施環境のルールに合わせて記載変更する必要があります。
-
-containerlab 連携まで行う場合は、必要に応じて次も用意します。
-
-- `clab_merge.yaml`
-- `clab_lab_profile.yaml`
-- `clab_credentials.yaml`
-- `clab_linux_server.csv`
-- `clab_kind_cluster.csv`
-
-サンプルから作成する例:
-
-```sh
-cp -p samples/clab_kind_cluster.example.csv clab_kind_cluster.csv
-cp -p samples/clab_linux_server.example.csv clab_linux_server.csv
-cp -p samples/clab_merge.example.yaml clab_merge.yaml
-cp -p samples/clab_credentials.example.yaml clab_credentials.yaml
-```
-
-各設定ファイルの書式や意味は [CONFIG.md](./CONFIG.md) を参照してください。
-
-## 基本ワークフロー
-
-### おすすめの流れ
-
-通常は次の順で進めれば十分です。
-
-1. `prepare-hosts`
-2. `clab-set-cmds`
-
-実施内容の概要図は以下の通りです。
-
-![clab-set-cmds](./images/alred_clab-set-cmds-001.png)
-
-`output/` には主に次のファイルが出力されます。
-
-- `output/links_confirmed.csv`: LLDP や description から確定できた接続情報の一覧
-- `output/links_candidates.csv`: 確定しきれなかった接続候補の一覧
-- `output/topology.clab.yaml`: containerlab 用の topology YAML
-- `output/topology-graph.md`: Mermaid 形式の構成図
-- `output/topology-graph_underlay.md`: underlay 表示付きの Mermaid 構成図
-- `output/vni_gateway_map.csv`: VNI / VRF / Gateway の対応表を CSV で出力したもの
-- `output/vni_gateway_map.md`: VNI / VRF / Gateway の対応表を Markdown で出力したもの
-- `output/topology-graph-all.drawio` : Drawio 形式の構成図。物理結線と Underlay 表示での構成図をページで分けて出力したもの
-
-`topology-graph.md` の Mermaid での描画例は下記の通りです。
-
-![mermaid-lr](./images/mermaid-lr-001.png)
-
-`topology-graph_underlay.md` の Mermaid での描画例は下記の通りです。
-
-![mermaid-lr](./images/mermaid-underlay-lr-001.png)
-
-`output/topology-graph-all.drawio` の Drawio での TD での物理結線描画例は下記の通りです。(export で png にしたもの。対向機器情報がなく Description のみの場合は破線で表現してます)
-
-![drawio-td](./images/drawio-td-001.png)
-
-`output/topology-graph-all.drawio` の Drawio での LR での物理結線描画例は下記の通りです。(export で png にしたもの。対向機器情報がなく Description のみの場合は破線で表現してます)
-
-![drawio-lr](./images/drawio-lr-001.png)
-
-`output/topology-graph-all.drawio` の Drawio での TD での Underlay 結線描画例は下記の通りです。(export で png にしたもの。対向機器情報がなく Description のみの場合は破線で表現してます)
-
-![drawio-underly-td](./images/drawio-underlay-td-001.png)
-
-`output/topology-graph-all.drawio` の Drawio での LR での Underlay 結線描画例は下記の通りです。(export で png にしたもの。対向機器情報がなく Description のみの場合は破線で表現してます)
-
-![drawio-underly-lr](./images/drawio-underlay-lr-001.png)
-
-
-### 手動で実行する場合
-
-処理を個別に確認しながら進めたい場合は、次の順で実行します。
-
-1. `prepare-hosts`
-2. `collect`
-3. `normalize-links`
-4. 必要に応じて以下を実行する
-   - `generate-clab`
-   - `generate-mermaid`
-   - `generate-tf`
-   - `generate-vni-map`
-   - `generate-vni-config`
-
-よく使う既定動作:
-
-- inventory は `-i` / `--inventory` / `--hosts` で指定できます。
-- `--hosts` / `--inventory` 未指定時はローカルの `./hosts.yaml` があれば自動で利用します
-- `--show-commands-file` はローカルの `./show_commands.txt` があれば自動で利用します
-
-入力ファイルの書式や環境変数の詳細は [CONFIG.md](./CONFIG.md) を参照してください。
-
-## 主要コマンド
-
-binary + PATH を通した前提でのコマンドとしている。`uv` を使用する環境は、最初の `alred` を `uv run python alred.py` と置き換えて実施する。
-
-### `prepare-hosts`
-
-プレーンテキストの `hosts.txt` から `hosts.yaml` を生成します。
-
-```sh
-alred prepare-hosts --input hosts.txt --output hosts.yaml
-```
-
-### `clab-transform-config`
-
-`hosts.yaml` と `raw/config/<hostname>_run.txt` を元に、lab 用の管理 IP、NX-OS ユーザー、NX-OS 9000v 非対応の L2 sub-interface、L3 Interface へ`no switchport`を追加する変換をします。
-
-出力:
-
-- `hosts.lab.yaml`
-- `raw/labconfig/<hostname>_run.txt`
-
-```sh
-alred clab-transform-config \
-  --hosts hosts.yaml \
-  --clab-env clab_merge.yaml \
-  --node-map clab_node_map.csv \
-  --credentials clab_credentials.yaml \
-  --input raw \
-  --file-suffix _run.txt
-```
-
-`--file-suffix` を指定すると、`push-config-dir` と同様に `raw/config/<hostname><suffix>` を読み込みます。既定は `_run.txt` です。
-
-NX-OS ホストでは、認証情報が解決できた場合、startup-config 内の既存 `username` 行を削除して次のラボ用ユーザーへ置換します。
-
-```text
-username admin password 0 admin role network-admin
-```
-
-認証情報は `--user` / `--password`、`clab_credentials.yaml`、環境変数の順で解決します。ラボユーザーと同名の既存設定だけを置換し、その他のユーザーは変更しません。同名ユーザーが存在しない場合は新規追加します。認証情報がまったく無い場合はユーザー設定を変更しません。パスワードは空文字や空白を含む値を指定できません。
-
-注意: `clab_credentials.yaml` がカレントディレクトリに存在する場合は、`--credentials` を明示しなくても自動で読み込まれます。また、`.env` の `ALRED_USERNAME` / `ALRED_PASSWORD` も認証情報として利用されます。これらは収集時のSSH接続だけでなく、デフォルトでは `clab-transform-config` によるNX-OS startup-configの `username` 追加・置換にも使用されます。そのため、オプションを指定せずに `clab-set-cmds` を実行した場合でも、認証情報が解決できれば `raw/labconfig/` の同名ユーザー設定は書き換えられます。
-
-例えば `clab_credentials.yaml` または `.env` で `admin` の認証情報が解決された場合、既存の `username admin ...` は次の形式へ置換されます。
-
-```text
-username admin password 0 <resolved-password> role network-admin
-```
-
-containerlab イメージのデフォルトユーザーをそのまま利用する場合は `--delete-username` を指定します。NX-OS startup-config から全 `username` 行と、ユーザーに紐づく全 `snmp-server user` 行を削除し、ラボユーザーは追加しません。
-
-```sh
-alred clab-transform-config \
-  --hosts hosts.yaml \
-  --delete-username
-```
-
-`clab-set-cmds --delete-username` でも同じ変換を指定できます。この場合も `--credentials` は収集時の接続認証に利用できますが、startup-config へのユーザー追加には利用されません。
-
-本番環境のVTYアクセス制限をラボへ持ち込まない場合は `--delete-access-class` を指定します。NX-OSの `line vty` セクション内にある `access-class` と `ipv6 access-class` 行だけを削除し、`exec-timeout` や `transport input`、`line console` などの設定は保持します。
-
-```sh
-alred clab-transform-config \
-  --hosts hosts.yaml \
-  --delete-access-class
-```
-
-`clab-set-cmds --delete-access-class` にも対応しています。
-
-ホスト名と管理IPを明示的な対応表でラボ用に変更する場合は、`--node-map` でCSVを指定します。
-
-```csv
-source_hostname,source_mgmt_ip,target_hostname,target_mgmt_ip
-lfsw0101,192.168.129.81,lab-leaf01,172.20.20.11
-lfsw0102,192.168.129.82,lab-leaf02,172.20.20.12
-```
-
-互換性のため、`prd_hostname,prd_mgmt_ip,lab_hostname,lab_mgmt_ip` ヘッダーも利用できます。
-
-変換対象:
-
-- startup-config の `hostname` と同名の `vdc`
-- `interface` セクションのdescriptionに含まれるsourceホスト名
-- `interface mgmt0` の管理IP
-- `vpc domain` 内の `peer-keepalive` source / destination IP
-- `hosts.lab.yaml` のホストキーと `ansible_host`
-- `raw/labconfig/<target_hostname><suffix>` の出力ファイル名
-- `clab-set-cmds` 後続処理のリンク、構成図、containerlabノード名
-
-管理IPは、まずCSVの `source_mgmt_ip` を `target_mgmt_ip` へ変換します。`mgmt.ipv4-subnet` も指定され、変換後のIPがそのサブネット外の場合は、`target_mgmt_ip` のホスト部を維持して指定サブネットへさらに変換します。対応表にない管理系IPは従来どおりサブネット変換されます。管理VRFの経路宛先プレフィックス、データプレーンIP、description内のホスト名以外の文字列は変更しません。inventoryは変換前の `source_hostname` と変換後の `target_hostname` のどちらをキーにしていても利用できます。sourceホストの場合はsource管理IP、targetホストの場合はsource、target、またはサブネット変換後の管理IPのいずれとも一致しない `ansible_host` を指定するとエラーになります。
-
-`--cables clab_cables.csv` を指定すると、変換後のinterface descriptionをケーブル表と照合します。descriptionがない、既定または `--description-rules` のルールで解析できない、対向ノードまたは対向インターフェースが一致しない場合はwarningを出力します。`--mappings` を指定した場合は、ケーブル表とdescriptionの両方を同じルールで正規化して比較します。
-
-### `clab-set-cmds`
-
-containerlab 向けの一連の処理をまとめて実行します。
-
-```sh
-alred clab-set-cmds --hosts hosts.yaml
-```
-
-`collect-all` の tar を展開済みで、実機アクセスを行わずに後続処理だけ実行したい場合:
-
-```sh
-alred clab-set-cmds --hosts hosts.yaml --without-collect
-```
-
-主なポイント:
-
-- `collect-clab` から `generate-vni-map` までを順番に実行します
-- `clab-transform-config` は `collect-clab` の直後、`generate-clab` より前に実行されます
-- `clab_credentials.yaml` の NX-OS 認証情報は、収集時の接続と startup-config のラボユーザー変換の両方に利用されます
-- `--without-collect` を指定すると `collect-clab` をスキップし、展開済みの `raw/` を使って後続処理だけを実行できます
-- `--transport auto` が既定です
-- `--mappings`、`--roles`、`--description-rules` などの上書き指定ができます
-- `clab` 用の補助ファイルは、存在すれば自動で取り込みます
-- 既定では `generate-drawio --all-graph` も実行し、`output/topology-graph-all.drawio` に複数ページの構成図を出力します
-- underlay の draw.io / Mermaid で `lo1` など複数 loopback を出したい場合は `underlay_render.yaml` を用意します
-
-### `generate-sample-config`
-
-入力用のサンプルファイルを `samples/` 配下に一括生成します。
-
-```sh
-alred generate-sample-config
-```
-
-logging除外条件だけを変更する差分profileも
-`samples/health-check-profile.logging-excludes.example.yaml`として生成します。利用手順は
-[Health Check Profile設計](./docs/design/HEALTH_CHECK_FRAMEWORK_DESIGN.md#42-profile-yamlのパラメータ)
-を参照してください。
-
-詳細なファイル一覧は [CONFIG.md](./CONFIG.md) を参照してください。
-
-### `collect-clab`
-
-`clab-set-cmds` の先頭で利用される基本収集コマンドです。  
-show lldp と running-config を収集し、後続の正規化や描画処理で使うデータを準備します。
-
-```sh
-alred collect-clab --hosts hosts.yaml
-```
-
-例:
-
-```sh
-alred collect-clab --hosts hosts.yaml --output raw --workers 10
-```
-
-主なポイント:
-
-- `--workers` (実行並列度) の既定値は `5`
-- 収集結果は取得時に `old/<YYYYMMDDHHMMSS>/` へ保存し、トップレベルの固定名ファイルは最新ミラーとして更新します
-- `collect-run-diff` は `<output>/show_run_diff/`、`collect-run-diff-cmd` は `<output>/show_run_diff_commands/` に保存します
-- `--transport auto` / `nxapi` / `ssh` を切り替えられます
-- ユーザー名は `-u` / `--user` / `--username` で指定できます
-- `.env` や shell history にパスワードを残したくない場合は、`-k` / `--ask-pass` で SSH パスワード、`-K` / `--ask-become-pass` で enable secret を実行時入力できます
-
-### `collect-all`
-
-`collect-clab`、`collect-list`、`collect-run-diff`、`collect-run-diff-cmd` をまとめて順番に実行します。  
-最後に `old/` を除く最新成果物を `collect-all-<YYYYMMDD-HHMMSS>.tar.gz` として `<output>/` 配下へ出力します。tar を展開すると先頭に `<output>/` ディレクトリが復元され、`show_commands.txt`、`roles.yaml`、`hosts.yaml` が存在する場合はあわせて同梱されます。`collect-all-*.tar.gz` も `ALRED_LOG_ROTATION` に従って古いものから自動削除されます。
-
-```sh
-alred collect-all --hosts hosts.yaml --show-commands-file show_commands.txt --output raw
-```
-
-主な用途:
-
-- ベース収集、追加 show、差分確認を一度にまとめて取りたいとき
-- 収集直後の最新成果物だけを tar で受け渡したいとき
-- `--filter-archive-hosts` を付けると、archive には `-i` / `--inventory` / `--hosts`、`--policy`、`--target-hosts` で決まる実効対象ホストの host 単位成果物だけを含めます
-
-### `collect-before-work`
-
-作業前の事前ログ取得をまとめて実行します。  
-内部では `collect-all`、`check-logging`、`collect-run-diff-cmd` を順に実行し、最後に結果を 1 つの tar にまとめます。
-
-```sh
-alred collect-before-work --hosts hosts.yaml --show-commands-file show_commands.txt --output raw
-```
-
-主なポイント:
-
-- `check-logging` は `collect-all` で取得済みの `show logging` を参照するため、内部的に `--no-collect-raw-check` で実行します
-- `--last` 未指定時の `check-logging` は `7 days` が既定です
-- まとめ tar の既定名は `<output>/before-log-<YYYYMMDD-HHMMSS>.tar.gz` です
-- `--output-tar` で tar 名または出力パスを指定できます
-- 内部で実行する `collect-all` は既定で `--filter-archive-hosts` 有効です
-- 終了時に logging と `show running-config diff` の要チェックホスト一覧を表示します
-
-### `collect-after-work`
-
-作業後の事後ログ取得をまとめて実行します。  
-内部では `collect-all`、`check-logging`、`collect-run-diff-cmd` を順に実行し、最後に結果を 1 つの tar にまとめます。
-
-```sh
-alred collect-after-work --hosts hosts.yaml --show-commands-file show_commands.txt --output raw
-```
-
-主なポイント:
-
-- `check-logging` は `collect-all` で取得済みの `show logging` を参照するため、内部的に `--no-collect-raw-check` で実行します
-- `--last` 未指定時は、直近の `collect-before-work` 実施時刻からの経過時間をもとに `minutes` / `hours` / `days` の最小単位へ自動換算します
-- 直近の `collect-before-work` 履歴が見つからない場合は、先に `collect-before-work` を実行するか `--last VALUE UNIT` を指定してください
-- まとめ tar の既定名は `<output>/after-log-<YYYYMMDD-HHMMSS>.tar.gz` です
-- `--output-tar` で tar 名または出力パスを指定できます
-- 内部で実行する `collect-all` は既定で `--filter-archive-hosts` 有効です
-
-### `collect-list`
-
-追加の show コマンドだけを一括収集します。
-
-```sh
-alred collect-list --hosts hosts.yaml --show-commands-file show_commands.txt
-```
-
-例:
-
-```sh
-alred collect-list \
-  --hosts hosts.yaml \
-  --roles roles.yaml \
-  --show-commands-file show_commands.txt \
-  --show-hosts lfsw0101,lfsw0102
-```
-
-主な用途:
-
-- 任意の show コマンド結果をまとめて採取したいとき
-- `show_commands.txt` の内容を role ごとに振り分けたいとき
-- 出力は `<output>/show_lists/<hostname>/` に保存され、`old/<YYYYMMDDHHMMSS>/` が履歴、`<hostname>_shows.log` が最新ミラーになります
-- JSON sidecar も同じ `<output>/show_lists/<hostname>/` 配下で `old/<YYYYMMDDHHMMSS>/` と最新ミラーに分かれて保存されます
-
-### `collect-run-config`
-
-running-config だけを収集します。
-
-```sh
-alred collect-run-config --hosts hosts.yaml --output raw
-```
-
-主な用途:
-
-- 設定バックアップを取得したいとき
-- `generate-vni-config` の比較元を作りたいとき
-
-### `collect-run-diff`
-
-既存の running-config と比較して差分をまとめます。
-
-```sh
-alred collect-run-diff --hosts hosts.yaml --output raw
-```
-
-主な用途:
-
-- 変更差分だけを確認したいとき
-- 事前取得済み config と比較したいとき
-
-### `collect-run-diff-cmd`
-
-機器側の `show running-config diff` コマンド結果をまとめて取得します。
-
-```sh
-alred collect-run-diff-cmd --hosts hosts.yaml --output raw
-```
-
-主な用途:
-
-- 機器の差分表示結果をそのまま集約したいとき
-- `nxos` の `show running-config diff` をまとめて確認したいとき
-
-補足:
-
-- 現在は主に `nxos` 向けの用途を想定しています
-
-`collect` は汎用ベースコマンドですが、通常の運用では上記の用途別サブコマンドを使う想定です。  
-追加 show コマンド、差分取得、show-only の詳細は [CONFIG.md](./CONFIG.md) と `alred --help` を参照してください。
-
-### `check-logging`
-
-NX-OS の `show logging` を確認し、指定期間内のログから severity や文字列条件に一致するレコードを抽出します。
-
-```sh
-alred check-logging --hosts hosts.yaml --output raw --last 1 days --severity 4
-```
-
-例:
-
-```sh
-alred check-logging \
-  --hosts hosts.yaml \
-  --output raw \
-  --last 1 days \
-  --severity 4 \
-  --check-string logging-error-string.txt \
-  --uncheck-string exclude-logging-string.txt
-```
-
-主な用途:
-
-- 指定期間内の `show logging` から異常ログ候補を確認したいとき
-- 既に収集済みの `show_lists/<hostname>/<hostname>_shows.log` を再チェックしたいとき
-- 特定の文字列を追加検出したいとき、または既知の不要ログを除外したいとき
-
-主なポイント:
-
-- 初期実装の正式対応機種は `nxos` のみです
-- NX-OS の live 実行時は `show logging` を `ssh` で取得します
-- `--transport nxapi` は `check-logging` では利用できません
-- `--last` は `check-logging` 実行開始時刻を基準に `days` / `hours` / `minutes` で指定します
-- `--severity` は `0=emergency` から `7=debug` の syslog severity を指定し、その値以下を対象にします
-- `--check-string` と `--uncheck-string` は大文字小文字を区別しない部分一致です
-- `--no-collect-raw-check` 指定時は `<output>/show_lists/<hostname>/<hostname>_shows.log` の最後の `### COMMAND: show logging` セクションを解析します
-- ターミナルには `### HOST LOGGING CHECK SUMMARY` のみ出力します
-- 結果ファイルは `<output>/check-logging/check-logging.txt` に保存され、履歴は `<output>/check-logging/old/<YYYYMMDDHHMMSS>/check-logging.txt` にローテーション保存されます
-
-### `normalize-links`
-
-収集済みデータから接続リストを正規化して生成します。
-
-```sh
-alred normalize-links --hosts hosts.yaml
-```
-
-例:
-
-```sh
-uv run python alred.py normalize-links \
-  --hosts hosts.yaml \
-  --input raw \
-  --mappings mappings.yaml \
-  --description-rules description_rules.yaml
-```
-
-補足:
-
-- `normalize-links` では既定で SVI (`interface Vlan*`) の description を除外します
-- SVI 由来の description もリンク候補に含めたい場合は `--include-svi` を指定してください
-- `roles.yaml` が実行ディレクトリにあれば、role を使うコマンドは `--roles` 未指定でも既定でそれを利用します
-- `description_rules.yaml` が実行ディレクトリにあれば、`normalize-links` は `--description-rules` 未指定でも既定でそれを利用します
-- 同じ local interface で LLDP と description の対向先が異なる場合、実行結果サマリと出力 CSV の `warning` 列に `lldp-description-mismatch` を出力します
-
-### `generate-vni-map`
-
-収集した config から VNI / VRF / Gateway の対応表を生成します。
-
-```sh
-alred generate-vni-map --input raw
-```
-
-### `generate-vni-config`
-
-目標の VNI CSV と現在状態との差分から、NX-OS 向け config を生成します。
-
-```sh
-alred generate-vni-config \
-  --vni-gateway-map output/vni_gateway_map.csv \
-  --hosts hosts.yaml
-```
-
-### `generate-clab`
-
-正規化済みリンク CSV から containerlab 用 topology YAML を生成します。
-
-`-i` / `--inventory` / `--hosts` 未指定時は `./hosts.lab.yaml` を優先し、なければ `./hosts.yaml` を使います。
-
-```sh
-alred generate-clab --hosts hosts.yaml
-```
-
-例:
-
-```sh
-alred generate-clab \
-  --input output/links_confirmed.csv \
-  --hosts hosts.yaml \
-  --mappings mappings.yaml \
-  --roles roles.yaml \
-  --group-by-role \
-  --n9kv-startup-delay 5,600 \
-  --include-nodes
-```
-
-`--n9kv-startup-delay 5,600` を指定すると、`kind: cisco_n9kv` ノードの起動を5台ごとに600秒ずつ遅らせます。先頭5台は delay なし、次の5台は `startup-delay: 600`、さらに次は `startup-delay: 1200` です。
-
-merge 用 YAML、Linux サーバ CSV、Kind クラスタ CSV の詳細は [CONFIG.md](./CONFIG.md) を参照してください。
-
-### `init-clab`
-
-既存環境から情報を収集せず、`hosts.txt` とケーブル結線表から新しい containerlab topology YAML を生成します。
-
-```sh
-alred init-clab \
-  --hosts hosts.txt \
-  --cables clab_cables.csv \
-  --clab-env clab_merge.yaml \
-  --output output/topology.clab.yaml
-```
-
-`hosts.txt` は既存形式をそのまま利用します。
-
-```text
-192.168.129.81 leaf01 # nxos
-192.168.129.82 leaf02 # nxos
-192.168.129.101 server01 # linux, profile=bond, vlan=2001, ipv4=100.64.0.1/24, ipv4_gw=100.64.0.254, ipv6=fd12:0:0:1::101/64, ipv6_gw=fd12:0:0:1::1
-```
-
-ケーブル結線表の例:
-
-```csv
-src_node,src_if,dst_node,dst_if,enabled,description
-leaf01,Eth1/1,leaf02,Eth1/1,true,peer link
-server01,Port 1,leaf01,Eth1/10,true,server connection
-```
-
-任意列:
-
-- `enabled`: 結線を生成対象にするかを指定します。省略時は `true` です。`false` / `no` / `0` / `off` を指定した行は topology YAML に出力しませんが、確認用の正規化 CSV には残します
-- `description`: 結線の用途や備考を記載します。省略可能で、topology YAML には出力せず確認用の正規化 CSV に残します
-
-主な動作:
-
-- `hosts.txt` の全ホストを、結線の有無にかかわらず `topology.nodes` へ生成します
-- 未結線ノードは警告として検証レポートへ記録します
-- インターフェース名は両端の `device_type` に応じて正規化します。NX-OS の `Eth1/1` は `Ethernet1/1`、Linux の `Port 1` は `eth1` になります
-- Linux ノードで `profile=bond` を指定すると、`vlan` / `ipv4` / `ipv4_gw` / `ipv6` / `ipv6_gw` から `env` を生成し、`binds` と `exec` を追加します
-- Linuxノードが存在する場合、`topology.kinds.linux.image`の既定値として`ghcr.io/hellt/network-multitool:latest`を設定します
-- `--n9kv-startup-delay 5,600` で、`kind: cisco_n9kv` ノードの起動を5台ごとに600秒ずつ遅らせる `startup-delay` を追加できます
-- `--clab-env` の `mgmt.ipv4-subnet` へホスト部を維持して管理 IP を変換し、同じ YAML を生成結果へマージします
-- `--validate-only` では topology YAML を生成せず、入力検証だけを実行します
-
-確認用に `output/links_design_normalized.csv` と `output/init_clab_validation.md` も出力します。入力仕様と検証内容の詳細は [CONFIG.md](./CONFIG.md) を参照してください。
-
-`generate-sample-config` が出力する `init_clab_hosts.example.txt` と `clab_cables.example.csv` を使って試すこともできます。
-
-### `check-clab-startup-config`
-
-containerlab 起動後に、lab ノードへ接続して live の `show running-config` を取得し、`clab-transform-config` で生成した startup-config と比較します。
-
-`-i` / `--inventory` / `--hosts` 未指定時は `./hosts.lab.yaml` を優先し、なければ `./hosts.yaml` を使います。
-
-```sh
-alred check-clab-startup-config
-```
-
-例:
-
-```sh
-alred check-clab-startup-config \
-  --hosts hosts.lab.yaml \
-  --credentials clab_credentials.yaml \
-  --startup-dir raw/labconfig \
-  --file-suffix _run.txt \
-  --target-hosts lfsw0101,lfsw0102
-```
-
-主なポイント:
-
-- `raw/labconfig/<hostname><suffix>` を期待する startup-config、lab ノードの `show running-config` を実際の起動後 config として比較します。`--file-suffix` の既定は `_run.txt` です
-- 認証情報は CLI (`--user` / `--password` / `--ask-pass`) > `clab_credentials.yaml` の host 個別 > device_type 別 > defaults > 環境変数の順で解決します
-- 改行だけの差分や、既存の running-config diff 除外ルールに含まれる行は比較時に無視します
-- live の running-config は `<output>/check-clab-startup-config/current/` に保存されます
-- レポートは `<output>/check-clab-startup-config/check-clab-startup-config.txt` に保存されます
-- `--target-hosts` で一部ノードだけ確認できます
-- 接続前の疎通確認を飛ばしたい場合は `--skip-connect-check` を指定できます
-
-### `generate-mermaid`
-
-正規化済みリンク CSV、または containerlab topology YAML から Mermaid 構成図を生成します。
-
-```sh
-alred generate-mermaid --hosts hosts.yaml
-```
-
-例:
-
-```sh
-alred generate-mermaid \
-  --input output/links_confirmed.csv \
-  --input-candidates output/links_candidates.csv \
-  --hosts hosts.yaml \
-  --mappings mappings.yaml \
-  --roles roles.yaml \
-  --direction LR \
-  --group-by-role \
-  --add-comments
-```
-
-`init-clab` で作成した `topology.clab.yaml` から生成する例:
-
-```sh
-alred generate-mermaid \
-  --input output/topology.clab.yaml \
-  --direction LR \
-  --output output/topology.md
-```
-
-補足:
-
-- `--input-format auto` が既定です。`.yaml` / `.yml` は containerlab YAML、それ以外は links CSV として読み込みます
-- 明示したい場合は `--input-format csv` または `--input-format clab` を指定します
-- containerlab YAML 入力では `topology.links[*].endpoints` からリンクを読み、`topology.nodes` にある未結線ノードも Mermaid に表示します
-- containerlab YAML 入力で `--group-by-role` を指定した場合は、`topology.nodes.<node>.group` を Mermaid の subgraph 名として優先します
-- containerlab YAML 入力で `--group-by-site` を指定した場合は、`labels.site` / `labels.domain` を Mermaid / Graphviz / draw.io の site/domain group として使います
-- `--sites sites.yaml` または `./sites.yaml` がある場合は、ホスト名から site を自動判定します。`generate-clab` / `init-clab` では判定結果を `labels.site` へ出力します
-- `sites.yaml` の `priority` は site group の並び順に使います。小さい値ほど上位で、draw.io の `TD` では同じ priority の site を横並びにします
-- containerlab YAML 入力では `mgmt-ipv4` を mgmt 表示に使います。`kind: cisco_n9kv` は `nxos` 相当として扱います
-- `--min-confidence low` は confirmed links の `low` / `medium` / `high` をすべて表示します
-- `--min-confidence medium` は confirmed links の `medium` / `high` のみ表示します
-- `--min-confidence high` は confirmed links の `high` のみ表示します
-- `high` は双方向 LLDP (`bidirectional-lldp`) です
-- `medium` は LLDP と description の突合 (`lldp-plus-description`) です
-- `low` は双方向 description (`bidirectional-description`) です
-- `--min-confidence` は `--input` で渡した confirmed links にのみ適用されます
-- `--input-candidates` で渡した candidate links は `--min-confidence` では除外されません
-- `one-way-description` / `one-way-lldp` は candidate links であり、confirmed links の confidence 判定とは別扱いです
-- `one-way-description` などの候補リンクを Mermaid に出したくない場合は `--input-candidates` を指定しないでください
-
-underlay 表示設定の詳細は [CONFIG.md](./CONFIG.md) を参照してください。
-
-### `generate-graphviz`
-
-正規化済みリンク CSV から Graphviz DOT 形式の構成図を生成します。
-
-```sh
-alred generate-graphviz --hosts hosts.yaml
-```
-
-例:
-
-```sh
-alred generate-graphviz \
-  --input output/links_confirmed.csv \
-  --input-candidates output/links_candidates.csv \
-  --hosts hosts.yaml \
-  --mappings mappings.yaml \
-  --roles roles.yaml \
-  --direction LR \
-  --group-by-role \
-  --add-comments \
-  --output output/topology-graph.dot
-```
-
-補足:
-
-- 入力解釈と `--min-confidence` / `--underlay` の挙動は `generate-mermaid` と同じです
-- 出力は DOT 形式なので、`dot -Tpng output/topology-graph.dot -o output/topology-graph.png` のように画像化できます
-
-### `generate-drawio`
-
-正規化済みリンク CSV から draw.io 形式の構成図を生成します。
-
-```sh
-alred generate-drawio --hosts hosts.yaml
-```
-
-例:
-
-```sh
-alred generate-drawio \
-  --input output/links_confirmed.csv \
-  --input-candidates output/links_candidates.csv \
-  --hosts hosts.yaml \
-  --mappings mappings.yaml \
-  --roles roles.yaml \
-  --direction LR \
-  --group-by-role \
-  --output output/topology-graph.drawio
-```
-
-全ページ一括出力:
-
-```sh
-alred generate-drawio \
-  --input output/links_confirmed.csv \
-  --input-candidates output/links_candidates.csv \
-  --hosts hosts.yaml \
-  --mappings mappings.yaml \
-  --roles roles.yaml \
-  --group-by-role \
-  --underlay-config underlay_render.yaml \
-  --all-graph
-```
-
-補足:
-
-- 入力解釈と `--min-confidence` / `--underlay` の挙動は `generate-mermaid` と同じです
-- 出力した `.drawio` は draw.io / diagrams.net でそのまま開けます
-- `--all-graph` を付けると `TD/LR/BT/RL` と underlay 各ページを 1 つの `.drawio` にまとめます
-- `--all-graph` の既定出力先は `output/topology-graph-all.drawio` です
-- underlay ページで `lo1` なども出したい場合は `--underlay-config underlay_render.yaml` を指定します
-
-### `generate-tf`
-
-`hosts.yaml` から Terraform 用の `main.tf` を生成します。
-
-```sh
-alred generate-tf \
-  --hosts hosts.yaml \
-  --roles roles.yaml \
-  --provider-version ">= 0.5.0" \
-  --output output/main.tf
-```
-
-### `push-config`
-
-1 つの config ファイルを共通で対象機器すべてに投入します。
-
-```sh
-alred push-config \
-  --hosts hosts.yaml \
-  --config-file push_commands.txt \
-  --target-hosts lfsw0101,lfsw0102
-```
-
-### `push-config-dir`
-
-ホスト別ファイルを `"<hostname><suffix>"` 形式で対応機器へ投入します。(下記は`raw/config/lfsw0101.txt`がある場合)
-
-```sh
-alred push-config-dir \
-  --hosts hosts.yaml \
-  --input-dir raw/config \
-  --file-suffix .txt \
-  --target-hosts lfsw0101,lfsw0102
-```
-
-### `write-memory`
-
-config を投入せず、対象機器で保存処理だけを実行します。
-
-```sh
-alred write-memory \
-  --hosts hosts.yaml \
-  --target-hosts lfsw0101,lfsw0102
-```
-
-主な用途:
-
-- `push-config` や `push-config-dir` の後に、保存だけを別で実行したいとき
-- すでに機器上で変更済みの running-config を明示的に保存したいとき
-
-補足:
-
-- NX-OS の保存成功は、機器の `copy running-config startup-config` 実行結果に `Copy complete.` が含まれるかどうかで判定します
-- `write-memory` 実行後は、全対象が成功したかどうかを最後に表示します
-- 失敗がある場合は、失敗したホスト一覧をまとめて表示します
-
-`push-config` / `push-config-dir` で `--write-memory` を付けた場合も、保存フェーズでは同じ機種別成功判定と結果表示を行います
-
-## 関連ドキュメント
-
-- 利用手順と主要コマンド: この README
-- 設定値、入力ファイル、補助ファイルの詳細: [CONFIG.md](./CONFIG.md)
-- 配布 binary の build / release 手順: [BUILD.md](./BUILD.md)
-- バージョンごとの変更点と制約: [Release Notes](./docs/releases/README.md)
-- ライセンス: [LICENSE](./LICENSE)
-
-## Notes
-
-- LLDP パーサは主に NX-OS 系の `show lldp neighbors detail` 形式を対象としています
-- 初回利用時は `prepare-hosts` -> `clab-set-cmds` の順で進めるのがおすすめです
-- `push-config` / `push-config-dir` の利用前には、検証環境での確認を推奨します
-- alpha 版のため、本番環境での利用前には十分な検証を推奨します
+必要に応じて `$HOME/.local/bin` を `PATH` へ追加してください。
+Python package、開発環境、shell completion、エアギャップ環境への持ち込みは
+[Installation Guide](./docs/manual/INSTALLATION.md)を参照してください。
+
+## ドキュメント
+
+| 文書 | 内容 |
+|---|---|
+| [User Manuals](./docs/manual/README.md) | 利用目的別の Quick Start と詳細手順 |
+| [Configuration Reference](./CONFIG.md) | 設定値、inventory、補助 file |
+| [Architecture Overview](./docs/design/ARCHITECTURE_OVERVIEW.md) | 全体構成、data flow、責務境界 |
+| [Design Index](./docs/design/README.md) | 機能仕様の正本 |
+| [Implementation Status](./docs/implementation/IMPLEMENTATION_STATUS.md) | 実装済み、部分実装、未実装の状態 |
+| [Release Notes](./docs/releases/README.md) | version ごとの変更点と既知制約 |
+| [Build Guide](./BUILD.md) | 配布 binary の build 手順 |
+
+## License
+
+[Apache License 2.0](./LICENSE)

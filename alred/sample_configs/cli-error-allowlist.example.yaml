@@ -1,0 +1,5 @@
+# Allow only a reviewed command/response pair. Keep rules narrow.
+rules:
+  - id: nxos-vlan-already-exists-example
+    command_pattern: '^vlan 3901$'
+    response_pattern: '^% Error: VLAN 3901 already exists$'

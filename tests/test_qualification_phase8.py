@@ -7,6 +7,7 @@ import yaml
 
 from alred.operation import (
     OperationLock,
+    OperationStateError,
     create_operation_workspace,
     load_operation_metadata,
     transition_workflow,
@@ -797,7 +798,7 @@ def test_normal_approved_apply_rejects_unrelated_unsaved_config(tmp_path):
     ]
 
 
-def _write_verified_after_results(workspace):
+def _write_verified_after_results(workspace, *, common_result="PASS"):
     health = {
         "schema_version": 1,
         "change_id": workspace.change_id,
@@ -805,10 +806,10 @@ def _write_verified_after_results(workspace):
         "started_at": JST_NOW.isoformat(),
         "completed_at": JST_NOW.isoformat(),
         "profiles": ["network-baseline-nxos", "nxos-overlay"],
-        "result": "PASS",
+        "result": common_result,
         "counts": {
-            "pass": 1,
-            "warn": 0,
+            "pass": int(common_result == "PASS"),
+            "warn": int(common_result == "WARN"),
             "fail": 0,
             "unknown": 0,
             "not_applicable": 0,
@@ -850,7 +851,15 @@ def _write_verified_after_results(workspace):
     )
 
 
-def test_normal_approved_save_after_verified_health(tmp_path):
+@pytest.mark.parametrize(
+    ("common_result", "has_changes"),
+    [("PASS", True), ("WARN", True), ("WARN", False)],
+)
+def test_normal_approved_save_after_verified_health(
+    tmp_path,
+    common_result,
+    has_changes,
+):
     workspace, paths = _candidate(tmp_path)
     plan = json.loads(paths["plan_path"].read_text(encoding="utf-8"))
     plan["capability_level"] = "APPLY_VERIFIED"
@@ -859,6 +868,27 @@ def test_normal_approved_save_after_verified_health(tmp_path):
         "inventory": str(paths["inventory_path"]),
         "inventory_sha256": source_sha256(paths["inventory_path"]),
     }
+    if not has_changes:
+        for item in plan["devices"].values():
+            item.update(
+                {
+                    "status": "NO_CHANGE",
+                    "forward_config": None,
+                    "forward_sha256": None,
+                }
+            )
+        rollback = json.loads(
+            paths["rollback_plan_path"].read_text(encoding="utf-8")
+        )
+        for item in rollback["devices"].values():
+            item.update(
+                {
+                    "status": "NO_CHANGE",
+                    "rollback_config": None,
+                    "rollback_sha256": None,
+                }
+            )
+        _write_json(paths["rollback_plan_path"], rollback)
     _write_json(paths["plan_path"], plan)
     summary = build_approval_summary(
         workspace,
@@ -898,7 +928,10 @@ def test_normal_approved_save_after_verified_health(tmp_path):
             now=_clock(),
         )
     after = _after_snapshot(workspace)
-    _write_verified_after_results(workspace)
+    _write_verified_after_results(
+        workspace,
+        common_result=common_result,
+    )
     with OperationLock(workspace, "state", now=JST_NOW) as lock:
         transition_workflow(
             workspace, "after_running", lock=lock, now=JST_NOW
@@ -936,21 +969,93 @@ def test_normal_approved_save_after_verified_health(tmp_path):
         )
 
     assert execution["status"]["result"] == "APPLIED_AND_VERIFIED"
-    assert sum(len(connection.save_calls) for connection in created) == 2
+    assert sum(len(connection.save_calls) for connection in created) == (
+        2 if has_changes else 0
+    )
     assert load_operation_metadata(
         workspace.operation_root
     )["spec"]["workflow_state"] == "completed"
     assert (
         workspace.operation_root
         / "apply/devices/leaf01/save-result.json"
-    ).is_file()
+    ).is_file() is has_changes
     apply_execution = json.loads(
         (workspace.operation_root / "apply/execution.json").read_text()
     )
     assert apply_execution["status"]["result"] == "APPLIED_AND_VERIFIED"
 
 
-def test_normal_approved_rollback_runs_reverse_order(tmp_path, monkeypatch):
+def test_rollback_save_state_error_includes_current_verification_and_health(
+    tmp_path,
+):
+    workspace, paths = _candidate(tmp_path)
+    plan = json.loads(paths["plan_path"].read_text(encoding="utf-8"))
+    plan["capability_level"] = "APPLY_VERIFIED"
+    _write_json(paths["plan_path"], plan)
+    summary = build_approval_summary(
+        workspace,
+        plan_path=paths["plan_path"],
+        rollback_plan_path=paths["rollback_plan_path"],
+        save_on_success=True,
+    )
+    with OperationLock(workspace, "approve", now=JST_NOW) as lock:
+        approval_path = create_approval_record(
+            workspace,
+            summary,
+            lock=lock,
+            confirm=lambda _summary: True,
+            now=JST_NOW,
+            random_hex="abcdef",
+        )
+    approval = load_approval_record(approval_path)
+    _write_json(
+        workspace.operation_root / "rollback/verification.json",
+        {
+            "status": {
+                "result": "ROLLBACK_HEALTH_FAILED",
+                "health_result": "WARN",
+            }
+        },
+    )
+
+    with OperationLock(workspace, "save-rollback", now=JST_NOW) as lock:
+        with pytest.raises(OperationStateError) as exc_info:
+            execute_approved_save(
+                workspace,
+                approval,
+                plan_path=paths["plan_path"],
+                rollback_plan_path=paths["rollback_plan_path"],
+                after_snapshot_path=paths["before_snapshot_path"],
+                inventory_hosts={},
+                connect=lambda _host: None,
+                disconnect=lambda _connection: None,
+                save_command="copy running-config startup-config",
+                success_marker="Copy complete.",
+                lock=lock,
+                now=lambda: JST_NOW,
+                save_mode="rollback",
+            )
+
+    assert str(exc_info.value).endswith(
+        "(current workflow state: approved; verification result: "
+        "ROLLBACK_HEALTH_FAILED; health result: WARN)"
+    )
+
+
+@pytest.mark.parametrize(
+    ("comparison_result", "verification_result", "workflow_state"),
+    [
+        ("PASS", "ROLLED_BACK_AND_VERIFIED", "rolled_back_and_verified"),
+        ("WARN", "ROLLBACK_HEALTH_FAILED", "rollback_health_failed"),
+    ],
+)
+def test_normal_approved_rollback_runs_reverse_order(
+    tmp_path,
+    monkeypatch,
+    comparison_result,
+    verification_result,
+    workflow_state,
+):
     workspace, paths = _candidate(tmp_path)
     plan = json.loads(paths["plan_path"].read_text(encoding="utf-8"))
     plan["capability_level"] = "APPLY_VERIFIED"
@@ -1070,15 +1175,30 @@ def test_normal_approved_rollback_runs_reverse_order(tmp_path, monkeypatch):
         "started_at": JST_NOW.isoformat(),
         "completed_at": JST_NOW.isoformat(),
         "profiles": ["nxos-overlay"],
-        "result": "PASS",
+        "result": comparison_result,
         "counts": {
             "pass": 1,
-            "warn": 0,
+            "warn": 1 if comparison_result == "WARN" else 0,
             "fail": 0,
             "unknown": 0,
             "not_applicable": 0,
         },
-        "checks": [],
+        "checks": (
+            [
+                {
+                    "check_id": "ntp_health",
+                    "profile": "network-baseline-nxos",
+                    "host": "leaf01",
+                    "resource": "system/ntp",
+                    "result": "WARN",
+                    "classification": "pre_existing",
+                    "message": "NTP is not synchronized",
+                    "evidence": [],
+                }
+            ]
+            if comparison_result == "WARN"
+            else []
+        ),
     }
     monkeypatch.setattr(
         "alred.managed_operation.load_resolved_profiles",
@@ -1112,7 +1232,18 @@ def test_normal_approved_rollback_runs_reverse_order(tmp_path, monkeypatch):
 
     assert verification["status"]["snapshot_fresh"] is True
     assert compare_kwargs["resolved_roles"] is resolved_roles
-    assert verification["status"]["result"] == "ROLLED_BACK_AND_VERIFIED"
+    assert verification["status"]["result"] == verification_result
+    assert verification["status"]["health_gate"]["passed"] is (
+        comparison_result == "PASS"
+    )
+    assert verification["status"]["health_gate"][
+        "state_warn_eligible"
+    ] is (
+        comparison_result == "WARN"
+    )
+    assert load_operation_metadata(workspace.operation_root)["spec"][
+        "workflow_state"
+    ] == workflow_state
     checklist = workspace.operation_root / "rollback/verification-checklist.md"
     assert checklist.is_file()
     assert "[x] `raw_running_config_restored`: PASS" in checklist.read_text()

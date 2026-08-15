@@ -12,7 +12,7 @@ from .commands import command_id, normalize_command
 from ..schema import API_VERSION, validate_document
 
 
-COLLECT_ADAPTER_VERSION = "1.0"
+COLLECT_ADAPTER_VERSION = "1.1"
 _COMMAND_HEADER = re.compile(r"^### COMMAND:\s*(?P<command>.+?)\s*$")
 _PROMPT_COMMAND = re.compile(
     r"^(?P<host>[A-Za-z0-9_.-]+)"
@@ -190,6 +190,41 @@ def _running_config_entries(paths: list[Path], collected_at: str) -> list[dict[s
     return entries
 
 
+def _lldp_entries(paths: list[Path], collected_at: str) -> list[dict[str, Any]]:
+    """Select one dedicated LLDP neighbor artifact per host."""
+    preferred: dict[str, Path] = {}
+    for path in paths:
+        match = re.fullmatch(r"(?P<host>.+)_lldp\.(?:txt|json)", path.name)
+        if not match or "lldp" not in path.parts:
+            continue
+        host = match.group("host")
+        current = preferred.get(host)
+        if current is None or (
+            path.suffix.lower() == ".txt"
+            and current.suffix.lower() != ".txt"
+        ):
+            preferred[host] = path
+    entries: list[dict[str, Any]] = []
+    for host, path in sorted(preferred.items()):
+        entries.append(
+            {
+                "host": host,
+                "command": "show lldp neighbors detail",
+                "normalized_command": "show lldp neighbors detail",
+                "command_id": "lldp_neighbors_detail",
+                "status": "success",
+                "collected_at": collected_at,
+                "file": str(path),
+                "sha256": _sha256(path),
+                "source": "lldp",
+                "transport": "unknown",
+                "confidence": "high",
+                "error": None,
+            }
+        )
+    return entries
+
+
 def build_collection_manifest(
     sections: list[dict[str, Any]],
     *,
@@ -319,9 +354,32 @@ def build_collect_manifest(
             or path.name.removesuffix("_shows.log") not in nested_hosts
         )
     ]
+    command_files = [
+        path
+        for path in files
+        if path.parent.name == "commands" and path.suffix.lower() == ".txt"
+    ]
+    command_file_hosts = {
+        path.parent.parent.name for path in command_files
+    }
     sections: list[dict[str, Any]] = []
-    for path in show_logs:
+    for path in command_files:
         sections.extend(_parse_collect_sections(path))
+    for path in show_logs:
+        log_host = (
+            path.parent.name
+            if path.parent.name == path.name.removesuffix("_shows.log")
+            else path.name.removesuffix("_shows.log")
+        )
+        if log_host in command_file_hosts:
+            continue
+        sections.extend(_parse_collect_sections(path))
+    sections.extend(
+        _lldp_entries(
+            files,
+            started_at.isoformat(timespec="seconds"),
+        )
+    )
     sections.extend(
         _running_config_entries(
             files,

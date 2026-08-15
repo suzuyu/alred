@@ -11,18 +11,21 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 import difflib
 from getpass import getpass
+import hashlib
 import ipaddress
 import json
 import math
 import os
 import sys
 import tarfile
+import tempfile
 import time
-from logging import Logger
+from threading import Lock
+from logging import ERROR, WARNING, Logger
 from pathlib import Path
 import re
 import shutil
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Set, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Set, Tuple
 import xml.etree.ElementTree as ET
 
 from dotenv import load_dotenv
@@ -41,7 +44,6 @@ from .constants import (
     DEFAULT_CISCO_N9KV_KIND_IMAGE,
     DEFAULT_CISCO_N9KV_KIND_NAME,
     DEFAULT_CLAB_SET_GENERATE_CLAB_AUTO_FILES,
-    DEFAULT_CISCO_N9KV_STARTUP_CONFIG_TEMPLATE,
     DEFAULT_CLAB_SET_CMDS,
     DEFAULT_CONNECT_CHECK_TIMEOUT,
     DEFAULT_CLAB_TOPOLOGY_NAME,
@@ -65,6 +67,12 @@ from .constants import (
     DEFAULT_LINKS_CANDIDATES_FILENAME,
     DEFAULT_LINKS_CONFIRMED_FILENAME,
     DEFAULT_LOGGING_THRESHOLD_MAP,
+    DEFAULT_NETWORK_DIAGRAM_MANIFEST_FILENAME,
+    DEFAULT_EVPN_CONTROL_PLANE_MODEL_FILENAME,
+    DEFAULT_EVPN_SESSION_LINKS_FILENAME,
+    DEFAULT_OVERLAY_SERVICE_DETAILS_DIRNAME,
+    DEFAULT_OVERLAY_SERVICE_LINKS_FILENAME,
+    DEFAULT_OVERLAY_SERVICE_MODEL_FILENAME,
     DEFAULT_ROLES_PATH,
     DEFAULT_SITES_PATH,
     DEFAULT_SAMPLES_DIR,
@@ -72,8 +80,11 @@ from .constants import (
     DEFAULT_TOPOLOGY_CLAB_FILENAME,
     DEFAULT_TOPOLOGY_DRAWIO_ALL_FILENAME,
     DEFAULT_TOPOLOGY_DRAWIO_FILENAME,
+    DEFAULT_TOPOLOGY_EVPN_MERMAID_FILENAME,
+    DEFAULT_TOPOLOGY_OVERLAY_SERVICE_MERMAID_FILENAME,
     DEFAULT_TOPOLOGY_GRAPHVIZ_FILENAME,
     DEFAULT_TOPOLOGY_MERMAID_FILENAME,
+    DEFAULT_TOPOLOGY_UNDERLAY_MERMAID_FILENAME,
     DEFAULT_VNI_MAP_CSV_FILENAME,
     DEFAULT_VNI_MAP_MD_FILENAME,
     DEVICE_TYPE_TO_KIND,
@@ -97,6 +108,7 @@ from .collect import (
     is_nxos_host,
     probe_transport_connectivity,
 )
+from .clab_pipeline import ClabSetPipelineAttempt
 from .design import (
     normalize_and_validate_cables,
     read_cable_table,
@@ -106,11 +118,22 @@ from .design import (
 )
 from . import __version__
 from .inventory import (
+    apply_device_inventory_defaults,
     build_inventory,
     build_terraform_provider_lines,
     load_inventory_data,
     load_inventory_map_from_list,
     parse_hosts_txt,
+)
+from .overlay_service import (
+    OverlayServiceError,
+    build_overlay_service_model,
+    overlay_model_to_render_context,
+    overlay_service_detail_render_context,
+    overlay_service_detail_markdown_lines,
+    overlay_service_links_csv_lines,
+    select_overlay_service_ids,
+    service_detail_filename,
 )
 from .logging_check import (
     HostLoggingCheckResult,
@@ -122,8 +145,11 @@ from .logging_check import (
     render_check_logging_report,
 )
 from .managed_config import (
+    build_nxos_clab_cli_error_allowlist,
     execute_config_session,
     execute_save_session,
+    load_cli_error_allowlist,
+    redact_config_execution_result,
 )
 from .capability import (
     CapabilityError,
@@ -151,6 +177,7 @@ from .approval import (
     load_approval_record,
 )
 from .managed_operation import (
+    accept_rollback_state_warn,
     execute_approved_apply,
     execute_approved_rollback,
     execute_approved_rollback_save,
@@ -162,18 +189,25 @@ from .operation import (
     OperationError,
     OperationInterruptGuard,
     OperationLock,
+    OperationLockedError,
     OperationPathError,
     OperationStateError,
+    archive_operation_workspace,
     atomic_write_bytes,
     atomic_write_json,
     atomic_write_yaml,
     create_operation_workspace,
     generate_attempt_id,
     load_operation_execution,
+    load_operation_location,
     load_operation_metadata,
+    load_archived_operation_documents,
+    list_live_operation_ids,
+    operation_location_exists,
     now_in_timezone,
     open_operation_workspace,
     preflight_operation_workspace,
+    publish_latest_operation_link,
     record_operation_error,
     resolve_timezone_name,
     assess_operation_lock,
@@ -217,11 +251,20 @@ from .render import (
 from .resources import (
     get_resource_dir,
 )
-from .schema import source_sha256, validate_document
+from .schema import (
+    API_VERSION,
+    canonical_sha256,
+    DocumentValidationError,
+    UnsupportedSchemaError,
+    source_sha256,
+    validate_document,
+)
 from .health.manifest import (
     CollectionAdapterError,
     build_collect_manifest,
 )
+from .health.overlay import parse_overlay_running_config
+from .health.commands import command_id
 from .health.snapshot import (
     SnapshotBuildError,
     build_health_snapshot,
@@ -266,7 +309,9 @@ from .health.vni_map import (
     overlay_diff_csv,
     overlay_profile_enabled,
     overlay_state_csv,
+    overlay_state_legacy_gateway_csv,
     render_overlay_diff_markdown,
+    render_overlay_state_legacy_gateway_markdown,
     render_overlay_state_markdown,
 )
 from .health.overlay import (
@@ -312,11 +357,53 @@ from .transform import (
     transform_inventory_mgmt_subnet,
     transform_run_config_text,
 )
+from .lab_transform import (
+    LabTransformError,
+    build_lab_transform_manifest,
+    load_lab_transform_parameters,
+    resolve_lab_transform_manifest,
+    resolve_device_spec,
+    scan_nxos_lab_config,
+    transform_lab_config,
+)
 from .support_bundle import (
     SupportBundleError,
     create_support_bundle,
     inspect_support_bundle,
     verify_support_bundle_manifest,
+)
+from .portable_evidence import (
+    canonical_confirmed_links_sha256,
+    canonical_links_sha256,
+    EvidencePackageError,
+    create_evidence_package,
+    import_evidence_package,
+    inspect_evidence_package,
+    load_collection_link_inputs,
+    load_collection_command_inputs,
+    resolve_evidence_collection_source,
+    resolve_imported_digital_twin,
+    resolve_imported_command_paths,
+    resolve_imported_evidence_links,
+    verify_evidence_package,
+)
+from .evpn_diagram import (
+    build_evpn_control_plane_model,
+    EVPNDiagramError,
+    evpn_model_to_render_context,
+    evpn_sessions_csv_lines,
+)
+from .external_config_import import (
+    ExternalConfigImportError,
+    import_running_configs,
+    resolve_running_config_import,
+)
+from .clab_runtime import (
+    ClabApplyError,
+    ClabReadinessError,
+    sanitized_semantic_config,
+    verify_nxos_lab_running_config,
+    wait_for_clab_nodes,
 )
 from .topology import (
     build_node_definitions_from_links,
@@ -834,13 +921,18 @@ def collect_from_host(
         if show_commands:
             host_json_outdir = show_outdir / hostname
             host_show_outdir = show_outdir / hostname
+            host_command_outdir = host_show_outdir / "commands"
+            host_command_outdir.mkdir(parents=True, exist_ok=True)
+            for stale_command_file in host_command_outdir.glob("*.txt"):
+                if stale_command_file.is_file() and not stale_command_file.is_symlink():
+                    stale_command_file.unlink()
             sections: List[str] = []
             command_list_header = [
                 "### COMMAND_LIST",
                 *show_commands,
             ]
 
-            for cmd in show_commands:
+            for command_index, cmd in enumerate(show_commands, start=1):
                 if transport == "auto" and is_nxos_host(host):
                     json_sidecar_result = None
                     nxapi_show_collector = build_collector(host, username, password, enable_secret, logger, "nxapi")
@@ -915,7 +1007,23 @@ def collect_from_host(
                     f"{hostname}# {cmd}",
                     output.rstrip(),
                 ]
-                sections.append("\n".join(section).rstrip())
+                section_text = "\n".join(section).rstrip()
+                sections.append(section_text)
+                save_current_and_old_snapshot(
+                    output_dir=host_command_outdir,
+                    filename=build_command_artifact_filename(
+                        command_index,
+                        cmd,
+                    ),
+                    content=section_text + "\n",
+                    generation=(
+                        old_generation_id
+                        or datetime.now().astimezone().strftime("%Y%m%d%H%M%S")
+                    ),
+                    keep_generations=rotation_limit,
+                    logger=logger,
+                    log_label=f"SHOW COMMAND {hostname} command={cmd}",
+                )
 
             body = "\n\n".join(sections).strip()
             save_current_and_old_snapshot(
@@ -946,6 +1054,287 @@ def load_config_lines(path: str) -> List[str]:
     return lines
 
 
+PUSH_DIR_CONNECTION_SAFETY_RULE_ORDER = (
+    "current_login_user",
+    "management_vrf",
+    "management_interface",
+    "line_vty",
+)
+
+
+def _nxos_push_dir_block_rule(command: str) -> str | None:
+    normalized = re.sub(r"\s+", " ", command.strip()).casefold()
+    if normalized == "vrf context management":
+        return "management_vrf"
+    if normalized == "interface mgmt0":
+        return "management_interface"
+    if normalized == "line vty" or normalized.startswith("line vty "):
+        return "line_vty"
+    return None
+
+
+def _nxos_push_dir_standalone_rule(command: str) -> str | None:
+    normalized = re.sub(r"\s+", " ", command.strip()).casefold()
+    if normalized == "no vrf context management":
+        return "management_vrf"
+    if normalized in {"no interface mgmt0", "default interface mgmt0"}:
+        return "management_interface"
+    if re.match(r"^(?:no|default) line vty(?:\s|$)", normalized):
+        return "line_vty"
+    return None
+
+
+def _nxos_current_login_user_command(
+    command: str,
+    login_username: str,
+) -> bool:
+    match = re.match(
+        r"^(?:no\s+)?username\s+(\S+)(?:\s|$)",
+        command.strip(),
+        flags=re.IGNORECASE,
+    )
+    return bool(
+        match
+        and match.group(1) == login_username.strip()
+    )
+
+
+def _push_dir_safety_sample(rule_id: str, command: str) -> str:
+    if rule_id == "current_login_user":
+        match = re.match(
+            r"^(no\s+)?username\s+(\S+)",
+            command.strip(),
+            flags=re.IGNORECASE,
+        )
+        if match:
+            prefix = "no " if match.group(1) else ""
+            suffix = "" if prefix else " <redacted>"
+            return f"{prefix}username {match.group(2)}{suffix}"
+        return "username <redacted>"
+    return command.strip()
+
+
+def prepare_push_config_dir_lines(
+    path: str | Path,
+    *,
+    device_type: str,
+    login_username: str,
+    force: bool = False,
+) -> tuple[List[str], List[Dict[str, Any]]]:
+    """Load one config and optionally remove NX-OS connection-sensitive sections."""
+    if device_type != "nxos":
+        return load_config_lines(str(path)), []
+
+    raw_lines = Path(path).read_text(encoding="utf-8").splitlines()
+    if not force:
+        for line_index, raw in enumerate(raw_lines):
+            command = raw.strip()
+            if not command or command.startswith(("#", "!")):
+                continue
+            if _nxos_push_dir_block_rule(command) is None:
+                continue
+            for following in raw_lines[line_index + 1:]:
+                following_command = following.strip()
+                if not following_command or following_command.startswith("#"):
+                    continue
+                if following_command.startswith("!") or following[:1].isspace():
+                    break
+                raise ValueError(
+                    "NX-OS protected config section is missing indentation or an "
+                    f"explicit ! boundary after: {command}"
+                )
+
+    prepared: List[str] = []
+    findings: Dict[str, Dict[str, Any]] = {}
+    current_rule: str | None = None
+
+    def record(rule_id: str, command: str) -> None:
+        finding = findings.setdefault(
+            rule_id,
+            {
+                "rule_id": rule_id,
+                "line_count": 0,
+                "sample": _push_dir_safety_sample(rule_id, command),
+            },
+        )
+        finding["line_count"] += 1
+
+    for raw in raw_lines:
+        command = raw.strip()
+        if not command or command.startswith("#"):
+            continue
+        if command.startswith("!"):
+            current_rule = None
+            prepared.append(command)
+            continue
+
+        is_top_level = not raw[:1].isspace()
+        if is_top_level:
+            current_rule = _nxos_push_dir_block_rule(command)
+            if current_rule is not None:
+                record(current_rule, command)
+                if force:
+                    prepared.append(command)
+                continue
+            standalone_rule = _nxos_push_dir_standalone_rule(command)
+            if standalone_rule is not None:
+                record(standalone_rule, command)
+                if force:
+                    prepared.append(command)
+                continue
+            if _nxos_current_login_user_command(command, login_username):
+                record("current_login_user", command)
+                if force:
+                    prepared.append(command)
+                continue
+        elif current_rule is not None:
+            record(current_rule, command)
+            if force:
+                prepared.append(command)
+            continue
+
+        prepared.append(command)
+
+    ordered_findings = [
+        findings[rule_id]
+        for rule_id in PUSH_DIR_CONNECTION_SAFETY_RULE_ORDER
+        if rule_id in findings
+    ]
+    return prepared, ordered_findings
+
+
+def print_push_config_dir_safety_summary(
+    findings_by_host: Mapping[str, Sequence[Mapping[str, Any]]],
+    *,
+    force: bool,
+    logger: Logger,
+) -> None:
+    """Print a value-safe summary before push-config-dir mutation confirmation."""
+    if force:
+        print(
+            "WARNING: --force disables the NX-OS push-config-dir connection "
+            "safety filter."
+        )
+    nonempty = {
+        hostname: list(findings)
+        for hostname, findings in findings_by_host.items()
+        if findings
+    }
+    if not nonempty:
+        return
+
+    action = "included" if force else "excluded"
+    print("\n=== PUSH CONFIG CONNECTION SAFETY ===")
+    for hostname in sorted(nonempty):
+        findings = nonempty[hostname]
+        total = sum(int(item.get("line_count", 0)) for item in findings)
+        print(f"- {hostname}: {action}={total}")
+        for item in findings:
+            rule_id = str(item.get("rule_id", "unknown"))
+            line_count = int(item.get("line_count", 0))
+            sample = str(item.get("sample", "<redacted>"))
+            print(
+                f"  - {rule_id}: lines={line_count} command={sample}"
+            )
+            logger.warning(
+                "PUSH DIR CONNECTION SAFETY host=%s action=%s rule=%s "
+                "lines=%d command=%s",
+                hostname,
+                action,
+                rule_id,
+                line_count,
+                sample,
+            )
+    if not force:
+        print("Use --force only when these commands must be included.")
+    print("=======================================")
+
+
+class ConfigPushCliError(RuntimeError):
+    """Expected strict CLI error raised after command evidence is captured."""
+
+
+PUSH_CLI_ERROR_CONTEXT_COMMANDS = 5
+
+
+def _log_push_cli_error_context(
+    logger: Logger,
+    hostname: str,
+    commands: List[Dict[str, Any]],
+    *,
+    failure_index: int,
+    total_commands: int,
+    level: int = ERROR,
+) -> None:
+    accepted = [
+        record
+        for record in commands[:max(0, failure_index - 1)]
+        if record.get("status") in {"SUCCESS", "WARN"}
+    ][-PUSH_CLI_ERROR_CONTEXT_COMMANDS:]
+    for record in accepted:
+        logger.log(
+            level,
+            "PUSH CLI CONTEXT host=%s line=%s/%d status=%s command=%s",
+            hostname,
+            record.get("index", "unknown"),
+            total_commands,
+            record.get("status", "unknown"),
+            record.get("command", "<unknown>"),
+        )
+
+
+def _log_push_host_failure(
+    logger: Logger,
+    hostname: str,
+    exc: Exception,
+) -> None:
+    if isinstance(exc, ConfigPushCliError):
+        logger.error("PUSH HOST FAILED host=%s error=%s", hostname, exc)
+        return
+    logger.exception(
+        "PUSH HOST FAILED host=%s error=%s",
+        hostname,
+        exc,
+        exc_info=(type(exc), exc, exc.__traceback__),
+    )
+
+
+def _execute_host_operation_batches(
+    items: List[Any],
+    operation: Callable[[Any], Any],
+    *,
+    workers: int,
+    fail_fast: bool,
+) -> Tuple[List[Tuple[Any, Any]], List[Tuple[Any, Exception]], List[Any]]:
+    """Run bounded host batches and leave later items untouched after failure."""
+    worker_count = max(1, workers)
+    batch_size = worker_count if fail_fast else max(1, len(items))
+    successes: List[Tuple[Any, Any]] = []
+    failures: List[Tuple[Any, Exception]] = []
+    not_started: List[Any] = []
+
+    for offset in range(0, len(items), batch_size):
+        batch = items[offset:offset + batch_size]
+        batch_failed = False
+        with ThreadPoolExecutor(max_workers=worker_count) as executor:
+            future_to_item = {
+                executor.submit(operation, item): item
+                for item in batch
+            }
+            for future in as_completed(future_to_item):
+                item = future_to_item[future]
+                try:
+                    successes.append((item, future.result()))
+                except Exception as exc:
+                    failures.append((item, exc))
+                    batch_failed = True
+        if fail_fast and batch_failed:
+            not_started = items[offset + len(batch):]
+            break
+
+    return successes, failures, not_started
+
+
 def push_config_to_host(
     host: Dict[str, Any],
     username: str,
@@ -953,7 +1342,10 @@ def push_config_to_host(
     enable_secret: str,
     config_lines: List[str],
     logger: Logger,
-) -> None:
+    cli_error_allowlist: List[Dict[str, Any]] | None = None,
+    ignore_all_cli_errors: bool = False,
+    result_callback: Callable[[str, Dict[str, Any]], None] | None = None,
+) -> str:
     """
     Push config lines to a host.
     """
@@ -980,21 +1372,104 @@ def push_config_to_host(
             return
 
         logger.info("PUSH CONFIG %s: lines=%d", hostname, len(filtered_lines))
-        result = execute_config_session(
-            conn,
-            filtered_lines,
-            now=lambda: datetime.now().astimezone(),
-            detect_cli_errors=False,
-            raise_transport_errors=True,
-        )
+        try:
+            result = execute_config_session(
+                conn,
+                filtered_lines,
+                now=lambda: datetime.now().astimezone(),
+                detect_cli_errors=True,
+                raise_transport_errors=True,
+                cli_error_allowlist=cli_error_allowlist or (),
+                ignore_all_cli_errors=ignore_all_cli_errors,
+            )
+        except Exception as exc:
+            if result_callback is not None:
+                result_callback(hostname, {
+                    "status": "UNKNOWN",
+                    "commands": [],
+                    "first_failure": {
+                        "command_index": 1,
+                        "message": f"{type(exc).__name__}: transport failure",
+                    },
+                })
+            raise
+        safe_result = redact_config_execution_result(result)
+        if result_callback is not None:
+            result_callback(hostname, safe_result)
+        for item, safe_item in zip(
+            result["commands"],
+            safe_result["commands"],
+            strict=True,
+        ):
+            if item["status"] == "WARN":
+                logger.warning(
+                    "PUSH CLI %s host=%s command_index=%s rule_id=%s error=%s",
+                    item["status"],
+                    hostname,
+                    item["index"],
+                    item.get("allow_rule_id") or "none",
+                    item.get("error") or "detected",
+                )
+            elif item["status"] == "IGNORED_ERROR":
+                command_index = int(item.get("index") or 0)
+                _log_push_cli_error_context(
+                    logger,
+                    hostname,
+                    safe_result["commands"],
+                    failure_index=command_index,
+                    total_commands=len(filtered_lines),
+                    level=WARNING,
+                )
+                logger.warning(
+                    "PUSH CLI IGNORED_ERROR host=%s line=%d/%d command=%s error=%s",
+                    hostname,
+                    command_index,
+                    len(filtered_lines),
+                    safe_item.get("command") or "<unknown>",
+                    safe_item.get("error") or "detected",
+                )
+        if result["status"] == "FAILED":
+            failure = result.get("first_failure") or {}
+            failure_index = int(failure.get("command_index") or 0)
+            failure_record = (
+                safe_result["commands"][failure_index - 1]
+                if 0 < failure_index <= len(safe_result["commands"])
+                else {}
+            )
+            safe_command = str(failure_record.get("command") or "<unknown>")
+            failure_message = str(
+                failure_record.get("error")
+                or failure.get("message")
+                or "command failed"
+            )
+            _log_push_cli_error_context(
+                logger,
+                hostname,
+                safe_result["commands"],
+                failure_index=failure_index,
+                total_commands=len(filtered_lines),
+            )
+            logger.error(
+                "PUSH CLI FAILED host=%s line=%d/%d command=%s error=%s",
+                hostname,
+                failure_index,
+                len(filtered_lines),
+                safe_command,
+                failure_message,
+            )
+            raise ConfigPushCliError(
+                f"CLI error at command {failure_index}/{len(filtered_lines)} "
+                f"({safe_command}): {failure_message}"
+            )
         logger.debug(
             "PUSH RESULT %s:\n%s",
             hostname,
             "\n".join(
-                item["response"] for item in result["commands"]
+                item["response"] for item in safe_result["commands"]
                 if item["response"]
             ).rstrip(),
         )
+        return str(result["status"])
     finally:
         conn.disconnect()
         logger.info("DISCONNECT %s", hostname)
@@ -1006,6 +1481,7 @@ def save_config_on_host(
     password: str,
     enable_secret: str,
     logger: Logger,
+    result_callback: Callable[[str, Dict[str, Any]], None] | None = None,
 ) -> None:
     """
     Save running-config on host after push phase.
@@ -1023,6 +1499,8 @@ def save_config_on_host(
             success_marker=success_marker,
             now=lambda: datetime.now().astimezone(),
         )
+        if result_callback is not None:
+            result_callback(hostname, dict(result))
         logger.debug("SAVE RESULT %s:\n%s", hostname, result["response"])
         if result["status"] != "SUCCESS":
             raise RuntimeError(
@@ -2249,6 +2727,17 @@ def sanitize_command_for_filename(command: str) -> str:
     return token or "command"
 
 
+def build_command_artifact_filename(sequence: int, command: str) -> str:
+    """Build a bounded, stable command artifact filename."""
+    if sequence < 1:
+        raise ValueError("command sequence must be at least 1")
+    identifier = command_id(command)
+    if len(identifier) > 160:
+        digest = hashlib.sha256(command.encode("utf-8")).hexdigest()[:12]
+        identifier = f"{identifier[:147]}_{digest}"
+    return f"{sequence:03d}_{identifier}.txt"
+
+
 def _strip_json_ns(key: str) -> str:
     """
     Strip NX-API JSON namespace prefix such as m8:foo -> foo.
@@ -3020,7 +3509,7 @@ def apply_cisco_n9kv_kind_defaults(
     logger: Logger,
 ) -> Dict[str, Any]:
     """
-    If any topology.nodes entry has kind=cisco_n9kv, apply default kind values.
+    If any topology.nodes entry has kind=cisco_n9kv, apply safe boot defaults.
     """
     topology = topology_data.get("topology", {})
     if not isinstance(topology, dict):
@@ -3045,10 +3534,6 @@ def apply_cisco_n9kv_kind_defaults(
         return topology_data
 
     n9kv.setdefault("image", DEFAULT_CISCO_N9KV_KIND_IMAGE)
-    n9kv.setdefault(
-        "startup-config",
-        DEFAULT_CISCO_N9KV_STARTUP_CONFIG_TEMPLATE.format(raw_dir=raw_dir),
-    )
     env = n9kv.get("env")
     if not isinstance(env, dict):
         env = {}
@@ -3057,7 +3542,7 @@ def apply_cisco_n9kv_kind_defaults(
         env.setdefault(k, v)
 
     logger.info(
-        "Applied defaults for kind %s from nodes condition (raw_dir=%s)",
+        "Applied boot-safe defaults for kind %s; startup-config remains explicit (raw_dir=%s)",
         DEFAULT_CISCO_N9KV_KIND_NAME,
         raw_dir,
     )
@@ -3474,16 +3959,33 @@ def build_underlay_loopback_maps(
     mappings: Dict[str, Any],
     interface_name: str,
     vrf: str,
+    *,
+    run_paths: Mapping[str, Path] | None = None,
+    run_texts: Mapping[str, str] | None = None,
 ) -> tuple[Dict[str, str], Dict[str, List[str]]]:
     """
     Build normalized node -> underlay loopback IPv4 map from collected running-config files.
     """
     underlay_map: Dict[str, str] = {}
     underlay_secondary_map: Dict[str, List[str]] = {}
-    run_files = list_collect_output_files(get_run_input_dir(raw_dir), "run")
-    for f in run_files:
-        hostname = get_collect_hostname_from_path(f, "run")
-        text = load_run_text_from_collect_file(f)
+    inputs: List[tuple[str, str]] = []
+    if run_texts is not None:
+        inputs.extend((str(hostname), text) for hostname, text in sorted(run_texts.items()))
+    elif run_paths is not None:
+        inputs.extend(
+            (str(hostname), Path(path).read_text(encoding="utf-8", errors="ignore"))
+            for hostname, path in sorted(run_paths.items())
+        )
+    else:
+        run_files = list_collect_output_files(get_run_input_dir(raw_dir), "run")
+        inputs.extend(
+            (
+                get_collect_hostname_from_path(path, "run"),
+                load_run_text_from_collect_file(path),
+            )
+            for path in run_files
+        )
+    for hostname, text in inputs:
         ip_value, secondary_ips = parse_underlay_loopback_ips_from_run(
             text,
             interface_name=interface_name,
@@ -3505,16 +4007,33 @@ def build_underlay_interface_ip_maps(
     raw_dir: str,
     mappings: Dict[str, Any],
     vrf: str,
+    *,
+    run_paths: Mapping[str, Path] | None = None,
+    run_texts: Mapping[str, str] | None = None,
 ) -> Dict[str, Dict[str, str]]:
     """
     Build normalized node -> normalized interface -> IPv4(without prefix) map from collected running-config files.
     """
     node_if_ip: Dict[str, Dict[str, str]] = {}
-    run_files = list_collect_output_files(get_run_input_dir(raw_dir), "run")
+    inputs: List[tuple[str, str]] = []
+    if run_texts is not None:
+        inputs.extend((str(hostname), text) for hostname, text in sorted(run_texts.items()))
+    elif run_paths is not None:
+        inputs.extend(
+            (str(hostname), Path(path).read_text(encoding="utf-8", errors="ignore"))
+            for hostname, path in sorted(run_paths.items())
+        )
+    else:
+        run_files = list_collect_output_files(get_run_input_dir(raw_dir), "run")
+        inputs.extend(
+            (
+                get_collect_hostname_from_path(path, "run"),
+                load_run_text_from_collect_file(path),
+            )
+            for path in run_files
+        )
 
-    for f in run_files:
-        hostname = get_collect_hostname_from_path(f, "run")
-        text = load_run_text_from_collect_file(f)
+    for hostname, text in inputs:
         lines = text.splitlines()
 
         in_intf = False
@@ -3597,17 +4116,22 @@ def filter_links_by_target_roles(
     links: List[Dict[str, Any]],
     roles: Dict[str, Any],
     target_roles: Set[str],
+    node_role_map: Mapping[str, str] | None = None,
 ) -> List[Dict[str, Any]]:
     """
-    Keep only links where both endpoints belong to target roles.
+    Keep only links where both endpoints belong to effective target roles.
+
+    Explicit inventory or Containerlab groups take precedence over hostname detection.
     """
     out: List[Dict[str, Any]] = []
     for link in links:
         ep1, ep2 = link.get("endpoints", ["", ""])
         n1 = ep1.split(":", 1)[0]
         n2 = ep2.split(":", 1)[0]
-        matched_r1 = set(detect_node_roles(n1, roles))
-        matched_r2 = set(detect_node_roles(n2, roles))
+        explicit_r1 = (node_role_map or {}).get(n1, "")
+        explicit_r2 = (node_role_map or {}).get(n2, "")
+        matched_r1 = {explicit_r1} if explicit_r1 else set(detect_node_roles(n1, roles))
+        matched_r2 = {explicit_r2} if explicit_r2 else set(detect_node_roles(n2, roles))
         if matched_r1.intersection(target_roles) and matched_r2.intersection(target_roles):
             out.append(link)
     return out
@@ -3627,6 +4151,311 @@ def add_underlay_suffix_to_path(path: str) -> str:
     return str(p.with_name(f"{stem}_underlay"))
 
 
+def add_evpn_suffix_to_path(path: str) -> str:
+    """Add '_evpn' before the file extension when it is not already present."""
+    path_value = Path(path)
+    if path_value.stem.endswith("_evpn"):
+        return str(path_value)
+    return str(
+        path_value.with_name(
+            f"{path_value.stem}_evpn{path_value.suffix}"
+        )
+    )
+
+
+def add_overlay_service_suffix_to_path(path: str) -> str:
+    """Add '_overlay_service' before the extension when not already present."""
+    path_value = Path(path)
+    if path_value.stem.endswith("_overlay_service"):
+        return str(path_value)
+    return str(
+        path_value.with_name(
+            f"{path_value.stem}_overlay_service{path_value.suffix}"
+        )
+    )
+
+
+def resolve_diagram_view(args: argparse.Namespace) -> str:
+    """Resolve the common view and the legacy --underlay alias."""
+    raw_requested = getattr(args, "view", None)
+    requested = str(raw_requested or "physical")
+    legacy_underlay = bool(getattr(args, "underlay", False))
+    if legacy_underlay and raw_requested not in {None, "underlay"}:
+        raise TopologyDiagramError(
+            "--underlay cannot be combined with --view physical, evpn, or overlay-service"
+        )
+    return "underlay" if legacy_underlay else requested
+
+
+def _load_direct_command_texts(raw_dir: str, suffix: str) -> Dict[str, str]:
+    """Load stable host-command text files from a direct raw directory."""
+    paths = list_collect_output_files(get_run_input_dir(raw_dir), suffix)
+    if not paths and get_run_input_dir(raw_dir) != Path(raw_dir):
+        paths = list_collect_output_files(raw_dir, suffix)
+    return {
+        get_collect_hostname_from_path(path, suffix): (
+            load_run_text_from_collect_file(path)
+            if suffix == "run"
+            else path.read_text(encoding="utf-8", errors="ignore")
+        )
+        for path in paths
+    }
+
+
+def _effective_run_texts(args: argparse.Namespace) -> Dict[str, str]:
+    run_texts = getattr(args, "underlay_run_texts", None)
+    if run_texts is not None:
+        return {str(host): str(text) for host, text in sorted(run_texts.items())}
+    run_paths = getattr(args, "underlay_run_paths", None)
+    if run_paths is not None:
+        return {
+            str(host): Path(path).read_text(encoding="utf-8", errors="ignore")
+            for host, path in sorted(run_paths.items())
+        }
+    return _load_direct_command_texts(args.underlay_raw, "run")
+
+
+def _effective_evpn_summary_texts(args: argparse.Namespace) -> Dict[str, str]:
+    summary_texts = getattr(args, "evpn_summary_texts", None)
+    if summary_texts is not None:
+        return {
+            str(host): str(text) for host, text in sorted(summary_texts.items())
+        }
+    summary_paths = getattr(args, "evpn_summary_paths", None)
+    if summary_paths is not None:
+        return {
+            str(host): Path(path).read_text(encoding="utf-8", errors="ignore")
+            for host, path in sorted(summary_paths.items())
+        }
+    return _load_direct_command_texts(
+        args.underlay_raw, "bgp_l2vpn_evpn_summary"
+    )
+
+
+OVERLAY_OPERATIONAL_COMMAND_IDS = {
+    "bgp_l2vpn_evpn",
+    "nve_vni",
+    "route_ipv4_all_vrfs",
+    "route_ipv6_all_vrfs",
+}
+
+
+def _effective_overlay_operational_texts(
+    args: argparse.Namespace,
+) -> Dict[str, Dict[str, str]]:
+    configured = getattr(args, "overlay_operational_texts", None)
+    if configured is not None:
+        return {
+            str(command_id): {
+                str(host): str(text) for host, text in sorted(hosts.items())
+            }
+            for command_id, hosts in sorted(configured.items())
+        }
+    configured_paths = getattr(args, "overlay_operational_paths", None)
+    if configured_paths is not None:
+        return {
+            str(command_id): {
+                str(host): Path(path).read_text(encoding="utf-8", errors="ignore")
+                for host, path in sorted(hosts.items())
+            }
+            for command_id, hosts in sorted(configured_paths.items())
+        }
+    return {
+        command_id: _load_direct_command_texts(args.underlay_raw, command_id)
+        for command_id in sorted(OVERLAY_OPERATIONAL_COMMAND_IDS)
+    }
+
+
+def prepare_evpn_diagram_context(
+    args: argparse.Namespace,
+    logger: Logger,
+) -> Dict[str, Any]:
+    """Build and validate the EVPN model and common renderer context."""
+    running_configs = _effective_run_texts(args)
+    summaries = _effective_evpn_summary_texts(args)
+    mappings = load_effective_mappings(args)
+    roles = load_roles(args.roles)
+    sites = load_sites(getattr(args, "sites", None))
+    inventory_map: Dict[str, Dict[str, Any]] = {}
+    hosts_path = resolve_hosts_path(args.hosts, required=False)
+    if hosts_path:
+        inventory_data = load_yaml(hosts_path)
+        inventory_map.update(
+            load_inventory_map_from_list(load_inventory_data(inventory_data))
+        )
+    normalized_inventory_map, _normalized_mgmt = (
+        build_normalized_inventory_and_mgmt_maps(
+            inventory_map=inventory_map,
+            mgmt_ip_map={},
+            mappings=mappings,
+        )
+    )
+    source_hosts = sorted(set(running_configs) | set(summaries))
+    node_roles: Dict[str, str] = {}
+    node_functions: Dict[str, List[str]] = {}
+    node_sites: Dict[str, str] = {}
+    for hostname in source_hosts:
+        normalized = normalize_hostname(hostname, mappings)
+        attrs = normalized_inventory_map.get(normalized, {})
+        role = str(attrs.get("group", "")).strip() or detect_node_role(
+            normalized, roles
+        )
+        node_roles[normalized] = role
+        function_rules = roles.get(role, {}).get("functions", {})
+        if isinstance(function_rules, dict):
+            node_functions[normalized] = sorted(
+                function
+                for function, rule in function_rules.items()
+                if function in {"evpn-route-reflector", "vtep"}
+                and isinstance(rule, dict)
+                and rule.get("expectation") == "required"
+            )
+        site = str(attrs.get("site", "")).strip() or detect_node_site(
+            normalized, sites
+        )
+        if site:
+            node_sites[normalized] = site
+
+    normalized_configs = {
+        normalize_hostname(host, mappings): text
+        for host, text in running_configs.items()
+    }
+    normalized_summaries = {
+        normalize_hostname(host, mappings): text
+        for host, text in summaries.items()
+    }
+    source = describe_network_diagram_source(args)
+    source_manifest = getattr(args, "network_source_manifest", None)
+    model = build_evpn_control_plane_model(
+        normalized_configs,
+        operational_summaries=normalized_summaries,
+        node_roles=node_roles,
+        node_functions=node_functions,
+        node_sites=node_sites,
+        source=source,
+        source_manifest_sha256=(
+            source_sha256(Path(source_manifest))
+            if source_manifest and Path(source_manifest).is_file()
+            else None
+        ),
+    )
+    validate_document(model, kind="EVPNControlPlaneModel")
+    context = evpn_model_to_render_context(
+        model,
+        inventory_map=normalized_inventory_map,
+    )
+    context.update(
+        {
+            "roles": roles,
+            "sites": sites,
+            "output_path": add_evpn_suffix_to_path(args.output),
+            "title": f"{args.title} (EVPN CONTROL PLANE)",
+            "evpn_model": model,
+        }
+    )
+    logger.info(
+        "EVPN model status=%s nodes=%d sessions=%d unresolved=%d",
+        model["spec"]["status"],
+        len(model["spec"]["nodes"]),
+        len(model["spec"]["sessions"]),
+        len(model["spec"]["unresolved_peers"]),
+    )
+    return context
+
+
+def prepare_overlay_service_diagram_context(
+    args: argparse.Namespace,
+    logger: Logger,
+) -> Dict[str, Any]:
+    """Build, validate, select, and adapt the Overlay Service model."""
+    running_configs = _effective_run_texts(args)
+    operational_texts = _effective_overlay_operational_texts(args)
+    mappings = load_effective_mappings(args)
+    sites = load_sites(getattr(args, "sites", None))
+    inventory_map: Dict[str, Dict[str, Any]] = {}
+    hosts_path = resolve_hosts_path(args.hosts, required=False)
+    if hosts_path:
+        inventory_data = load_yaml(hosts_path)
+        inventory_map.update(
+            load_inventory_map_from_list(load_inventory_data(inventory_data))
+        )
+    normalized_inventory_map, _normalized_mgmt = (
+        build_normalized_inventory_and_mgmt_maps(
+            inventory_map=inventory_map,
+            mgmt_ip_map={},
+            mappings=mappings,
+        )
+    )
+    source_hosts = sorted(running_configs)
+    node_sites: Dict[str, str] = {}
+    for hostname in source_hosts:
+        normalized = normalize_hostname(hostname, mappings)
+        attrs = normalized_inventory_map.get(normalized, {})
+        site = str(attrs.get("site", "")).strip() or detect_node_site(
+            normalized, sites
+        )
+        if site:
+            node_sites[normalized] = site
+    normalized_configs = {
+        normalize_hostname(host, mappings): text
+        for host, text in running_configs.items()
+    }
+    normalized_operational = {
+        command_id: {
+            normalize_hostname(host, mappings): text
+            for host, text in host_texts.items()
+        }
+        for command_id, host_texts in operational_texts.items()
+    }
+    source = describe_network_diagram_source(args)
+    source_manifest = getattr(args, "network_source_manifest", None)
+    model = build_overlay_service_model(
+        normalized_configs,
+        node_sites=node_sites,
+        operational_command_texts=normalized_operational,
+        source=source,
+        source_manifest_sha256=(
+            source_sha256(Path(source_manifest))
+            if source_manifest and Path(source_manifest).is_file()
+            else None
+        ),
+    )
+    validate_document(model, kind="OverlayServiceModel")
+    selected, context_ids = select_overlay_service_ids(
+        model,
+        sites=tuple(getattr(args, "overlay_sites", None) or ()),
+        vrfs=tuple(getattr(args, "overlay_vrfs", None) or ()),
+        l2vnis=tuple(getattr(args, "overlay_l2vnis", None) or ()),
+        l3vnis=tuple(getattr(args, "overlay_l3vnis", None) or ()),
+        services=tuple(getattr(args, "overlay_services", None) or ()),
+    )
+    context = overlay_model_to_render_context(
+        model,
+        selected_ids=selected,
+        context_ids=context_ids,
+    )
+    context.update(
+        {
+            "roles": load_roles(args.roles),
+            "sites": sites,
+            "output_path": add_overlay_service_suffix_to_path(args.output),
+            "title": f"{args.title} (OVERLAY SERVICE)",
+            "overlay_service_model": model,
+            "overlay_selected_ids": selected,
+            "overlay_context_ids": context_ids,
+        }
+    )
+    logger.info(
+        "Overlay Service model status=%s services=%d route_leaks=%d selected=%d context=%d",
+        model["spec"]["status"],
+        len(model["spec"]["services"]),
+        len(model["spec"]["route_leaks"]),
+        len(selected),
+        len(context_ids),
+    )
+    return context
+
+
 def build_mermaid_address_maps(
     normalized_inventory_map: Dict[str, Dict[str, Any]],
     normalized_mgmt_ip_map: Dict[str, str],
@@ -3634,6 +4463,7 @@ def build_mermaid_address_maps(
     underlay_config: Dict[str, Any],
     underlay_ip_maps: Dict[str, Dict[str, str]],
     underlay_secondary_ip_maps: Optional[Dict[str, Dict[str, List[str]]]] = None,
+    underlay_rr_nodes: Optional[Set[str]] = None,
 ) -> tuple[Dict[str, str], Dict[str, str], Dict[str, List[str]]]:
     """
     Build node address map/label map/lines map for Mermaid rendering.
@@ -3648,8 +4478,8 @@ def build_mermaid_address_maps(
         matched_roles = set(detect_node_roles(node, roles))
         if matched_roles.intersection(target_roles):
             label_lines: List[str] = []
-            if "underlay-route-reflector" in matched_roles:
-                label_lines.append("(BGP-RR)")
+            if node in (underlay_rr_nodes or set()):
+                label_lines.append("(Underlay RR)")
             for spec in interface_specs:
                 if not isinstance(spec, dict):
                     continue
@@ -3675,6 +4505,20 @@ def build_mermaid_address_maps(
                     label_map[node] = first_label.strip()
 
     return address_map, label_map, lines_map
+
+
+def resolve_underlay_rr_nodes(
+    running_configs: Mapping[str, str],
+    mappings: Mapping[str, Any],
+) -> Set[str]:
+    """Return nodes with effective Underlay RR client configuration."""
+    resolved: Set[str] = set()
+    for hostname, text in sorted(running_configs.items()):
+        config = parse_overlay_running_config(text)
+        rr = config.get("rr_config", {}).get("underlay", {})
+        if rr.get("configured") and rr.get("resolution_status") == "resolved":
+            resolved.add(normalize_hostname(hostname, dict(mappings)))
+    return resolved
 
 
 def infer_generate_mermaid_input_format(input_path: str, requested_format: str) -> str:
@@ -3901,6 +4745,24 @@ def prepare_topology_diagram_context(args: argparse.Namespace, logger: Logger) -
     """
     Build shared topology diagram rendering inputs for Mermaid/Graphviz/draw.io.
     """
+    view = resolve_diagram_view(args)
+    if view == "evpn":
+        cached = getattr(args, "evpn_render_context", None)
+        if cached is not None:
+            context = deepcopy(cached)
+            context["output_path"] = add_evpn_suffix_to_path(args.output)
+            context["title"] = f"{args.title} (EVPN CONTROL PLANE)"
+            return context
+        return prepare_evpn_diagram_context(args, logger)
+    if view == "overlay-service":
+        cached = getattr(args, "overlay_service_render_context", None)
+        if cached is not None:
+            context = deepcopy(cached)
+            context["output_path"] = add_overlay_service_suffix_to_path(args.output)
+            context["title"] = f"{args.title} (OVERLAY SERVICE)"
+            return context
+        return prepare_overlay_service_diagram_context(args, logger)
+    args.underlay = view == "underlay"
     input_format = infer_generate_mermaid_input_format(args.input, getattr(args, "input_format", "csv"))
     mappings = load_effective_mappings(args)
     roles = load_roles(args.roles)
@@ -3960,13 +4822,20 @@ def prepare_topology_diagram_context(args: argparse.Namespace, logger: Logger) -
         for node, attrs in normalized_inventory_map.items()
         if isinstance(attrs, dict) and str(attrs.get("group", "")).strip()
     }
-    node_site_map = {
+    inventory_site_map = {
         node: str(attrs.get("site", "")).strip()
         for node, attrs in normalized_inventory_map.items()
         if isinstance(attrs, dict) and str(attrs.get("site", "")).strip()
     }
-    for node in list(normalized_inventory_map):
-        node_site_map.setdefault(node, detect_node_site(node, sites))
+    diagram_node_names = set(extra_node_names)
+    for link in rendered_links + rendered_candidate_links:
+        for endpoint in link.get("endpoints", []):
+            diagram_node_names.add(str(endpoint).split(":", 1)[0])
+    node_site_map: Dict[str, str] = {}
+    for node in diagram_node_names:
+        resolved_site = inventory_site_map.get(node) or detect_node_site(node, sites)
+        if resolved_site:
+            node_site_map[node] = resolved_site
 
     node_address_map: Optional[Dict[str, str]] = None
     node_address_label_map: Optional[Dict[str, str]] = None
@@ -3978,9 +4847,30 @@ def prepare_topology_diagram_context(args: argparse.Namespace, logger: Logger) -
     if getattr(args, "underlay", False):
         underlay_cfg = load_underlay_render_config(args.underlay_config)
         target_roles = set(underlay_cfg.get("target_roles", []))
-        rendered_links = filter_links_by_target_roles(rendered_links, roles, target_roles)
+        rendered_links = filter_links_by_target_roles(
+            rendered_links,
+            roles,
+            target_roles,
+            node_role_map,
+        )
         if rendered_candidate_links:
-            rendered_candidate_links = filter_links_by_target_roles(rendered_candidate_links, roles, target_roles)
+            rendered_candidate_links = filter_links_by_target_roles(
+                rendered_candidate_links,
+                roles,
+                target_roles,
+                node_role_map,
+            )
+        extra_node_names = [
+            node
+            for node in extra_node_names
+            if (
+                node_role_map.get(node, "") in target_roles
+                or (
+                    not node_role_map.get(node, "")
+                    and set(detect_node_roles(node, roles)).intersection(target_roles)
+                )
+            )
+        ]
         underlay_ip_maps: Dict[str, Dict[str, str]] = {}
         underlay_secondary_ip_maps: Dict[str, Dict[str, List[str]]] = {}
         for spec in underlay_cfg.get("interfaces", []):
@@ -3993,9 +4883,12 @@ def prepare_topology_diagram_context(args: argparse.Namespace, logger: Logger) -
                 mappings=mappings,
                 interface_name=iface,
                 vrf=vrf,
+                run_paths=getattr(args, "underlay_run_paths", None),
+                run_texts=getattr(args, "underlay_run_texts", None),
             )
             underlay_ip_maps[iface.lower()] = primary_map
             underlay_secondary_ip_maps[iface.lower()] = secondary_map
+        effective_run_texts = _effective_run_texts(args)
         node_address_map, node_address_label_map, node_address_lines_map = build_mermaid_address_maps(
             normalized_inventory_map=normalized_inventory_map,
             normalized_mgmt_ip_map=normalized_mgmt_ip_map,
@@ -4003,11 +4896,16 @@ def prepare_topology_diagram_context(args: argparse.Namespace, logger: Logger) -
             underlay_config=underlay_cfg,
             underlay_ip_maps=underlay_ip_maps,
             underlay_secondary_ip_maps=underlay_secondary_ip_maps,
+            underlay_rr_nodes=resolve_underlay_rr_nodes(
+                effective_run_texts, mappings
+            ),
         )
         underlay_if_ip_map = build_underlay_interface_ip_maps(
             raw_dir=args.underlay_raw,
             mappings=mappings,
             vrf=str(underlay_cfg.get("vrf", "default")),
+            run_paths=getattr(args, "underlay_run_paths", None),
+            run_texts=getattr(args, "underlay_run_texts", None),
         )
         node_interface_label_map = {}
         for node_name, iface_ip_map in underlay_if_ip_map.items():
@@ -4053,7 +4951,7 @@ def build_drawio_page_diagram(
     args: argparse.Namespace,
     logger: Logger,
     direction: str,
-    underlay: bool,
+    view: str,
     page_name: str,
 ) -> tuple[ET.Element, Dict[str, str]]:
     """
@@ -4061,7 +4959,8 @@ def build_drawio_page_diagram(
     """
     page_args = argparse.Namespace(**vars(args))
     page_args.direction = direction
-    page_args.underlay = underlay
+    page_args.view = view
+    page_args.underlay = view == "underlay"
     context = prepare_topology_diagram_context(page_args, logger)
 
     drawio_lines = render_drawio_xml_lines(
@@ -4085,7 +4984,9 @@ def build_drawio_page_diagram(
         node_interface_label_map=context["node_interface_label_map"],
         node_role_map=context["node_role_map"],
         node_site_map=context["node_site_map"],
+        node_layout_rank_map=context.get("node_layout_rank_map"),
         sites=context["sites"],
+        align_role_nodes_with_direction=view == "overlay-service",
     )
     root = ET.fromstring("\n".join(drawio_lines))
     diagram = root.find("diagram")
@@ -4113,6 +5014,154 @@ def build_drawio_multipage_lines(diagrams: List[ET.Element], mxfile_attrs: Dict[
 
     xml_text = ET.tostring(mxfile, encoding="unicode")
     return xml_text.splitlines()
+
+
+def center_drawio_role_container(
+    root: ET.Element,
+    *,
+    role: str,
+    peer_roles: Set[str],
+) -> None:
+    """Center one sibling role container across the detail layout width."""
+    candidate_cells = [
+        cell
+        for cell in root.findall(".//mxCell")
+        if cell.get("vertex") == "1"
+        and cell.get("value") in peer_roles | {role}
+    ]
+    target = next(
+        (cell for cell in candidate_cells if cell.get("value") == role), None
+    )
+    if target is None:
+        return
+    cells = [
+        cell
+        for cell in candidate_cells
+        if cell.get("parent") == target.get("parent")
+    ]
+    geometries = [cell.find("mxGeometry") for cell in cells]
+    geometries = [geometry for geometry in geometries if geometry is not None]
+    target_geometry = target.find("mxGeometry")
+    if target_geometry is None or not geometries:
+        return
+    minimum_x = min(float(geometry.get("x", "0")) for geometry in geometries)
+    maximum_x = max(
+        float(geometry.get("x", "0")) + float(geometry.get("width", "0"))
+        for geometry in geometries
+    )
+    width = float(target_geometry.get("width", "0"))
+    target_geometry.set("x", str(int(minimum_x + (maximum_x - minimum_x - width) / 2)))
+
+
+def center_drawio_role_group(
+    root: ET.Element,
+    *,
+    roles: Set[str],
+    peer_roles: Set[str],
+) -> None:
+    """Center sibling role containers as one group without changing their spacing."""
+    candidate_cells = [
+        cell
+        for cell in root.findall(".//mxCell")
+        if cell.get("vertex") == "1"
+        and cell.get("value") in peer_roles | roles
+    ]
+    target = next(
+        (cell for cell in candidate_cells if cell.get("value") in roles), None
+    )
+    if target is None:
+        return
+    cells = [
+        cell
+        for cell in candidate_cells
+        if cell.get("parent") == target.get("parent")
+    ]
+    target_cells = [cell for cell in cells if cell.get("value") in roles]
+    all_geometries = [cell.find("mxGeometry") for cell in cells]
+    all_geometries = [value for value in all_geometries if value is not None]
+    target_geometries = [cell.find("mxGeometry") for cell in target_cells]
+    target_geometries = [
+        value for value in target_geometries if value is not None
+    ]
+    if not all_geometries or not target_geometries:
+        return
+    minimum_x = min(float(value.get("x", "0")) for value in all_geometries)
+    maximum_x = max(
+        float(value.get("x", "0")) + float(value.get("width", "0"))
+        for value in all_geometries
+    )
+    target_minimum_x = min(
+        float(value.get("x", "0")) for value in target_geometries
+    )
+    target_maximum_x = max(
+        float(value.get("x", "0")) + float(value.get("width", "0"))
+        for value in target_geometries
+    )
+    offset = (
+        minimum_x
+        + (maximum_x - minimum_x - (target_maximum_x - target_minimum_x)) / 2
+        - target_minimum_x
+    )
+    for geometry in target_geometries:
+        geometry.set("x", str(int(float(geometry.get("x", "0")) + offset)))
+
+
+def collapse_drawio_vpc_membership_edges(
+    root: ET.Element,
+    *,
+    vpc_group_roles: Set[str],
+) -> int:
+    """Collapse identical member edges into one vPC container edge."""
+    graph_root = root.find(".//mxGraphModel/root")
+    if graph_root is None or not vpc_group_roles:
+        return 0
+    cells = list(graph_root.findall("mxCell"))
+    collapsed = 0
+    for container in cells:
+        if (
+            container.get("vertex") != "1"
+            or container.get("value") not in vpc_group_roles
+        ):
+            continue
+        container_id = container.get("id")
+        if not container_id:
+            continue
+        member_ids = {
+            cell.get("id")
+            for cell in cells
+            if cell.get("vertex") == "1"
+            and cell.get("parent") == container_id
+            and cell.get("id")
+        }
+        if len(member_ids) < 2:
+            continue
+        edge_groups: dict[tuple[str, str, str], list[ET.Element]] = {}
+        for cell in cells:
+            if (
+                cell.get("edge") != "1"
+                or cell.get("value", "")
+                or cell.get("source") not in member_ids
+                or not cell.get("target")
+            ):
+                continue
+            key = (
+                str(cell.get("target")),
+                str(cell.get("style", "")),
+                str(cell.get("parent", "")),
+            )
+            edge_groups.setdefault(key, []).append(cell)
+        for edges in edge_groups.values():
+            if (
+                len(edges) != len(member_ids)
+                or {edge.get("source") for edge in edges} != member_ids
+            ):
+                continue
+            retained = edges[0]
+            retained.set("source", container_id)
+            for duplicate in edges[1:]:
+                graph_root.remove(duplicate)
+                collapsed += 1
+    return collapsed
 
 
 def cmd_prepare_hosts(args: argparse.Namespace) -> None:
@@ -4198,13 +5247,57 @@ def cmd_transform_config(args: argparse.Namespace) -> None:
         args: Parsed CLI args.
     """
     logger = setup_logging(args.log_file, args.verbose)
-    hosts_path = resolve_hosts_path(args.hosts, required=True)
+    evidence_source_paths: Dict[str, Path] = {}
+    evidence_manifest: Dict[str, Any] | None = None
+    evidence_import = getattr(args, "evidence_import", None)
+    running_config_import = getattr(args, "running_config_import", None)
+    if evidence_import and running_config_import:
+        raise ValueError("--evidence-package and --running-config-import are mutually exclusive")
+    if evidence_import:
+        if args.hosts:
+            raise ValueError("--evidence-import cannot be used with --hosts")
+        resolved_hosts_path, evidence_source_paths, evidence_manifest = (
+            resolve_imported_digital_twin(
+                evidence_import,
+                acknowledge_sensitive_config=bool(
+                    getattr(args, "acknowledge_sensitive_config", False)
+                ),
+            )
+        )
+        hosts_path = str(resolved_hosts_path)
+    elif running_config_import:
+        if args.hosts:
+            raise ValueError("--running-config-import cannot be used with --hosts")
+        (
+            resolved_hosts_path,
+            evidence_source_paths,
+            _lldp_paths,
+            evidence_manifest,
+        ) = resolve_running_config_import(running_config_import)
+        hosts_path = str(resolved_hosts_path)
+    else:
+        hosts_path = resolve_hosts_path(args.hosts, required=True)
     inventory_data = load_yaml(hosts_path)
+    parameter_spec, parameter_source_sha256 = load_lab_transform_parameters(
+        getattr(args, "lab_parameters", None)
+    )
     clab_env_path = args.clab_env
     if not clab_env_path and Path("clab_merge.yaml").exists():
         clab_env_path = "clab_merge.yaml"
     clab_env_data = load_yaml(clab_env_path)
     mgmt_subnet = parse_mgmt_ipv4_subnet(clab_env_data)
+    parameter_subnet = parameter_spec.get("management", {}).get("ipv4_subnet")
+    if parameter_subnet:
+        resolved_parameter_subnet = ipaddress.ip_network(
+            str(parameter_subnet), strict=False
+        )
+        if not isinstance(resolved_parameter_subnet, ipaddress.IPv4Network):
+            raise ValueError("LabTransformParameters management.ipv4_subnet must be IPv4")
+        if mgmt_subnet is not None and mgmt_subnet != resolved_parameter_subnet:
+            raise ValueError(
+                "management subnet differs between --clab-env and --lab-parameters"
+            )
+        mgmt_subnet = resolved_parameter_subnet
     node_map_rows = load_node_map_csv(getattr(args, "node_map", None))
     hostname_map = {
         row["source_hostname"]: row["target_hostname"]
@@ -4224,13 +5317,7 @@ def cmd_transform_config(args: argparse.Namespace) -> None:
         mgmt_subnet,
         node_map_rows=node_map_rows,
     )
-    save_yaml(transformed_inventory, args.output_hosts)
-    logger.info(
-        "WROTE TRANSFORMED HOSTS %s mgmt_subnet=%s",
-        args.output_hosts,
-        str(mgmt_subnet) if mgmt_subnet is not None else "disabled",
-    )
-
+    apply_device_inventory_defaults(transformed_inventory)
     normalized_cables: List[Dict[str, Any]] = []
     cable_inventory_map: Dict[str, Dict[str, Any]] = {}
     cable_mappings: Dict[str, Any] = {}
@@ -4267,6 +5354,8 @@ def cmd_transform_config(args: argparse.Namespace) -> None:
     transformed_count = 0
     missing_files: List[str] = []
     cable_description_warning_count = 0
+    rendered_configs: Dict[Path, str] = {}
+    manifest_devices: List[Dict[str, Any]] = []
 
     for hostname in sorted(hosts.keys()):
         host_attrs = hosts.get(hostname, {})
@@ -4275,13 +5364,16 @@ def cmd_transform_config(args: argparse.Namespace) -> None:
         host = dict(host_attrs)
         host["hostname"] = hostname
         device_type = str(host.get("device_type", ""))
-        lab_credentials = None
         delete_username = bool(getattr(args, "delete_username", False))
-        if device_type == "nxos" and not delete_username:
-            lab_credentials = get_optional_credentials_for_device(args, device_type, host)
 
         source_hostname = source_hostname_by_target.get(str(hostname), str(hostname))
-        source_path = run_dir / f"{source_hostname}{suffix}"
+        source_path = (
+            evidence_source_paths.get(source_hostname)
+            if evidence_source_paths
+            else run_dir / f"{source_hostname}{suffix}"
+        )
+        if source_path is None:
+            source_path = run_dir / f"{source_hostname}{suffix}"
         if not source_path.exists():
             missing_files.append(str(source_path))
             logger.warning("SKIP MISSING RUN CONFIG %s", source_path)
@@ -4292,14 +5384,39 @@ def cmd_transform_config(args: argparse.Namespace) -> None:
         transformed_text, stats = transform_run_config_text(
             source_text,
             mgmt_subnet,
-            lab_username=lab_credentials[0] if lab_credentials else None,
-            lab_password=lab_credentials[1] if lab_credentials else None,
-            delete_username=delete_username and device_type == "nxos",
-            delete_access_class=bool(getattr(args, "delete_access_class", False))
-            and device_type == "nxos",
+            delete_username=False,
+            delete_access_class=False,
             hostname_map=hostname_map,
             management_address_map=management_address_map,
         )
+        device_spec = resolve_device_spec(
+            parameter_spec,
+            platform=device_type,
+            hostname=target_hostname,
+        )
+        if mgmt_subnet is not None:
+            device_spec.setdefault("management", {}).setdefault(
+                "ipv4_subnet", str(mgmt_subnet)
+            )
+        if delete_username:
+            device_spec["source_local_users"] = {"action": "remove"}
+        if bool(getattr(args, "delete_access_class", False)):
+            device_spec.setdefault("access_control", {})[
+                "management_access_class"
+            ] = {"action": "remove"}
+        adapter_result = transform_lab_config(
+            transformed_text,
+            device_spec,
+            platform=device_type,
+        )
+        transformed_text = adapter_result.text
+        for warning in adapter_result.warnings:
+            logger.warning(
+                "LAB TRANSFORM WARN host=%s id=%s message=%s",
+                target_hostname,
+                warning["id"],
+                warning["message"],
+            )
         if normalized_cables:
             description_warnings = collect_cable_description_warnings(
                 target_hostname,
@@ -4314,24 +5431,91 @@ def cmd_transform_config(args: argparse.Namespace) -> None:
             for warning in description_warnings:
                 logger.warning("%s", warning)
         output_path = output_dir / f"{target_hostname}{suffix}"
-        output_path.write_text(transformed_text, encoding="utf-8")
+        rendered_configs[output_path] = transformed_text
+        output_sha256 = "sha256:" + hashlib.sha256(
+            transformed_text.encode("utf-8")
+        ).hexdigest()
+        manifest_devices.append({
+            "hostname": target_hostname,
+            "platform": device_type,
+            "source_path": str(source_path),
+            "source_sha256": source_sha256(source_path),
+            "output_path": str(output_path),
+            "output_sha256": output_sha256,
+            "legacy_stats": stats,
+            "adapter_stats": adapter_result.stats,
+            "warnings": list(adapter_result.warnings),
+            "risk_findings": list(adapter_result.risk_findings),
+            "primary_username": adapter_result.primary_username,
+            "post_apply_username": adapter_result.post_apply_username,
+            "post_apply_password_ref": adapter_result.post_apply_password_ref,
+            "bootstrap_action": adapter_result.bootstrap_action,
+        })
         transformed_count += 1
         logger.info(
-            "WROTE LAB CONFIG %s subif_conversions=%d mgmt_sections=%d parent_added=%d parent_merged=%d svi_merged=%d no_switchport_added=%d username_removed=%d snmp_user_removed=%d access_class_removed=%d hostname_renamed=%d description_renamed=%d lab_username_added=%d",
+            "PREPARED LAB CONFIG %s subif_conversions=%d mgmt_sections=%d adapter_removed_users=%d adapter_generated_users=%d adapter_generated_ntp=%d",
             output_path,
             stats["subinterface_conversions"],
             stats["management_section_updates"],
-            stats["generated_parent_interfaces"],
-            stats["merged_existing_parent_interfaces"],
-            stats["merged_existing_svis"],
-            stats["inserted_no_switchport"],
-            stats["removed_username_lines"],
-            stats["removed_snmp_user_lines"],
-            stats["removed_access_class_lines"],
-            stats["renamed_hostname_lines"],
-            stats["renamed_description_lines"],
-            stats["inserted_lab_username"],
+            adapter_result.stats["removed_users"],
+            adapter_result.stats["generated_lab_users"],
+            adapter_result.stats["generated_ntp"],
         )
+
+    output_root = Path(args.output_hosts).parent
+    atomic_write_bytes(
+        output_root,
+        Path(args.output_hosts),
+        yaml.safe_dump(
+            transformed_inventory, sort_keys=False, allow_unicode=True
+        ).encode("utf-8"),
+    )
+    for output_path, transformed_text in rendered_configs.items():
+        atomic_write_bytes(
+            output_dir,
+            output_path,
+            transformed_text.encode("utf-8"),
+        )
+    manifest_path = Path(
+        getattr(args, "manifest_output", None)
+        or output_dir.parent / "lab-transform-manifest.yaml"
+    )
+    manifest_root = manifest_path.parent.resolve()
+    for device in manifest_devices:
+        output_candidate = Path(device["output_path"]).resolve()
+        try:
+            device["output_path"] = output_candidate.relative_to(manifest_root).as_posix()
+        except ValueError as exc:
+            raise ValueError(
+                "lab transform output must be below the Manifest directory: "
+                f"{output_candidate}"
+            ) from exc
+    manifest = build_lab_transform_manifest(
+        parameter_source_sha256=parameter_source_sha256,
+        parameter_spec=parameter_spec,
+        devices=manifest_devices,
+    )
+    if evidence_manifest is not None:
+        manifest["spec"]["evidence_package"] = {
+            "package_id": evidence_manifest["metadata"]["package_id"],
+            "package_manifest_sha256": source_sha256(
+                Path(evidence_import) / "package-manifest.yaml"
+            ),
+            "config_content": evidence_manifest["spec"]["config_content"],
+        }
+    atomic_write_yaml(
+        manifest_path.parent,
+        manifest_path,
+        manifest,
+        kind="LabTransformManifest",
+    )
+    logger.info(
+        "PUBLISHED TRANSFORMED HOSTS %s CONFIGS %d MANIFEST %s mgmt_subnet=%s",
+        args.output_hosts,
+        len(rendered_configs),
+        manifest_path,
+        str(mgmt_subnet) if mgmt_subnet is not None else "disabled",
+    )
 
     logger.info(
         "TRANSFORM COMPLETE hosts=%d configs=%d missing=%d cable_description_warnings=%d",
@@ -4339,6 +5523,737 @@ def cmd_transform_config(args: argparse.Namespace) -> None:
         transformed_count,
         len(missing_files),
         cable_description_warning_count,
+    )
+
+
+def cmd_evidence_package_create(args: argparse.Namespace) -> None:
+    """Create a manifest-selected portable evidence archive without device access."""
+    source = resolve_evidence_collection_source(
+        operations_root=args.operations_root,
+        change_id=args.change_id,
+        collection_manifest=args.collection_manifest,
+        raw_root=args.input,
+    )
+    result = create_evidence_package(
+        collection_manifest=source.collection_manifest,
+        raw_root=source.raw_root,
+        profile=args.profile,
+        output_dir=args.output_dir,
+        disclosure_preset=args.disclosure_preset,
+        config_content=args.config_content,
+        acknowledge_sensitive_config=args.acknowledge_sensitive_config,
+        created_at=datetime.now().astimezone(),
+    )
+    output = {
+        **result,
+        "archive": str(result["archive"]),
+        "checksum": str(result["checksum"]),
+        "source_selection": source.selection,
+        "source_manifest": str(source.collection_manifest),
+    }
+    if source.change_id is not None:
+        output["source_change_id"] = source.change_id
+    if source.attempt_id is not None:
+        output["source_attempt_id"] = source.attempt_id
+    if source.completed_at is not None:
+        output["source_completed_at"] = source.completed_at.isoformat()
+    print(yaml.safe_dump(output, sort_keys=False).rstrip())
+
+
+def _print_evidence_result(result: Mapping[str, Any], output_format: str) -> None:
+    if output_format == "json":
+        print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
+        return
+    for key, value in result.items():
+        if isinstance(value, list):
+            print(f"{key}:")
+            for item in value:
+                print(f"- {item}")
+        else:
+            print(f"{key}: {value}")
+
+
+def cmd_evidence_package_inspect(args: argparse.Namespace) -> None:
+    """Inspect trusted portable evidence metadata after internal verification."""
+    _print_evidence_result(
+        inspect_evidence_package(args.bundle),
+        args.format,
+    )
+
+
+def cmd_evidence_package_verify(args: argparse.Namespace) -> None:
+    """Verify a portable evidence archive without extracting it."""
+    _print_evidence_result(
+        verify_evidence_package(args.bundle, checksum_file=args.checksum_file),
+        args.format,
+    )
+
+
+def cmd_evidence_package_import(args: argparse.Namespace) -> None:
+    """Safely import a verified portable evidence archive."""
+    result = import_evidence_package(
+        args.bundle,
+        output_dir=args.output_dir,
+        checksum_file=args.checksum_file,
+        acknowledge_sensitive_config=args.acknowledge_sensitive_config,
+        imported_at=datetime.now().astimezone(),
+    )
+    _print_evidence_result(result, "text")
+
+
+def cmd_import_running_config(args: argparse.Namespace) -> None:
+    """Import external running config without connecting to devices."""
+    result = import_running_configs(
+        input_dir=args.input,
+        input_format=args.input_format,
+        hosts_path=args.hosts,
+        source_map_path=args.source_map,
+        lldp_input=args.lldp_input,
+        output_dir=args.output,
+        imported_at=datetime.now().astimezone(),
+    )
+    _print_evidence_result(
+        {key: str(value) if isinstance(value, Path) else value for key, value in result.items()},
+        "text",
+    )
+
+
+def cmd_clab_apply_config(args: argparse.Namespace) -> None:
+    """Wait for NX-OS lab readiness, then use the strict direct push path."""
+    logger = setup_logging(args.log_file, args.verbose)
+    attempt_id = datetime.now().astimezone().strftime("apply-%Y%m%dT%H%M%S%z-%f")
+    attempt_root = Path(getattr(args, "output_dir", "output/clab-apply-config")) / attempt_id
+    attempt_root.mkdir(parents=True, exist_ok=False, mode=0o700)
+    requested_write_memory = bool(getattr(args, "write_memory", False))
+    logger.info(
+        "CLAB APPLY START attempt=%s topology=%s hosts=%s manifest=%s",
+        attempt_id,
+        args.topology,
+        args.hosts or DEFAULT_HOSTS_PATH,
+        args.lab_transform_manifest or "legacy-input-dir",
+    )
+    try:
+        readiness = wait_for_clab_nodes(
+            args.topology,
+            health_timeout=args.health_timeout,
+            poll_interval=args.poll_interval,
+            honor_startup_delay=not args.ignore_startup_delay,
+            status_callback=lambda message: logger.info(
+                "CLAB READINESS %s", message
+            ),
+        )
+    except KeyboardInterrupt:
+        message = "Containerlab readiness wait interrupted by user"
+        logger.warning("CLAB READINESS INTERRUPTED attempt=%s", attempt_id)
+        atomic_write_bytes(
+            attempt_root,
+            attempt_root / "apply-result.yaml",
+            yaml.safe_dump({
+                "attempt_id": attempt_id,
+                "status": "INTERRUPTED_READINESS",
+                "topology_sha256": source_sha256(args.topology),
+                "error": message,
+            }, sort_keys=False, allow_unicode=True).encode("utf-8"),
+        )
+        raise SystemExit(130)
+    except Exception as exc:
+        logger.error(
+            "CLAB READINESS FAILED attempt=%s error=%s: %s",
+            attempt_id,
+            type(exc).__name__,
+            exc,
+        )
+        atomic_write_bytes(
+            attempt_root,
+            attempt_root / "apply-result.yaml",
+            yaml.safe_dump({
+                "attempt_id": attempt_id,
+                "status": "FAILED_READINESS",
+                "topology_sha256": source_sha256(args.topology),
+                "error": f"{type(exc).__name__}: {exc}",
+            }, sort_keys=False, allow_unicode=True).encode("utf-8"),
+        )
+        raise
+    for hostname, state in sorted(readiness.items()):
+        logger.info(
+            "CLAB READY host=%s runtime=%s health=%s",
+            hostname,
+            state.get("runtime"),
+            state.get("health"),
+        )
+    hosts_path = resolve_hosts_path(args.hosts, required=True)
+    inventory_hosts = {
+        str(host["hostname"]): host
+        for host in load_inventory_data(load_yaml(hosts_path))
+    }
+    manifest_document: Dict[str, Any] | None = None
+    config_paths: Dict[str, Path] = {}
+    if args.lab_transform_manifest:
+        config_paths, manifest_document = resolve_lab_transform_manifest(
+            args.lab_transform_manifest
+        )
+
+    def risk_config_path(hostname: str) -> Path | None:
+        if hostname in config_paths:
+            return config_paths[hostname]
+        input_dir_value = getattr(args, "input_dir", None)
+        if not input_dir_value:
+            return None
+        input_dir = Path(input_dir_value)
+        suffix = str(getattr(args, "file_suffix", "") or "")
+        if not getattr(args, "file_hostname_include", False):
+            candidate = input_dir / f"{hostname}{suffix}"
+            return candidate if candidate.is_file() else None
+        matches = sorted(
+            path for path in input_dir.iterdir()
+            if path.is_file()
+            and hostname in path.name
+            and (not suffix or path.name.endswith(suffix))
+        )
+        return matches[0] if len(matches) == 1 else None
+
+    manifest_devices_for_risk = {
+        str(device["hostname"]): device
+        for device in (manifest_document or {}).get("spec", {}).get("devices", [])
+    }
+    original_target_hosts = parse_host_filter(getattr(args, "target_hosts", None))
+    scan_hostnames = set(inventory_hosts)
+    if original_target_hosts:
+        scan_hostnames &= set(original_target_hosts)
+    risk_by_host: Dict[str, List[Dict[str, str]]] = {}
+    missing_risk_configs: List[str] = []
+    for hostname in sorted(scan_hostnames):
+        path = risk_config_path(hostname)
+        if path is None:
+            missing_risk_configs.append(hostname)
+            continue
+        device = manifest_devices_for_risk.get(hostname, {})
+        recorded_findings = list(device.get("risk_findings", []))
+        runtime_findings = scan_nxos_lab_config(
+            path.read_text(encoding="utf-8"),
+            bootstrap_action=str(device.get("bootstrap_action", "preserve")),
+        )
+        findings_by_id = {
+            str(finding["id"]): dict(finding)
+            for finding in recorded_findings + runtime_findings
+        }
+        risk_by_host[hostname] = [
+            findings_by_id[key] for key in sorted(findings_by_id)
+        ]
+    if missing_risk_configs:
+        atomic_write_bytes(
+            attempt_root,
+            attempt_root / "apply-result.yaml",
+            yaml.safe_dump({
+                "attempt_id": attempt_id,
+                "status": "FAILED_INPUT",
+                "failed_hosts": missing_risk_configs,
+                "error": "transformed config is missing",
+            }, sort_keys=False, allow_unicode=True).encode("utf-8"),
+        )
+        raise ClabApplyError(
+            "transformed config is missing for: "
+            + ", ".join(missing_risk_configs)
+        )
+    risk_document = {
+        "attempt_id": attempt_id,
+        "status": "BLOCK" if any(
+            finding["level"] == "BLOCK"
+            for findings in risk_by_host.values() for finding in findings
+        ) else "WARN" if any(
+            finding["level"] == "WARN"
+            for findings in risk_by_host.values() for finding in findings
+        ) else "INFO",
+        "devices": risk_by_host,
+    }
+    atomic_write_bytes(
+        attempt_root,
+        attempt_root / "risk-scan.yaml",
+        yaml.safe_dump(risk_document, sort_keys=False, allow_unicode=True).encode("utf-8"),
+    )
+    blocking_hosts = sorted(
+        hostname for hostname, findings in risk_by_host.items()
+        if any(finding["level"] == "BLOCK" for finding in findings)
+    )
+    if blocking_hosts:
+        atomic_write_bytes(
+            attempt_root,
+            attempt_root / "apply-result.yaml",
+            yaml.safe_dump({
+                "attempt_id": attempt_id,
+                "status": "BLOCKED_RISK",
+                "failed_hosts": blocking_hosts,
+            }, sort_keys=False, allow_unicode=True).encode("utf-8"),
+        )
+        raise ClabApplyError(
+            "risk scan blocked config push for: " + ", ".join(blocking_hosts)
+        )
+    preverified_results: Dict[str, Dict[str, Any]] = {}
+    reused_hosts: List[str] = []
+    previous_current = attempt_root.parent / "current.json"
+    current_matches = False
+    current_document: Dict[str, Any] = {}
+    topology_hash = source_sha256(args.topology)
+    manifest_hash = (
+        source_sha256(args.lab_transform_manifest)
+        if args.lab_transform_manifest else None
+    )
+    if (
+        manifest_document is not None
+        and previous_current.is_file()
+        and not previous_current.is_symlink()
+        and not bool(getattr(args, "reapply_all", False))
+    ):
+        try:
+            loaded_current = json.loads(previous_current.read_text(encoding="utf-8"))
+            if isinstance(loaded_current, dict):
+                current_document = loaded_current
+                current_matches = (
+                    current_document.get("status") == "SUCCESS"
+                    and current_document.get("topology_sha256") == topology_hash
+                    and current_document.get("lab_transform_manifest_sha256") == manifest_hash
+                )
+        except (OSError, json.JSONDecodeError):
+            current_matches = False
+
+    post_credentials_by_hostname: Dict[str, tuple[str, str, str]] = {}
+    if current_matches:
+        for hostname in sorted(scan_hostnames & set(config_paths)):
+            device = manifest_devices_for_risk[hostname]
+            password_ref = device.get("post_apply_password_ref")
+            password = "admin"
+            if password_ref:
+                password = os.environ.get(str(password_ref), "")
+            if not password:
+                continue
+            credentials = (str(device["post_apply_username"]), password, "")
+            post_credentials_by_hostname[hostname] = credentials
+            connection = None
+            try:
+                host = inventory_hosts[hostname]
+                connection = connect_to_host(host, *credentials, logger)
+                running = str(connection.send_command(
+                    get_running_config_command(str(host.get("device_type", ""))),
+                    read_timeout=300,
+                    **get_send_command_options(str(host.get("device_type", ""))),
+                ))
+                expected = config_paths[hostname].read_text(encoding="utf-8")
+                verification = verify_nxos_lab_running_config(expected, running)
+                if verification["status"] == "VERIFIED":
+                    preverified_results[hostname] = verification
+                    reused_hosts.append(hostname)
+                    atomic_write_bytes(
+                        attempt_root,
+                        attempt_root / "running-config" / f"{hostname}_run.txt",
+                        sanitized_semantic_config(running).encode("utf-8"),
+                    )
+            except Exception as exc:
+                logger.warning(
+                    "CLAB CURRENT REUSE CHECK FAILED host=%s error=%s",
+                    hostname,
+                    exc,
+                )
+            finally:
+                if connection is not None:
+                    connection.disconnect()
+
+    mutation_hosts = sorted(scan_hostnames - set(reused_hosts))
+    warning_hosts = sorted(
+        hostname for hostname, findings in risk_by_host.items()
+        if hostname in mutation_hosts
+        and any(finding["level"] == "WARN" for finding in findings)
+    )
+    if warning_hosts and not args.accept_connectivity_risk:
+        print("WARNING: connectivity-sensitive lab config for: " + ", ".join(warning_hosts))
+        risk_answer = input("Proceed with connectivity risks? [yes/no]: ").strip().lower()
+        if risk_answer != "yes":
+            atomic_write_bytes(
+                attempt_root,
+                attempt_root / "apply-result.yaml",
+                yaml.safe_dump({
+                    "attempt_id": attempt_id,
+                    "status": "ABORTED_RISK",
+                    "warning_hosts": warning_hosts,
+                }, sort_keys=False, allow_unicode=True).encode("utf-8"),
+            )
+            logger.info("Aborted connectivity risk confirmation: %s", risk_answer)
+            return
+    default_credentials_file = Path("clab_credentials.yaml")
+    if (
+        not args.username
+        and not args.password
+        and not args.credentials
+        and not default_credentials_file.exists()
+        and not os.environ.get("ALRED_USERNAME")
+        and not os.environ.get("ALRED_PASSWORD")
+    ):
+        args.username = "admin"
+        args.password = "admin"
+        logger.warning(
+            "Using cisco_n9kv bootstrap credential admin:admin; production credential fallback is disabled"
+        )
+    args.write_memory = False
+    args._capture_command_results = True
+    args._builtin_cli_error_allowlist = build_nxos_clab_cli_error_allowlist()
+    args._disable_push_dir_connection_safety_filter = True
+    if current_matches:
+        args._credentials_by_hostname = {
+            hostname: credentials
+            for hostname, credentials in post_credentials_by_hostname.items()
+            if hostname in mutation_hosts
+        }
+    if mutation_hosts:
+        args.target_hosts = ",".join(mutation_hosts)
+        push_result = cmd_push_config_dir(args)
+    else:
+        push_result = {
+            "aborted": False,
+            "pushed_hosts": [],
+            "failed_hosts": [],
+            "not_started_hosts": [],
+            "command_results": {},
+        }
+    command_results = push_result.get("command_results", {})
+    for hostname, result in sorted(command_results.items()):
+        atomic_write_bytes(
+            attempt_root,
+            attempt_root / "command-results" / f"{hostname}.yaml",
+            yaml.safe_dump(result, sort_keys=False, allow_unicode=True).encode("utf-8"),
+        )
+    if push_result["aborted"]:
+        atomic_write_bytes(
+            attempt_root,
+            attempt_root / "apply-result.yaml",
+            yaml.safe_dump({
+                "attempt_id": attempt_id,
+                "status": "ABORTED",
+                "topology_sha256": source_sha256(args.topology),
+            }, sort_keys=False, allow_unicode=True).encode("utf-8"),
+        )
+        return
+    if push_result["failed_hosts"]:
+        not_started_hosts = push_result.get("not_started_hosts", [])
+        atomic_write_bytes(
+            attempt_root,
+            attempt_root / "apply-result.yaml",
+            yaml.safe_dump({
+                "attempt_id": attempt_id,
+                "status": "FAILED_PUSH",
+                "topology_sha256": source_sha256(args.topology),
+                "readiness": readiness,
+                "pushed_hosts": push_result["pushed_hosts"],
+                "failed_hosts": push_result["failed_hosts"],
+                "not_started_hosts": not_started_hosts,
+            }, sort_keys=False, allow_unicode=True).encode("utf-8"),
+        )
+        message = "config push failed for: " + ", ".join(
+            push_result["failed_hosts"]
+        )
+        if not_started_hosts:
+            message += "; not started after fail-fast: " + ", ".join(
+                not_started_hosts
+            )
+        raise ClabApplyError(message)
+
+    manifest_devices = {
+        str(device["hostname"]): device
+        for device in (manifest_document or {}).get("spec", {}).get("devices", [])
+    }
+    reconnect_failures: List[str] = []
+    verification_results: Dict[str, Dict[str, Any]] = dict(preverified_results)
+    save_results: Dict[str, str] = {}
+    bootstrap_results: Dict[str, str] = {}
+
+    def post_apply_credentials(
+        hostname: str, host: Dict[str, Any], device: Mapping[str, Any] | None
+    ) -> tuple[str, str, str]:
+        if device is None:
+            return get_credentials_for_device(
+                args, str(host.get("device_type", "")), host
+            )
+        username = str(device["post_apply_username"])
+        password_ref = device.get("post_apply_password_ref")
+        if password_ref:
+            password = os.environ.get(str(password_ref), "")
+            if not password:
+                raise ClabApplyError(
+                    f"post-apply credential reference is unresolved for {hostname}: {password_ref}"
+                )
+        else:
+            password = "admin"
+        return username, password, ""
+
+    def expected_config_path(hostname: str) -> Path:
+        if hostname in config_paths:
+            return config_paths[hostname]
+        input_dir = Path(args.input_dir)
+        if not args.file_hostname_include:
+            return input_dir / f"{hostname}{args.file_suffix or ''}"
+        matches = sorted(
+            path for path in input_dir.iterdir()
+            if path.is_file()
+            and hostname in path.name
+            and (not args.file_suffix or path.name.endswith(args.file_suffix))
+        )
+        if len(matches) != 1:
+            raise ClabApplyError(
+                f"cannot resolve exactly one verification input for {hostname}"
+            )
+        return matches[0]
+
+    for hostname in push_result["pushed_hosts"]:
+        host = inventory_hosts[hostname]
+        device = manifest_devices.get(hostname)
+        try:
+            username, password, enable_secret = post_apply_credentials(
+                hostname, host, device
+            )
+        except Exception as exc:
+            reconnect_failures.append(hostname)
+            verification_results[hostname] = {
+                "status": "UNKNOWN",
+                "error": f"credential resolution failed: {type(exc).__name__}",
+            }
+            logger.error(
+                "CLAB POST-APPLY CREDENTIAL FAILED host=%s error_type=%s",
+                hostname,
+                type(exc).__name__,
+            )
+            continue
+        result = probe_transport_connectivity(
+            host,
+            username,
+            password,
+            enable_secret,
+            logger,
+            "ssh",
+            float(args.connect_check_timeout),
+        )
+        if result.ok:
+            logger.info(
+                "CLAB POST-APPLY RECONNECT OK host=%s username=%s",
+                hostname,
+                username,
+            )
+        else:
+            reconnect_failures.append(hostname)
+            logger.error(
+                "CLAB POST-APPLY RECONNECT FAILED host=%s username=%s error=%s",
+                hostname,
+                username,
+                result.error or "unknown",
+            )
+            verification_results[hostname] = {
+                "status": "UNKNOWN",
+                "error": "post-apply reconnect failed",
+            }
+            continue
+
+        if device and device["bootstrap_action"] == "remove-after-primary-ready":
+            try:
+                bootstrap_command_result: Dict[str, Any] = {}
+                push_config_to_host(
+                    host,
+                    username,
+                    password,
+                    enable_secret,
+                    ["no username admin"],
+                    logger,
+                    [],
+                    False,
+                    lambda _hostname, value: bootstrap_command_result.update(value),
+                )
+                atomic_write_bytes(
+                    attempt_root,
+                    attempt_root / "command-results" / f"{hostname}-bootstrap.yaml",
+                    yaml.safe_dump(
+                        bootstrap_command_result, sort_keys=False, allow_unicode=True
+                    ).encode("utf-8"),
+                )
+                second_probe = probe_transport_connectivity(
+                    host,
+                    username,
+                    password,
+                    enable_secret,
+                    logger,
+                    "ssh",
+                    float(args.connect_check_timeout),
+                )
+                if not second_probe.ok:
+                    raise ClabApplyError("primary credential reconnect failed after bootstrap removal")
+                bootstrap_results[hostname] = "REMOVED"
+            except Exception as exc:
+                bootstrap_results[hostname] = "FAILED"
+                verification_results[hostname] = {
+                    "status": "UNKNOWN",
+                    "error": f"bootstrap removal failed: {type(exc).__name__}: {exc}",
+                }
+                continue
+        else:
+            bootstrap_results[hostname] = "PRESERVED_OR_REPLACED"
+
+        connection = None
+        try:
+            connection = connect_to_host(host, username, password, enable_secret, logger)
+            running = str(connection.send_command(
+                get_running_config_command(str(host.get("device_type", ""))),
+                read_timeout=300,
+                **get_send_command_options(str(host.get("device_type", ""))),
+            ))
+            expected = expected_config_path(hostname).read_text(encoding="utf-8")
+            verification = verify_nxos_lab_running_config(expected, running)
+            verification_results[hostname] = verification
+            running_path = attempt_root / "running-config" / f"{hostname}_run.txt"
+            atomic_write_bytes(
+                attempt_root,
+                running_path,
+                sanitized_semantic_config(running).encode("utf-8"),
+            )
+            if verification["diff"]:
+                atomic_write_bytes(
+                    attempt_root,
+                    attempt_root / "diff" / f"{hostname}.diff",
+                    ("\n".join(verification["diff"]) + "\n").encode("utf-8"),
+                )
+        except Exception as exc:
+            logger.error("CLAB VERIFY FAILED host=%s error=%s", hostname, exc)
+            verification_results[hostname] = {
+                "status": "UNKNOWN",
+                "error": f"{type(exc).__name__}: {exc}",
+            }
+        finally:
+            if connection is not None:
+                connection.disconnect()
+
+    with_diff = sorted(
+        hostname for hostname, result in verification_results.items()
+        if result["status"] == "VERIFIED_WITH_DIFF"
+    )
+    accept_diff = bool(getattr(args, "accept_verification_diff", False))
+    if requested_write_memory and with_diff and not accept_diff:
+        print("Verification has non-critical differences for: " + ", ".join(with_diff))
+        accept_diff = input("Save VERIFIED_WITH_DIFF nodes? [yes/no]: ").strip().lower() == "yes"
+
+    if requested_write_memory and not getattr(args, "ignore_all_cli_errors", False):
+        for hostname in push_result["pushed_hosts"]:
+            verification = verification_results.get(hostname, {})
+            if verification.get("status") == "VERIFIED" or (
+                verification.get("status") == "VERIFIED_WITH_DIFF" and accept_diff
+            ):
+                host = inventory_hosts[hostname]
+                device = manifest_devices.get(hostname)
+                save_evidence: Dict[str, Any] = {}
+                try:
+                    username, password, enable_secret = post_apply_credentials(
+                        hostname, host, device
+                    )
+                    save_config_on_host(
+                        host,
+                        username,
+                        password,
+                        enable_secret,
+                        logger,
+                        lambda _hostname, value: save_evidence.update(value),
+                    )
+                    atomic_write_bytes(
+                        attempt_root,
+                        attempt_root / "save-results" / f"{hostname}.yaml",
+                        yaml.safe_dump(
+                            save_evidence, sort_keys=False, allow_unicode=True
+                        ).encode("utf-8"),
+                    )
+                    save_results[hostname] = "SUCCESS"
+                except Exception as exc:
+                    if save_evidence:
+                        atomic_write_bytes(
+                            attempt_root,
+                            attempt_root / "save-results" / f"{hostname}.yaml",
+                            yaml.safe_dump(
+                                save_evidence, sort_keys=False, allow_unicode=True
+                            ).encode("utf-8"),
+                        )
+                    save_results[hostname] = "FAILED"
+                    logger.error("CLAB SAVE FAILED host=%s error=%s", hostname, exc)
+            else:
+                save_results[hostname] = "SKIPPED_NOT_VERIFIED"
+
+    topology_hash = source_sha256(args.topology)
+    verification_failures = sorted(
+        hostname for hostname, result in verification_results.items()
+        if result.get("status") not in {"VERIFIED", "VERIFIED_WITH_DIFF"}
+    )
+    failed_saves = sorted(
+        hostname for hostname, status in save_results.items()
+        if status == "FAILED"
+    )
+    overall_failures = sorted(set(
+        push_result["failed_hosts"]
+        + reconnect_failures
+        + verification_failures
+        + failed_saves
+    ))
+    command_summary = {}
+    for hostname, result in sorted(command_results.items()):
+        commands = result.get("commands", [])
+        successful_indexes = [
+            int(item["index"]) for item in commands
+            if item.get("status") in {"SUCCESS", "WARN", "IGNORED_ERROR"}
+        ]
+        command_summary[hostname] = {
+            "status": result.get("status", "UNKNOWN"),
+            "last_successful_command_index": (
+                max(successful_indexes) if successful_indexes else None
+            ),
+            "command_count": len(commands),
+        }
+    apply_result = {
+        "attempt_id": attempt_id,
+        "status": "SUCCESS" if not overall_failures else "FAILED",
+        "topology_sha256": topology_hash,
+        "lab_transform_manifest_sha256": (
+            source_sha256(args.lab_transform_manifest)
+            if args.lab_transform_manifest else None
+        ),
+        "readiness": readiness,
+        "reused_verified_hosts": sorted(reused_hosts),
+        "pushed_hosts": push_result["pushed_hosts"],
+        "failed_hosts": overall_failures,
+        "bootstrap": bootstrap_results,
+        "commands": command_summary,
+        "save": save_results,
+    }
+    atomic_write_bytes(
+        attempt_root,
+        attempt_root / "apply-result.yaml",
+        yaml.safe_dump(apply_result, sort_keys=False, allow_unicode=True).encode("utf-8"),
+    )
+    persistent_verification = {
+        hostname: {key: value for key, value in result.items() if key != "diff"}
+        for hostname, result in verification_results.items()
+    }
+    atomic_write_bytes(
+        attempt_root,
+        attempt_root / "verification.yaml",
+        yaml.safe_dump(persistent_verification, sort_keys=False, allow_unicode=True).encode("utf-8"),
+    )
+    logger.info("CLAB APPLY ATTEMPT %s artifacts=%s", attempt_id, attempt_root)
+    if overall_failures:
+        raise ClabApplyError(
+            "post-apply processing failed for: "
+            + ", ".join(overall_failures)
+        )
+    atomic_write_bytes(
+        attempt_root.parent,
+        attempt_root.parent / "current.json",
+        json.dumps({
+            "attempt_id": attempt_id,
+            "attempt_path": attempt_root.name,
+            "status": "SUCCESS",
+            "topology_sha256": topology_hash,
+            "lab_transform_manifest_sha256": apply_result[
+                "lab_transform_manifest_sha256"
+            ],
+        }, ensure_ascii=False, indent=2).encode("utf-8") + b"\n",
     )
 
 
@@ -5010,11 +6925,17 @@ def cmd_check_clab_startup_config(args: argparse.Namespace) -> None:
     print_connect_check_failures("CHECK CLAB STARTUP", connect_failures)
 
     results: List[Dict[str, Any]] = []
+    device_types_by_hostname = {
+        str(host.get("hostname", "")): str(host.get("device_type", "unknown"))
+        for host in hosts
+    }
     for failure in connect_failures:
         results.append(
             {
                 "hostname": failure.hostname,
-                "device_type": failure.device_type,
+                "device_type": device_types_by_hostname.get(
+                    failure.hostname, "unknown"
+                ),
                 "status": "connect-failed",
                 "message": failure.error or "connect check failed",
             }
@@ -5326,6 +7247,11 @@ def cmd_push_config(args: argparse.Namespace) -> None:
     config_lines = load_config_lines(args.config_file)
     if not config_lines:
         raise ValueError(f"no config lines found in {args.config_file}")
+    if args.ignore_all_cli_errors and args.write_memory:
+        raise ValueError("--ignore-all-cli-errors cannot be used with --write-memory")
+    cli_error_allowlist = load_cli_error_allowlist(
+        getattr(args, "allow_cli_error_pattern", None)
+    )
 
     target_hosts = parse_host_filter(args.target_hosts)
     targets, skipped = select_target_hosts(
@@ -5355,33 +7281,56 @@ def cmd_push_config(args: argparse.Namespace) -> None:
     if answer != "yes":
         logger.info("Aborted by user input: %s", answer)
         return
+    if args.ignore_all_cli_errors:
+        print("WARNING: --ignore-all-cli-errors is deprecated; detected CLI errors will not be saved.")
+        ignore_answer = input("Proceed while recording CLI errors as IGNORED_ERROR? [yes/no]: ").strip().lower()
+        if ignore_answer != "yes":
+            logger.info("Aborted deprecated CLI error ignore mode: %s", ignore_answer)
+            return
 
     pushed = failed = 0
     pushed_hosts: List[Dict[str, Any]] = []
-    with ThreadPoolExecutor(max_workers=max(1, args.workers)) as executor:
-        future_to_host = {
-            executor.submit(
-                push_config_to_host,
+    fail_fast = bool(getattr(args, "fail_fast", False))
+
+    def push_host(host: Dict[str, Any]) -> str:
+        return push_config_to_host(
+            host,
+            *get_credentials_for_device(
+                args,
+                str(host.get("device_type", "")),
                 host,
-                *get_credentials_for_device(args, str(host.get("device_type", "")), host),
-                config_lines,
-                logger,
-            ): host
-            for host in targets
-        }
-        for future in as_completed(future_to_host):
-            host = future_to_host[future]
-            try:
-                future.result()
-                pushed += 1
-                pushed_hosts.append(host)
-            except Exception as exc:
-                logger.exception("FAILED %s: %s", host["hostname"], exc)
-                failed += 1
+            ),
+            config_lines,
+            logger,
+            cli_error_allowlist,
+            args.ignore_all_cli_errors,
+        )
+
+    successes, failures, not_started_hosts = _execute_host_operation_batches(
+        targets,
+        push_host,
+        workers=args.workers,
+        fail_fast=fail_fast,
+    )
+    for host, push_status in successes:
+        pushed += 1
+        if push_status == "IGNORED_ERROR":
+            logger.warning("SAVE INELIGIBLE %s: IGNORED_ERROR", host["hostname"])
+        else:
+            pushed_hosts.append(host)
+    for host, exc in failures:
+        _log_push_host_failure(logger, str(host["hostname"]), exc)
+        failed += 1
+    if not_started_hosts:
+        logger.error(
+            "PUSH FAIL-FAST STOP failed_hosts=%s not_started_hosts=%s",
+            ",".join(str(host["hostname"]) for host, _exc in failures),
+            ",".join(str(host["hostname"]) for host in not_started_hosts),
+        )
 
     saved = save_failed = 0
     failed_save_hosts: List[str] = []
-    if args.write_memory and pushed_hosts:
+    if args.write_memory and pushed_hosts and not (fail_fast and failures):
         logger.info("START SAVE PHASE hosts=%d", len(pushed_hosts))
         with ThreadPoolExecutor(max_workers=max(1, args.workers)) as executor:
             future_to_host = {
@@ -5404,8 +7353,18 @@ def cmd_push_config(args: argparse.Namespace) -> None:
                     failed_save_hosts.append(str(host["hostname"]))
     elif not args.write_memory:
         logger.info("SKIP SAVE PHASE: --write-memory not set")
+    elif fail_fast and failures:
+        logger.warning("SKIP SAVE PHASE: fail-fast stopped an incomplete push batch")
 
-    logger.info("SUMMARY pushed=%d skipped=%d failed=%d saved=%d save_failed=%d", pushed, skipped, failed, saved, save_failed)
+    logger.info(
+        "SUMMARY pushed=%d skipped=%d failed=%d not_started=%d saved=%d save_failed=%d",
+        pushed,
+        skipped,
+        failed,
+        len(not_started_hosts),
+        saved,
+        save_failed,
+    )
     if args.write_memory:
         if not pushed_hosts:
             logger.info("SAVE RESULT no hosts were processed")
@@ -5416,7 +7375,7 @@ def cmd_push_config(args: argparse.Namespace) -> None:
         print_operation_result_summary("SAVE", len(pushed_hosts), failed_save_hosts)
 
 
-def cmd_push_config_dir(args: argparse.Namespace) -> None:
+def cmd_push_config_dir(args: argparse.Namespace) -> Dict[str, Any]:
     """
     Push per-host config files from a directory.
 
@@ -5428,14 +7387,60 @@ def cmd_push_config_dir(args: argparse.Namespace) -> None:
     inventory_data = load_yaml(hosts_path)
     hosts = load_inventory_data(inventory_data)
     policy = load_policy_file(args.policy)
-    input_dir = Path(args.input_dir)
-    if not input_dir.exists() or not input_dir.is_dir():
-        raise FileNotFoundError(f"input directory not found: {input_dir}")
+    manifest_config_paths: Dict[str, Path] = {}
+    if getattr(args, "lab_transform_manifest", None):
+        if args.file_hostname_include or args.file_suffix:
+            raise ValueError(
+                "--lab-transform-manifest cannot be used with filename matching options"
+            )
+        manifest_config_paths, _lab_manifest = resolve_lab_transform_manifest(
+            args.lab_transform_manifest
+        )
+        input_dir = Path(args.lab_transform_manifest).parent
+    else:
+        input_dir = Path(args.input_dir or f"{get_raw_dir('raw')}/config")
+        if not input_dir.exists() or not input_dir.is_dir():
+            raise FileNotFoundError(f"input directory not found: {input_dir}")
+    if args.ignore_all_cli_errors and args.write_memory:
+        raise ValueError("--ignore-all-cli-errors cannot be used with --write-memory")
+    builtin_cli_error_allowlist = list(
+        getattr(args, "_builtin_cli_error_allowlist", ()) or ()
+    )
+    cli_error_allowlist = [
+        *builtin_cli_error_allowlist,
+        *load_cli_error_allowlist(
+            getattr(args, "allow_cli_error_pattern", None)
+        ),
+    ]
+    allow_rule_ids = [str(rule.get("id", "")) for rule in cli_error_allowlist]
+    if len(allow_rule_ids) != len(set(allow_rule_ids)):
+        raise ValueError("CLI error allowlist rule IDs must be unique")
+    if builtin_cli_error_allowlist:
+        logger.info(
+            "CLI ERROR BUILTIN ALLOWLIST rules=%s",
+            ",".join(
+                str(rule.get("id", ""))
+                for rule in builtin_cli_error_allowlist
+            ),
+        )
+    capture_command_results = bool(
+        getattr(args, "_capture_command_results", False)
+    )
+    command_results: Dict[str, Dict[str, Any]] = {}
+    command_results_lock = Lock()
+
+    def capture_result(hostname: str, result: Dict[str, Any]) -> None:
+        if not capture_command_results:
+            return
+        with command_results_lock:
+            command_results[hostname] = result
 
     target_hosts = parse_host_filter(args.target_hosts)
     suffix = str(args.file_suffix or "")
 
     def resolve_config_path_for_host(hostname: str) -> Path | None:
+        if manifest_config_paths:
+            return manifest_config_paths.get(hostname)
         # Exact filename mode: <hostname><suffix>
         if not args.file_hostname_include:
             filename = f"{hostname}{suffix}"
@@ -5499,54 +7504,172 @@ def cmd_push_config_dir(args: argparse.Namespace) -> None:
         max(1, args.workers),
     )
     targets, connect_failures = filter_hosts_by_connect_check(targets, args, logger)
+    if capture_command_results:
+        for failure in connect_failures:
+            command_results[failure.hostname] = {
+                "status": "CONNECT_FAILED",
+                "commands": [],
+                "first_failure": {
+                    "stage": failure.stage,
+                    "message": failure.error or "connect check failed",
+                },
+            }
     skipped += len(connect_failures)
     print_connect_check_failures("PUSH", connect_failures)
 
     if not targets:
         logger.info("No targets to push")
-        return
+        return {
+            "aborted": False,
+            "pushed_hosts": [],
+            "failed_hosts": sorted(command_results),
+            "not_started_hosts": [],
+            "command_results": command_results,
+        }
+
+    force_connection_config = bool(getattr(args, "force", False))
+    connection_safety_enabled = not bool(
+        getattr(args, "_disable_push_dir_connection_safety_filter", False)
+    )
+    prepared_targets: List[
+        Tuple[Dict[str, Any], List[str], Tuple[str, str, str]]
+    ] = []
+    safety_findings_by_host: Dict[str, List[Dict[str, Any]]] = {}
+    for host in targets:
+        credential_override = getattr(
+            args, "_credentials_by_hostname", {}
+        ).get(str(host["hostname"]))
+        credentials = credential_override or get_credentials_for_device(
+            args, str(host.get("device_type", "")), host
+        )
+        if connection_safety_enabled:
+            config_lines, safety_findings = prepare_push_config_dir_lines(
+                str(host["config_path"]),
+                device_type=str(host.get("device_type", "")),
+                login_username=credentials[0],
+                force=force_connection_config,
+            )
+            safety_findings_by_host[str(host["hostname"])] = safety_findings
+        else:
+            config_lines = load_config_lines(str(host["config_path"]))
+        if not config_lines:
+            logger.info(
+                "SKIP %s: no config lines found after connection safety filter (%s)",
+                host["hostname"],
+                host["config_path"],
+            )
+            skipped += 1
+            continue
+        prepared_targets.append((host, config_lines, credentials))
+
+    if connection_safety_enabled:
+        print_push_config_dir_safety_summary(
+            safety_findings_by_host,
+            force=force_connection_config,
+            logger=logger,
+        )
+
+    if not prepared_targets:
+        logger.info("No targets have config lines to push")
+        return {
+            "aborted": False,
+            "pushed_hosts": [],
+            "failed_hosts": sorted(command_results),
+            "not_started_hosts": [],
+            "command_results": command_results,
+        }
 
     print("\n=== PUSH TARGETS ===")
-    for host in sorted(targets, key=lambda x: str(x.get("hostname", ""))):
+    for host, _config_lines, _credentials in sorted(
+        prepared_targets,
+        key=lambda item: str(item[0].get("hostname", "")),
+    ):
         print(f"- {host['hostname']} ({host['ip']}, {host['device_type']}): {host['config_path']}")
     print("====================")
-    answer = input(f"Proceed with push to {len(targets)} reachable hosts? [yes/no]: ").strip().lower()
+    answer = input(
+        f"Proceed with push to {len(prepared_targets)} reachable hosts? "
+        "[yes/no]: "
+    ).strip().lower()
     if answer != "yes":
         logger.info("Aborted by user input: %s", answer)
-        return
+        return {
+            "aborted": True,
+            "pushed_hosts": [],
+            "failed_hosts": [],
+            "not_started_hosts": [],
+            "command_results": command_results,
+        }
+    if args.ignore_all_cli_errors:
+        print("WARNING: --ignore-all-cli-errors is deprecated; detected CLI errors will not be saved.")
+        ignore_answer = input("Proceed while recording CLI errors as IGNORED_ERROR? [yes/no]: ").strip().lower()
+        if ignore_answer != "yes":
+            logger.info("Aborted deprecated CLI error ignore mode: %s", ignore_answer)
+            return {
+                "aborted": True,
+                "pushed_hosts": [],
+                "failed_hosts": [],
+                "not_started_hosts": [],
+                "command_results": command_results,
+            }
 
     pushed = failed = 0
     pushed_hosts: List[Dict[str, Any]] = []
-    with ThreadPoolExecutor(max_workers=max(1, args.workers)) as executor:
-        future_to_host = {}
-        for host in targets:
-            config_lines = load_config_lines(str(host["config_path"]))
-            if not config_lines:
-                logger.info("SKIP %s: no config lines found (%s)", host["hostname"], host["config_path"])
-                skipped += 1
-                continue
-            future = executor.submit(
-                push_config_to_host,
-                host,
-                *get_credentials_for_device(args, str(host.get("device_type", "")), host),
-                config_lines,
-                logger,
-            )
-            future_to_host[future] = host
 
-        for future in as_completed(future_to_host):
-            host = future_to_host[future]
-            try:
-                future.result()
-                pushed += 1
-                pushed_hosts.append(host)
-            except Exception as exc:
-                logger.exception("FAILED %s: %s", host["hostname"], exc)
-                failed += 1
+    def push_host(
+        item: Tuple[Dict[str, Any], List[str], Tuple[str, str, str]],
+    ) -> str:
+        host, config_lines, credentials = item
+        return push_config_to_host(
+            host,
+            *credentials,
+            config_lines,
+            logger,
+            cli_error_allowlist,
+            args.ignore_all_cli_errors,
+            capture_result if capture_command_results else None,
+        )
+
+    fail_fast = bool(getattr(args, "fail_fast", False))
+    successes, failures, not_started_items = _execute_host_operation_batches(
+        prepared_targets,
+        push_host,
+        workers=args.workers,
+        fail_fast=fail_fast,
+    )
+    for item, push_status in successes:
+        host = item[0]
+        pushed += 1
+        if push_status == "IGNORED_ERROR":
+            logger.warning("SAVE INELIGIBLE %s: IGNORED_ERROR", host["hostname"])
+        else:
+            pushed_hosts.append(host)
+    failed_hostnames: List[str] = []
+    for item, exc in failures:
+        host = item[0]
+        failed_hostnames.append(str(host["hostname"]))
+        _log_push_host_failure(logger, str(host["hostname"]), exc)
+        failed += 1
+    not_started_hosts = [str(item[0]["hostname"]) for item in not_started_items]
+    if not_started_hosts:
+        logger.error(
+            "PUSH FAIL-FAST STOP failed_hosts=%s not_started_hosts=%s",
+            ",".join(failed_hostnames),
+            ",".join(not_started_hosts),
+        )
+        if capture_command_results:
+            for hostname in not_started_hosts:
+                command_results[hostname] = {
+                    "status": "NOT_STARTED_FAIL_FAST",
+                    "commands": [],
+                    "first_failure": {
+                        "stage": "fail_fast",
+                        "message": "not started after a previous host failure",
+                    },
+                }
 
     saved = save_failed = 0
     failed_save_hosts: List[str] = []
-    if args.write_memory and pushed_hosts:
+    if args.write_memory and pushed_hosts and not (fail_fast and failures):
         logger.info("START SAVE PHASE hosts=%d", len(pushed_hosts))
         with ThreadPoolExecutor(max_workers=max(1, args.workers)) as executor:
             future_to_host = {
@@ -5569,13 +7692,16 @@ def cmd_push_config_dir(args: argparse.Namespace) -> None:
                     failed_save_hosts.append(str(host["hostname"]))
     elif not args.write_memory:
         logger.info("SKIP SAVE PHASE: --write-memory not set")
+    elif fail_fast and failures:
+        logger.warning("SKIP SAVE PHASE: fail-fast stopped an incomplete push batch")
 
     logger.info(
-        "SUMMARY pushed=%d skipped=%d missing=%d failed=%d saved=%d save_failed=%d",
+        "SUMMARY pushed=%d skipped=%d missing=%d failed=%d not_started=%d saved=%d save_failed=%d",
         pushed,
         skipped,
         missing,
         failed,
+        len(not_started_hosts),
         saved,
         save_failed,
     )
@@ -5587,6 +7713,13 @@ def cmd_push_config_dir(args: argparse.Namespace) -> None:
         else:
             logger.info("SAVE RESULT all hosts succeeded")
         print_operation_result_summary("SAVE", len(pushed_hosts), failed_save_hosts)
+    return {
+        "aborted": False,
+        "pushed_hosts": [str(host["hostname"]) for host in pushed_hosts],
+        "failed_hosts": sorted(failed_hostnames),
+        "not_started_hosts": sorted(not_started_hosts),
+        "command_results": command_results,
+    }
 
 
 def cmd_write_memory(args: argparse.Namespace) -> None:
@@ -5665,44 +7798,126 @@ def cmd_normalize_links(args: argparse.Namespace) -> None:
     """
     logger = setup_logging(args.log_file, args.verbose)
 
-    hosts_path = resolve_hosts_path(args.hosts, required=True)
-    inventory_data = load_yaml(hosts_path)
-    hosts = {h["hostname"]: h for h in load_inventory_data(inventory_data)}
-
-    mappings = load_effective_mappings(args)
-    description_rules = load_description_rules(args.description_rules)
-    raw_dir = Path(args.input)
-    lldp_dir = get_lldp_input_dir(raw_dir)
-    run_dir = get_run_input_dir(raw_dir)
-
     lldp_records: List[Dict[str, str]] = []
     description_records: List[Dict[str, str]] = []
+    run_texts: dict[str, str] = {}
+    lldp_texts: dict[str, str] = {}
+    evidence_dir = getattr(args, "evidence_package", None)
+    import_source = getattr(args, "running_config_import", None)
+    operation_source = bool(getattr(args, "latest_operation", False)) or bool(
+        getattr(args, "change_id", None)
+    )
+    evidence_context: tuple[Path, Path, dict[str, Any]] | None = None
+    inventory_data: dict[str, Any] | None = None
+    if operation_source:
+        source = resolve_evidence_collection_source(
+            operations_root=getattr(args, "operations_root", DEFAULT_OPERATIONS_ROOT),
+            change_id=getattr(args, "change_id", None),
+        )
+        inventory_data, config_bytes, lldp_bytes = load_collection_link_inputs(source)
+        run_texts = {
+            hostname: content.decode("utf-8", errors="strict")
+            for hostname, content in config_bytes.items()
+        }
+        lldp_texts = {
+            hostname: content.decode("utf-8", errors="strict")
+            for hostname, content in lldp_bytes.items()
+        }
+        run_paths = {}
+        lldp_paths = {}
+        mappings = load_effective_mappings(args)
+        description_rules = load_description_rules(getattr(args, "description_rules", None))
+    elif evidence_dir:
+        (
+            hosts_path,
+            run_paths,
+            lldp_paths,
+            mappings_path,
+            description_rules_path,
+            packaged_confirmed_path,
+            packaged_candidates_path,
+            evidence_manifest,
+        ) = resolve_imported_evidence_links(
+            evidence_dir,
+            acknowledge_sensitive_config=bool(
+                getattr(args, "acknowledge_sensitive_config", False)
+            ),
+        )
+        if getattr(args, "hosts", None) or getattr(args, "input", None):
+            raise ValueError("--evidence-package cannot be combined with --hosts or --input")
+        if getattr(args, "mappings", None) or getattr(args, "description_rules", None):
+            raise ValueError("Evidence Package mappings and description rules are Manifest-pinned")
+        mappings = load_mappings(str(mappings_path))
+        description_rules = load_description_rules(str(description_rules_path))
+        evidence_context = (
+            packaged_confirmed_path,
+            packaged_candidates_path,
+            evidence_manifest,
+        )
+    elif import_source:
+        if getattr(args, "hosts", None) or getattr(args, "input", None):
+            raise ValueError("--running-config-import cannot be combined with --hosts or --input")
+        hosts_path, run_paths, lldp_paths, _import_manifest = resolve_running_config_import(
+            import_source
+        )
+        mappings = load_effective_mappings(args)
+        description_rules = load_description_rules(getattr(args, "description_rules", None))
+    else:
+        hosts_path = Path(resolve_hosts_path(getattr(args, "hosts", None), required=True))
+        mappings = load_effective_mappings(args)
+        description_rules = load_description_rules(getattr(args, "description_rules", None))
+        raw_dir = Path(getattr(args, "input", None) or get_raw_dir("raw"))
+        lldp_dir = get_lldp_input_dir(raw_dir)
+        run_dir = get_run_input_dir(raw_dir)
+        lldp_paths = {
+            get_collect_hostname_from_path(path, "lldp"): path
+            for path in list_collect_output_files(lldp_dir, "lldp")
+        }
+        run_paths = {
+            get_collect_hostname_from_path(path, "run"): path
+            for path in list_collect_output_files(run_dir, "run")
+        }
 
-    lldp_files = list_collect_output_files(lldp_dir, "lldp")
-    logger.info("Found %d LLDP files in %s", len(lldp_files), lldp_dir)
-
-    for f in lldp_files:
-        local_hostname = get_collect_hostname_from_path(f, "lldp")
+    if inventory_data is None:
+        inventory_data = load_yaml(str(hosts_path))
+    hosts = {h["hostname"]: h for h in load_inventory_data(inventory_data)}
+    logger.info("Found %d LLDP inputs", len(lldp_paths) + len(lldp_texts))
+    for local_hostname, text in sorted(lldp_texts.items()):
         host = hosts.get(local_hostname)
         device_type = host["device_type"] if host else "unknown"
-        records = load_lldp_records_from_collect_file(f, local_hostname, device_type, mappings)
-        logger.info("PARSED LLDP %s: %d links", f.name, len(records))
+        records = parse_lldp_file(text, local_hostname, device_type, mappings)
+        logger.info("PARSED LLDP %s: %d links", local_hostname, len(records))
+        lldp_records.extend(records)
+    for local_hostname, path in sorted(lldp_paths.items()):
+        host = hosts.get(local_hostname)
+        device_type = host["device_type"] if host else "unknown"
+        records = load_lldp_records_from_collect_file(
+            path, local_hostname, device_type, mappings
+        )
+        logger.info("PARSED LLDP %s: %d links", path.name, len(records))
         lldp_records.extend(records)
 
-    run_files = list_collect_output_files(run_dir, "run")
-    logger.info("Found %d running-config files in %s", len(run_files), run_dir)
-
-    for f in run_files:
-        local_hostname = get_collect_hostname_from_path(f, "run")
-        text = load_run_text_from_collect_file(f)
+    logger.info("Found %d running-config inputs", len(run_paths) + len(run_texts))
+    for local_hostname, text in sorted(run_texts.items()):
         records = build_description_records(
             local_hostname,
             text,
             mappings,
             description_rules,
-            include_svi=args.include_svi,
+            include_svi=bool(getattr(args, "include_svi", False)),
         )
-        logger.info("PARSED RUN %s: %d description links", f.name, len(records))
+        logger.info("PARSED RUN %s: %d description links", local_hostname, len(records))
+        description_records.extend(records)
+    for local_hostname, path in sorted(run_paths.items()):
+        text = load_run_text_from_collect_file(path)
+        records = build_description_records(
+            local_hostname,
+            text,
+            mappings,
+            description_rules,
+            include_svi=bool(getattr(args, "include_svi", False)),
+        )
+        logger.info("PARSED RUN %s: %d description links", path.name, len(records))
         description_records.extend(records)
 
     lldp_records = normalize_link_records(lldp_records, mappings, hosts)
@@ -5714,14 +7929,103 @@ def cmd_normalize_links(args: argparse.Namespace) -> None:
         logger=logger,
     )
 
-    write_links_csv(confirmed, args.output_confirmed)
-    logger.info("Wrote %d confirmed links to %s", len(confirmed), args.output_confirmed)
+    output_dir = Path(getattr(args, "output_dir", None) or "output/links")
+    output_confirmed = str(
+        getattr(args, "output_confirmed", None)
+        or output_dir / DEFAULT_LINKS_CONFIRMED_FILENAME
+    )
+    output_candidates_value = getattr(args, "output_candidates", None)
+    output_candidates = str(
+        output_candidates_value
+        if output_candidates_value is not None
+        else output_dir / DEFAULT_LINKS_CANDIDATES_FILENAME
+    )
 
-    if args.output_candidates:
-        write_links_csv(candidates, args.output_candidates)
-        logger.info("Wrote %d candidate links to %s", len(candidates), args.output_candidates)
+    if evidence_context is not None:
+        packaged_confirmed_path, packaged_candidates_path, evidence_manifest = evidence_context
+        output_dir.mkdir(parents=True, exist_ok=True)
+        regenerated_path = output_dir / "normalized-links.regenerated.csv"
+        write_links_csv(confirmed, str(regenerated_path))
+        packaged_confirmed = read_links_csv(str(packaged_confirmed_path))
+        packaged_candidates = read_links_csv(str(packaged_candidates_path))
+        confirmed_resource = next(
+            resource
+            for resource in evidence_manifest["spec"].get("resources", [])
+            if resource.get("resource_id") == "canonical_links_confirmed"
+        )
+        packaged_confirmed_legacy_hash = canonical_links_sha256(packaged_confirmed)
+        packaged_confirmed_hash = canonical_confirmed_links_sha256(
+            packaged_confirmed
+        )
+        packaged_candidates_hash = canonical_links_sha256(packaged_candidates)
+        regenerated_confirmed_hash = canonical_confirmed_links_sha256(confirmed)
+        regenerated_candidates_hash = canonical_links_sha256(candidates)
+        declared = {
+            resource["resource_id"]: resource.get("semantic_sha256")
+            for resource in evidence_manifest["spec"].get("resources", [])
+        }
+        declared_confirmed_valid = (
+            packaged_confirmed_hash
+            if int(confirmed_resource.get("semantic_version", 1)) >= 2
+            else packaged_confirmed_legacy_hash
+        ) == declared.get("canonical_links_confirmed")
+        declared_candidates_valid = (
+            packaged_candidates_hash
+            == declared.get("canonical_links_candidates")
+        )
+        verified = (
+            declared_confirmed_valid
+            and declared_candidates_valid
+            and regenerated_confirmed_hash == packaged_confirmed_hash
+            and regenerated_candidates_hash == packaged_candidates_hash
+        )
+        verification = {
+            "status": "VERIFIED" if verified else "SEMANTIC_MISMATCH",
+            "package_id": evidence_manifest["metadata"]["package_id"],
+            "packaged_confirmed_semantic_sha256": packaged_confirmed_hash,
+            "packaged_confirmed_declared_sha256": declared.get(
+                "canonical_links_confirmed"
+            ),
+            "packaged_confirmed_semantic_version": int(
+                confirmed_resource.get("semantic_version", 1)
+            ),
+            "regenerated_confirmed_semantic_sha256": regenerated_confirmed_hash,
+            "packaged_candidates_semantic_sha256": packaged_candidates_hash,
+            "regenerated_candidates_semantic_sha256": regenerated_candidates_hash,
+        }
+        atomic_write_bytes(
+            output_dir,
+            output_dir / "link-verification.json",
+            (json.dumps(verification, ensure_ascii=False, indent=2, sort_keys=True) + "\n").encode(),
+        )
+        if not verified:
+            raise EvidencePackageError(
+                "LINK_REGENERATION_MISMATCH: packaged and regenerated canonical links differ"
+            )
+        atomic_write_bytes(
+            output_dir,
+            output_dir / "normalization-manifest.yaml",
+            yaml.safe_dump(
+                {
+                    "package_id": evidence_manifest["metadata"]["package_id"],
+                    "status": "VERIFIED",
+                    "normalizer_version": __version__,
+                    "confirmed_semantic_sha256": regenerated_confirmed_hash,
+                    "candidates_semantic_sha256": regenerated_candidates_hash,
+                },
+                sort_keys=False,
+                allow_unicode=True,
+            ).encode(),
+        )
 
-    print_normalize_links_result_summary(confirmed, candidates, args.output_confirmed, args.output_candidates)
+    write_links_csv(confirmed, output_confirmed)
+    logger.info("Wrote %d confirmed links to %s", len(confirmed), output_confirmed)
+    if output_candidates:
+        write_links_csv(candidates, output_candidates)
+        logger.info("Wrote %d candidate links to %s", len(candidates), output_candidates)
+    print_normalize_links_result_summary(
+        confirmed, candidates, output_confirmed, output_candidates
+    )
 
 
 def collect_lldp_description_mismatch_summary(
@@ -5885,7 +8189,16 @@ def parse_vni_gateway_state_from_run(text: str, device: str) -> Dict[str, Any]:
         m_svi = re.match(r"^interface\s+Vlan(\d+)\s*$", line)
         if m_svi:
             current_svi = m_svi.group(1)
-            svi_info.setdefault(current_svi, {"vrf": "", "gateway_ipv4": "", "gateway_ipv6": ""})
+            svi_info.setdefault(
+                current_svi,
+                {
+                    "vrf": "",
+                    "gateway_ipv4": "",
+                    "gateway_ipv6": "",
+                    "ipv6_link_local": "",
+                    "ipv6_enabled": "",
+                },
+            )
             continue
         if line and not line.startswith(" "):
             current_svi = None
@@ -5902,8 +8215,18 @@ def parse_vni_gateway_state_from_run(text: str, device: str) -> Dict[str, Any]:
             m_ip6 = re.match(r"^\s+ipv6 address\s+(\S+)\s*$", line)
             if m_ip6:
                 ip6 = m_ip6.group(1)
+                svi_info[current_svi]["ipv6_enabled"] = "true"
                 if ip6 != "use-link-local-only" and not svi_info[current_svi]["gateway_ipv6"]:
                     svi_info[current_svi]["gateway_ipv6"] = ip6
+                continue
+            m_link_local = re.match(
+                r"^\s+ipv6 link-local\s+(\S+)\s*$", line
+            )
+            if m_link_local:
+                svi_info[current_svi]["ipv6_enabled"] = "true"
+                svi_info[current_svi]["ipv6_link_local"] = (
+                    m_link_local.group(1)
+                )
 
     records: List[Dict[str, str]] = []
     for vlan, info in svi_info.items():
@@ -5926,6 +8249,10 @@ def parse_vni_gateway_state_from_run(text: str, device: str) -> Dict[str, Any]:
             "device": device,
             "vlan": vlan,
             "vlan_name": vlan_to_name.get(vlan, ""),
+            "ipv6_link_local": (
+                info.get("ipv6_link_local", "")
+                or ("auto" if info.get("ipv6_enabled") else "")
+            ),
         })
 
     return {
@@ -5942,7 +8269,8 @@ def parse_vni_gateway_records_from_run(text: str, device: str) -> List[Dict[str,
 
     Returns:
         Records with keys:
-        - l3vni, vrf, l2vni, gateway_ipv4, gateway_ipv6, device, vlan
+        - l3vni, vrf, l2vni, gateway_ipv4, gateway_ipv6, device, vlan,
+          vlan_name, ipv6_link_local
     """
     state = parse_vni_gateway_state_from_run(text, device)
     return list(state.get("records", []))
@@ -6027,6 +8355,7 @@ def write_vni_gateway_csv(records: List[Dict[str, str]], path: str, include_vlan
     fields = ["l3vni", "vrf", "l2vni", "gateway_ipv4", "gateway_ipv6", "device", "vlan"]
     if include_vlan_name:
         fields.append("vlan_name")
+    fields.append("ipv6_link_local")
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=fields)
@@ -6042,15 +8371,15 @@ def render_vni_gateway_markdown_lines(
 ) -> List[str]:
     lines = [f"# {title}", ""]
     if include_vlan_name:
-        lines.append("| l3vni | vrf | l2vni | gateway_ipv4 | gateway_ipv6 | device | vlan | vlan_name |")
-        lines.append("|---|---|---|---|---|---|---|---|")
+        lines.append("| l3vni | vrf | l2vni | gateway_ipv4 | gateway_ipv6 | device | vlan | vlan_name | ipv6_link_local |")
+        lines.append("|---|---|---|---|---|---|---|---|---|")
     else:
-        lines.append("| l3vni | vrf | l2vni | gateway_ipv4 | gateway_ipv6 | device | vlan |")
-        lines.append("|---|---|---|---|---|---|---|")
+        lines.append("| l3vni | vrf | l2vni | gateway_ipv4 | gateway_ipv6 | device | vlan | ipv6_link_local |")
+        lines.append("|---|---|---|---|---|---|---|---|")
     for r in records:
         if include_vlan_name:
             lines.append(
-                "| {l3vni} | {vrf} | {l2vni} | {gateway_ipv4} | {gateway_ipv6} | {device} | {vlan} | {vlan_name} |".format(
+                "| {l3vni} | {vrf} | {l2vni} | {gateway_ipv4} | {gateway_ipv6} | {device} | {vlan} | {vlan_name} | {ipv6_link_local} |".format(
                     l3vni=r.get("l3vni", ""),
                     vrf=r.get("vrf", ""),
                     l2vni=r.get("l2vni", ""),
@@ -6059,11 +8388,12 @@ def render_vni_gateway_markdown_lines(
                     device=r.get("device", ""),
                     vlan=r.get("vlan", ""),
                     vlan_name=r.get("vlan_name", ""),
+                    ipv6_link_local=r.get("ipv6_link_local", ""),
                 )
             )
         else:
             lines.append(
-                "| {l3vni} | {vrf} | {l2vni} | {gateway_ipv4} | {gateway_ipv6} | {device} | {vlan} |".format(
+                "| {l3vni} | {vrf} | {l2vni} | {gateway_ipv4} | {gateway_ipv6} | {device} | {vlan} | {ipv6_link_local} |".format(
                     l3vni=r.get("l3vni", ""),
                     vrf=r.get("vrf", ""),
                     l2vni=r.get("l2vni", ""),
@@ -6071,6 +8401,7 @@ def render_vni_gateway_markdown_lines(
                     gateway_ipv6=r.get("gateway_ipv6", ""),
                     device=r.get("device", ""),
                     vlan=r.get("vlan", ""),
+                    ipv6_link_local=r.get("ipv6_link_local", ""),
                 )
             )
     return lines
@@ -6102,7 +8433,10 @@ VNI_GATEWAY_CSV_FIELDS = [
     "device",
     "vlan",
     "vlan_name",
+    "ipv6_link_local",
 ]
+VNI_GATEWAY_REQUIRED_CSV_FIELDS = VNI_GATEWAY_CSV_FIELDS[:7]
+VNI_GATEWAY_CONFIG_COMPARE_FIELDS = VNI_GATEWAY_CSV_FIELDS[:-1]
 
 
 def normalize_vni_gateway_record(record: Dict[str, str]) -> Dict[str, str]:
@@ -6123,7 +8457,11 @@ def read_vni_gateway_csv(path: str) -> List[Dict[str, str]]:
         reader = csv.DictReader(f)
         if not reader.fieldnames:
             raise ValueError(f"vni gateway csv has no header: {path}")
-        missing = [field for field in VNI_GATEWAY_CSV_FIELDS[:-1] if field not in reader.fieldnames]
+        missing = [
+            field
+            for field in VNI_GATEWAY_REQUIRED_CSV_FIELDS
+            if field not in reader.fieldnames
+        ]
         if missing:
             raise ValueError(f"vni gateway csv missing headers: {', '.join(missing)}")
         return [normalize_vni_gateway_record(row) for row in reader]
@@ -6259,7 +8597,14 @@ def build_vni_diff(
             adds.append(after_record)
         elif after_record is None and before_record is not None:
             deletes.append(before_record)
-        elif before_record is not None and after_record is not None and before_record != after_record:
+        elif (
+            before_record is not None
+            and after_record is not None
+            and any(
+                before_record.get(field) != after_record.get(field)
+                for field in VNI_GATEWAY_CONFIG_COMPARE_FIELDS
+            )
+        ):
             changes.append((before_record, after_record))
 
     return adds, deletes, changes
@@ -6772,15 +9117,57 @@ def cmd_init_clab(args: argparse.Namespace) -> None:
         logger.info("Added site labels from site detection: %d nodes", site_label_count)
 
 
-def cmd_generate_mermaid(args: argparse.Namespace) -> None:
+def cmd_generate_mermaid(args: argparse.Namespace) -> int | None:
     """
     Generate Mermaid Markdown.
 
     Args:
         args: Parsed CLI args.
     """
+    view = resolve_diagram_view(args)
+    if view in {"underlay", "evpn", "overlay-service"} and any(
+        (
+            getattr(args, "evidence_package", None),
+            getattr(args, "running_config_import", None),
+            bool(getattr(args, "latest_operation", False)),
+            getattr(args, "change_id", None),
+        )
+    ):
+        run_paths, run_texts = resolve_network_diagram_underlay_inputs(args)
+        summary_paths, summary_texts = (
+            resolve_network_diagram_evpn_summary_inputs(args)
+        )
+        args.underlay_run_paths = run_paths
+        args.underlay_run_texts = run_texts
+        args.evpn_summary_paths = summary_paths
+        args.evpn_summary_texts = summary_texts
+        overlay_paths, overlay_texts = (
+            resolve_network_diagram_overlay_operational_inputs(args)
+        )
+        args.overlay_operational_paths = overlay_paths
+        args.overlay_operational_texts = overlay_texts
+    _resolve_renderer_link_source(args)
+    if (
+        view == "evpn"
+        and args.output
+        == f"{get_topology_dir('output')}/{DEFAULT_TOPOLOGY_MERMAID_FILENAME}"
+    ):
+        args.output = (
+            f"{get_topology_dir('output')}/"
+            f"{DEFAULT_TOPOLOGY_EVPN_MERMAID_FILENAME}"
+        )
+    if (
+        view == "overlay-service"
+        and args.output
+        == f"{get_topology_dir('output')}/{DEFAULT_TOPOLOGY_MERMAID_FILENAME}"
+    ):
+        args.output = (
+            f"{get_topology_dir('output')}/"
+            f"{DEFAULT_TOPOLOGY_OVERLAY_SERVICE_MERMAID_FILENAME}"
+        )
     logger = setup_logging(args.log_file, args.verbose)
     context = prepare_topology_diagram_context(args, logger)
+    group_by_site = resolve_effective_site_grouping(args, context, logger)
 
     md_lines = render_mermaid_markdown_lines(
         rendered_links=context["rendered_links"],
@@ -6792,7 +9179,7 @@ def cmd_generate_mermaid(args: argparse.Namespace) -> None:
         is_network_device_type_func=is_network_device_type,
         direction=args.direction,
         group_by_role=args.group_by_role,
-        group_by_site=getattr(args, "group_by_site", False),
+        group_by_site=group_by_site,
         add_comments=args.add_comments,
         title=context["title"],
         candidate_links=context["rendered_candidate_links"],
@@ -6811,9 +9198,77 @@ def cmd_generate_mermaid(args: argparse.Namespace) -> None:
     logger.info("Rendered %d confirmed links", len(context["rendered_links"]))
     logger.info("Rendered %d candidate links", len(context["rendered_candidate_links"]))
     logger.info("Wrote Mermaid markdown to %s", context["output_path"])
+    if context.get("evpn_model", {}).get("spec", {}).get("status") == "partial":
+        return 1
+    if context.get("overlay_service_model", {}).get("spec", {}).get("status") == "partial":
+        return 1
+    return None
 
 
-def cmd_generate_graphviz(args: argparse.Namespace) -> None:
+def resolve_effective_site_grouping(
+    args: argparse.Namespace,
+    context: Mapping[str, Any],
+    logger: Logger,
+) -> bool:
+    """Resolve explicit or metadata-driven site grouping."""
+    requested = getattr(args, "group_by_site", None)
+    enabled = bool(context["node_site_map"]) if requested is None else bool(requested)
+    if requested is None:
+        logger.info(
+            "Site grouping auto-detection: enabled=%s resolved_nodes=%d",
+            enabled,
+            len(context["node_site_map"]),
+        )
+    return enabled
+
+
+def _resolve_renderer_link_source(args: argparse.Namespace) -> None:
+    """Run the shared normalizer when a renderer receives a non-CSV source."""
+    evidence = getattr(args, "evidence_package", None)
+    running_import = getattr(args, "running_config_import", None)
+    latest = bool(getattr(args, "latest_operation", False))
+    change_id = getattr(args, "change_id", None)
+    if not any((evidence, running_import, latest, change_id)):
+        return
+    link_dir = Path(getattr(args, "link_output_dir", None) or "output/links")
+    normalize_args = argparse.Namespace(
+        log_file=getattr(args, "log_file", "logs/normalize-links.log"),
+        verbose=bool(getattr(args, "verbose", False)),
+        evidence_package=evidence,
+        running_config_import=running_import,
+        latest_operation=latest,
+        change_id=change_id,
+        operations_root=getattr(args, "operations_root", DEFAULT_OPERATIONS_ROOT),
+        hosts=None if (evidence or running_import or latest or change_id) else getattr(args, "hosts", None),
+        input=None,
+        mappings=None if evidence else getattr(args, "mappings", None),
+        node_map=None,
+        description_rules=None if evidence else getattr(args, "description_rules", None),
+        include_svi=bool(getattr(args, "include_svi", False)),
+        output_dir=str(link_dir),
+        output_confirmed=None,
+        output_candidates=None,
+        acknowledge_sensitive_config=bool(
+            getattr(args, "acknowledge_sensitive_config", False)
+        ),
+    )
+    cmd_normalize_links(normalize_args)
+    args.input = str(link_dir / DEFAULT_LINKS_CONFIRMED_FILENAME)
+    args.input_candidates = str(link_dir / DEFAULT_LINKS_CANDIDATES_FILENAME)
+    args.input_format = "csv"
+    if evidence:
+        args.hosts = str(Path(evidence) / "inventory" / "hosts.resolved.yaml")
+        args.mappings = str(Path(evidence) / "policy" / "mappings.resolved.yaml")
+        args.roles = str(Path(evidence) / "policy" / "roles.resolved.yaml")
+        args.sites = str(Path(evidence) / "policy" / "sites.resolved.yaml")
+    elif running_import:
+        inventory_path, _configs, _lldp, _manifest = resolve_running_config_import(
+            running_import
+        )
+        args.hosts = str(inventory_path)
+
+
+def cmd_generate_graphviz(args: argparse.Namespace) -> int | None:
     """
     Generate Graphviz DOT.
 
@@ -6851,15 +9306,122 @@ def cmd_generate_graphviz(args: argparse.Namespace) -> None:
     logger.info("Rendered %d confirmed links", len(context["rendered_links"]))
     logger.info("Rendered %d candidate links", len(context["rendered_candidate_links"]))
     logger.info("Wrote Graphviz DOT to %s", context["output_path"])
+    if context.get("evpn_model", {}).get("spec", {}).get("status") == "partial":
+        return 1
+    if context.get("overlay_service_model", {}).get("spec", {}).get("status") == "partial":
+        return 1
+    return None
 
 
-def cmd_generate_drawio(args: argparse.Namespace) -> None:
+DRAWIO_DIRECTION_CHOICES = ("TD", "LR", "BT", "RL")
+DEFAULT_DRAWIO_PAGE_DIRECTIONS = ("TD", "LR")
+OVERLAY_DETAIL_FORMAT_CHOICES = ("markdown", "drawio")
+DEFAULT_OVERLAY_DETAIL_FORMATS = ("markdown",)
+
+
+class TopologyDiagramError(ValueError):
+    """Expected topology diagram option validation error."""
+
+    code = "VALIDATION_ERROR"
+
+
+def parse_drawio_page_directions(value: str) -> Tuple[str, ...]:
+    """Parse a comma-separated, ordered draw.io page direction list."""
+    directions = tuple(
+        item.strip().upper() for item in value.split(",") if item.strip()
+    )
+    if not directions:
+        raise argparse.ArgumentTypeError(
+            "directions must contain one or more of TD,LR,BT,RL"
+        )
+    invalid = [
+        direction
+        for direction in directions
+        if direction not in DRAWIO_DIRECTION_CHOICES
+    ]
+    if invalid:
+        raise argparse.ArgumentTypeError(
+            "unsupported direction(s): " + ",".join(invalid)
+        )
+    if len(set(directions)) != len(directions):
+        raise argparse.ArgumentTypeError("directions must not contain duplicates")
+    return directions
+
+
+def parse_overlay_detail_formats(value: str) -> Tuple[str, ...]:
+    """Parse a comma-separated Overlay Service detail format list."""
+    formats = tuple(
+        item.strip().casefold() for item in value.split(",") if item.strip()
+    )
+    if not formats:
+        raise argparse.ArgumentTypeError(
+            "overlay detail formats must contain markdown and/or drawio"
+        )
+    invalid = [
+        item for item in formats if item not in OVERLAY_DETAIL_FORMAT_CHOICES
+    ]
+    if invalid:
+        raise argparse.ArgumentTypeError(
+            "unsupported Overlay Service detail format(s): " + ",".join(invalid)
+        )
+    if len(set(formats)) != len(formats):
+        raise argparse.ArgumentTypeError(
+            "Overlay Service detail formats must not contain duplicates"
+        )
+    return formats
+
+
+def resolve_drawio_page_directions(args: argparse.Namespace) -> Tuple[str, ...]:
+    """Return effective multi-page directions for CLI and internal callers."""
+    directions = getattr(args, "directions", None)
+    if directions is None:
+        return DEFAULT_DRAWIO_PAGE_DIRECTIONS
+    if isinstance(directions, str):
+        return parse_drawio_page_directions(directions)
+    return tuple(directions)
+
+
+def validate_drawio_page_options(args: argparse.Namespace) -> None:
+    """Reject multi-page direction selection without multi-page output."""
+    if not getattr(args, "all_graph", False) and getattr(
+        args, "directions", None
+    ) is not None:
+        raise TopologyDiagramError("--directions requires --all-graph")
+
+
+def build_drawio_page_variants(
+    directions: Iterable[str],
+    *,
+    include_overlay_service: bool = True,
+) -> List[Tuple[str, str, str]]:
+    """Build stable Physical, Underlay, EVPN, and Overlay Service pages."""
+    resolved = tuple(directions)
+    variants = [
+        (f"Topology {direction}", direction, "physical")
+        for direction in resolved
+    ] + [
+        (f"Underlay {direction}", direction, "underlay")
+        for direction in resolved
+    ] + [
+        (f"EVPN {direction}", direction, "evpn")
+        for direction in resolved
+    ]
+    if include_overlay_service:
+        variants.extend(
+            (f"Overlay Service {direction}", direction, "overlay-service")
+            for direction in resolved
+        )
+    return variants
+
+
+def cmd_generate_drawio(args: argparse.Namespace) -> int | None:
     """
     Generate draw.io XML.
 
     Args:
         args: Parsed CLI args.
     """
+    validate_drawio_page_options(args)
     logger = setup_logging(args.log_file, args.verbose)
 
     default_topology_dir = get_topology_dir("output")
@@ -6871,24 +9433,29 @@ def cmd_generate_drawio(args: argparse.Namespace) -> None:
         if output_path == default_output_path:
             output_path = default_all_output_path
 
-        page_variants = [
-            ("Topology TD", "TD", False),
-            ("Topology LR", "LR", False),
-            ("Topology BT", "BT", False),
-            ("Topology RL", "RL", False),
-            ("Underlay TD", "TD", True),
-            ("Underlay LR", "LR", True),
-            ("Underlay BT", "BT", True),
-            ("Underlay RL", "RL", True),
-        ]
+        evpn_context = prepare_evpn_diagram_context(args, logger)
+        args.evpn_render_context = evpn_context
+        overlay_context = None
+        include_overlay_service = not bool(
+            getattr(args, "no_overlay_service", False)
+        )
+        if include_overlay_service:
+            overlay_context = prepare_overlay_service_diagram_context(
+                args, logger
+            )
+            args.overlay_service_render_context = overlay_context
+        page_variants = build_drawio_page_variants(
+            resolve_drawio_page_directions(args),
+            include_overlay_service=include_overlay_service,
+        )
         diagrams: List[ET.Element] = []
         mxfile_attrs: Dict[str, str] | None = None
-        for page_name, direction, underlay in page_variants:
+        for page_name, direction, view in page_variants:
             diagram, page_mxfile_attrs = build_drawio_page_diagram(
                 args=args,
                 logger=logger,
                 direction=direction,
-                underlay=underlay,
+                view=view,
                 page_name=page_name,
             )
             diagrams.append(diagram)
@@ -6898,7 +9465,11 @@ def cmd_generate_drawio(args: argparse.Namespace) -> None:
         write_text(output_path, build_drawio_multipage_lines(diagrams, mxfile_attrs or {}))
         logger.info("Wrote draw.io multi-page XML to %s", output_path)
         logger.info("Rendered %d draw.io pages", len(diagrams))
-        return
+        if evpn_context["evpn_model"]["spec"]["status"] == "partial":
+            return 1
+        if overlay_context and overlay_context["overlay_service_model"]["spec"]["status"] == "partial":
+            return 1
+        return None
 
     context = prepare_topology_diagram_context(args, logger)
 
@@ -6923,7 +9494,11 @@ def cmd_generate_drawio(args: argparse.Namespace) -> None:
         node_interface_label_map=context["node_interface_label_map"],
         node_role_map=context["node_role_map"],
         node_site_map=context["node_site_map"],
+        node_layout_rank_map=context.get("node_layout_rank_map"),
         sites=context["sites"],
+        align_role_nodes_with_direction=(
+            getattr(args, "view", "physical") == "overlay-service"
+        ),
     )
     write_text(context["output_path"], drawio_lines)
 
@@ -6931,6 +9506,856 @@ def cmd_generate_drawio(args: argparse.Namespace) -> None:
     logger.info("Rendered %d confirmed links", len(context["rendered_links"]))
     logger.info("Rendered %d candidate links", len(context["rendered_candidate_links"]))
     logger.info("Wrote draw.io XML to %s", context["output_path"])
+    if context.get("evpn_model", {}).get("spec", {}).get("status") == "partial":
+        return 1
+    if context.get("overlay_service_model", {}).get("spec", {}).get("status") == "partial":
+        return 1
+    return None
+
+
+def resolve_network_diagram_underlay_inputs(
+    args: argparse.Namespace,
+) -> tuple[Dict[str, Path] | None, Dict[str, str] | None]:
+    """Resolve verified running config inputs for the Underlay Mermaid view."""
+    evidence = getattr(args, "evidence_package", None)
+    running_import = getattr(args, "running_config_import", None)
+    if evidence:
+        _inventory, paths, _manifest = resolve_imported_digital_twin(
+            evidence,
+            acknowledge_sensitive_config=bool(
+                getattr(args, "acknowledge_sensitive_config", False)
+            ),
+        )
+        args.network_source_manifest = str(Path(evidence) / "package-manifest.yaml")
+        return dict(paths), None
+    if running_import:
+        _inventory, paths, _lldp, _manifest = resolve_running_config_import(
+            running_import
+        )
+        import_path = Path(running_import)
+        if import_path.is_file():
+            manifest_path = import_path
+        elif (import_path / "running-config-import-manifest.yaml").is_file():
+            manifest_path = import_path / "running-config-import-manifest.yaml"
+        else:
+            current = json.loads(
+                (import_path / "current.json").read_text(encoding="utf-8")
+            )
+            manifest_path = (
+                Path(str(current["artifact_dir"]))
+                / "running-config-import-manifest.yaml"
+            )
+        args.network_source_manifest = str(manifest_path)
+        return dict(paths), None
+    if bool(getattr(args, "latest_operation", False)) or getattr(
+        args, "change_id", None
+    ):
+        source = resolve_evidence_collection_source(
+            operations_root=getattr(args, "operations_root", DEFAULT_OPERATIONS_ROOT),
+            change_id=getattr(args, "change_id", None),
+        )
+        args.network_source_manifest = str(source.collection_manifest)
+        _inventory, config_bytes, _lldp = load_collection_link_inputs(source)
+        return None, {
+            hostname: content.decode("utf-8", errors="strict")
+            for hostname, content in config_bytes.items()
+        }
+    return None, None
+
+
+def resolve_network_diagram_evpn_summary_inputs(
+    args: argparse.Namespace,
+) -> tuple[Dict[str, Path] | None, Dict[str, str] | None]:
+    """Resolve verified optional EVPN BGP summary inputs."""
+    evidence = getattr(args, "evidence_package", None)
+    if evidence:
+        paths = resolve_imported_command_paths(
+            evidence, {"bgp_l2vpn_evpn_summary"}
+        )["bgp_l2vpn_evpn_summary"]
+        return dict(paths), None
+    if getattr(args, "running_config_import", None):
+        return None, None
+    if bool(getattr(args, "latest_operation", False)) or getattr(
+        args, "change_id", None
+    ):
+        source = resolve_evidence_collection_source(
+            operations_root=getattr(
+                args, "operations_root", DEFAULT_OPERATIONS_ROOT
+            ),
+            change_id=getattr(args, "change_id", None),
+        )
+        outputs = load_collection_command_inputs(
+            source, {"bgp_l2vpn_evpn_summary"}
+        )["bgp_l2vpn_evpn_summary"]
+        return None, {
+            hostname: content.decode("utf-8", errors="strict")
+            for hostname, content in outputs.items()
+        }
+    return None, None
+
+
+def resolve_network_diagram_overlay_operational_inputs(
+    args: argparse.Namespace,
+) -> tuple[Dict[str, Dict[str, Path]] | None, Dict[str, Dict[str, str]] | None]:
+    """Resolve verified optional EVPN route and VRF route evidence."""
+    evidence = getattr(args, "evidence_package", None)
+    if evidence:
+        return (
+            resolve_imported_command_paths(
+                evidence, set(OVERLAY_OPERATIONAL_COMMAND_IDS)
+            ),
+            None,
+        )
+    if getattr(args, "running_config_import", None):
+        return None, None
+    if bool(getattr(args, "latest_operation", False)) or getattr(
+        args, "change_id", None
+    ):
+        source = resolve_evidence_collection_source(
+            operations_root=getattr(
+                args, "operations_root", DEFAULT_OPERATIONS_ROOT
+            ),
+            change_id=getattr(args, "change_id", None),
+        )
+        outputs = load_collection_command_inputs(
+            source, set(OVERLAY_OPERATIONAL_COMMAND_IDS)
+        )
+        return None, {
+            command_id: {
+                hostname: content.decode("utf-8", errors="strict")
+                for hostname, content in hosts.items()
+            }
+            for command_id, hosts in outputs.items()
+        }
+    return None, None
+
+
+def describe_network_diagram_source(args: argparse.Namespace) -> Dict[str, str]:
+    """Build the stable source descriptor stored in NetworkDiagramManifest."""
+    if getattr(args, "evidence_package", None):
+        return {"type": "evidence-package", "value": str(args.evidence_package)}
+    if getattr(args, "running_config_import", None):
+        return {
+            "type": "running-config-import",
+            "value": str(args.running_config_import),
+        }
+    if bool(getattr(args, "latest_operation", False)):
+        return {
+            "type": "latest-operation",
+            "value": str(getattr(args, "operations_root", DEFAULT_OPERATIONS_ROOT)),
+        }
+    if getattr(args, "change_id", None):
+        return {"type": "operation", "value": str(args.change_id)}
+    return {"type": "file", "value": str(args.input)}
+
+
+def network_diagram_input_records(args: argparse.Namespace) -> List[Dict[str, str]]:
+    """Collect the effective regular-file inputs recorded in the diagram Manifest."""
+    records: List[Dict[str, str]] = []
+    seen: Set[Path] = set()
+    for raw_path in (
+        getattr(args, "input", None),
+        getattr(args, "input_candidates", None),
+        getattr(args, "hosts", None),
+        getattr(args, "mappings", None),
+        getattr(args, "roles", None),
+        getattr(args, "sites", None),
+        getattr(args, "underlay_config", None),
+        getattr(args, "network_source_manifest", None),
+    ):
+        if not raw_path:
+            continue
+        path = Path(raw_path)
+        if path in seen or not path.is_file() or path.is_symlink():
+            continue
+        seen.add(path)
+        records.append({"path": str(path), "sha256": source_sha256(path)})
+    for path in sorted(
+        (getattr(args, "underlay_run_paths", None) or {}).values(),
+        key=lambda item: str(item),
+    ):
+        candidate = Path(path)
+        if candidate in seen or not candidate.is_file() or candidate.is_symlink():
+            continue
+        seen.add(candidate)
+        records.append(
+            {"path": str(candidate), "sha256": source_sha256(candidate)}
+        )
+    for path in sorted(
+        (getattr(args, "evpn_summary_paths", None) or {}).values(),
+        key=lambda item: str(item),
+    ):
+        candidate = Path(path)
+        if candidate in seen or not candidate.is_file() or candidate.is_symlink():
+            continue
+        seen.add(candidate)
+        records.append(
+            {"path": str(candidate), "sha256": source_sha256(candidate)}
+        )
+    for command_paths in (
+        getattr(args, "overlay_operational_paths", None) or {}
+    ).values():
+        for path in sorted(command_paths.values(), key=lambda item: str(item)):
+            candidate = Path(path)
+            if candidate in seen or not candidate.is_file() or candidate.is_symlink():
+                continue
+            seen.add(candidate)
+            records.append(
+                {"path": str(candidate), "sha256": source_sha256(candidate)}
+            )
+    if (
+        getattr(args, "underlay_run_paths", None) is None
+        and getattr(args, "underlay_run_texts", None) is None
+    ):
+        input_dir = get_run_input_dir(args.underlay_raw)
+        direct_paths = list_collect_output_files(input_dir, "run")
+        summary_paths = list_collect_output_files(
+            input_dir,
+            "bgp_l2vpn_evpn_summary",
+        )
+        if not summary_paths and input_dir != Path(args.underlay_raw):
+            summary_paths = list_collect_output_files(
+                args.underlay_raw,
+                "bgp_l2vpn_evpn_summary",
+            )
+        direct_paths.extend(summary_paths)
+        for command_id in sorted(OVERLAY_OPERATIONAL_COMMAND_IDS):
+            command_paths = list_collect_output_files(input_dir, command_id)
+            if not command_paths and input_dir != Path(args.underlay_raw):
+                command_paths = list_collect_output_files(
+                    args.underlay_raw, command_id
+                )
+            direct_paths.extend(command_paths)
+        for candidate in sorted(set(direct_paths), key=lambda item: str(item)):
+            if (
+                candidate in seen
+                or not candidate.is_file()
+                or candidate.is_symlink()
+            ):
+                continue
+            seen.add(candidate)
+            records.append(
+                {"path": str(candidate), "sha256": source_sha256(candidate)}
+            )
+    return records
+
+
+def render_mermaid_context(
+    args: argparse.Namespace,
+    context: Mapping[str, Any],
+    *,
+    group_by_site: bool,
+) -> List[str]:
+    """Render one prepared topology context as Mermaid Markdown."""
+    return render_mermaid_markdown_lines(
+        rendered_links=context["rendered_links"],
+        roles=context["roles"],
+        normalized_inventory_map=context["normalized_inventory_map"],
+        normalized_mgmt_ip_map=context["normalized_mgmt_ip_map"],
+        detect_node_role_func=detect_node_role,
+        get_role_priority_func=get_role_priority,
+        is_network_device_type_func=is_network_device_type,
+        direction=args.direction,
+        group_by_role=args.group_by_role,
+        group_by_site=group_by_site,
+        add_comments=args.add_comments,
+        title=context["title"],
+        candidate_links=context["rendered_candidate_links"],
+        node_address_map=context["node_address_map"],
+        node_address_label_map=context["node_address_label_map"],
+        node_address_lines_map=context["node_address_lines_map"],
+        link_label_map=context["link_label_map"],
+        extra_node_names=context["extra_node_names"],
+        node_role_map=context["node_role_map"],
+        node_site_map=context["node_site_map"],
+        sites=context["sites"],
+    )
+
+
+def network_diagram_result_lines(
+    *,
+    output_dir: Path,
+    diagram_paths: Sequence[Path],
+    detail_markdown_count: int,
+    detail_drawio_count: int,
+    status: str,
+) -> List[str]:
+    """Build the concise final result summary for network diagram generation."""
+    output_display = str(output_dir)
+    path_parts = [
+        part
+        for part in output_dir.parts
+        if part not in {output_dir.anchor, "."}
+    ]
+    include_output_in_paths = (
+        len(path_parts) <= 2 and len(output_display) <= 16
+    )
+    lines = ["### NETWORK DIAGRAM RESULT ###", ""]
+    if not include_output_in_paths:
+        lines.extend(["Output directory:", f"  {output_display}", ""])
+    lines.append("Diagrams:")
+    for path in diagram_paths:
+        lines.append(
+            f"  {path if include_output_in_paths else path.name}"
+        )
+    if detail_markdown_count or detail_drawio_count:
+        detail_directory = output_dir / DEFAULT_OVERLAY_SERVICE_DETAILS_DIRNAME
+        detail_display = (
+            str(detail_directory)
+            if include_output_in_paths
+            else DEFAULT_OVERLAY_SERVICE_DETAILS_DIRNAME
+        ).rstrip("/") + "/"
+        lines.extend(["", "Overlay Service details:", f"  {detail_display}"])
+        if detail_markdown_count:
+            lines.append(f"  Markdown: {detail_markdown_count} files")
+        if detail_drawio_count:
+            lines.append(f"  draw.io: {detail_drawio_count} files")
+    lines.extend(["", f"Status: {status}", "################################"])
+    return lines
+
+
+def cmd_generate_network_diagram(args: argparse.Namespace) -> int | None:
+    """Normalize one source and atomically publish all network diagram views."""
+    validate_drawio_page_options(args)
+    if int(getattr(args, "overlay_detail_limit", 20)) < 0:
+        raise TopologyDiagramError("--overlay-detail-limit must be zero or greater")
+    if bool(getattr(args, "no_overlay_service", False)) and any(
+        (
+            getattr(args, "overlay_sites", None),
+            getattr(args, "overlay_vrfs", None),
+            getattr(args, "overlay_l2vnis", None),
+            getattr(args, "overlay_l3vnis", None),
+            getattr(args, "overlay_services", None),
+            bool(getattr(args, "all_overlay_details", False)),
+            tuple(
+                getattr(
+                    args,
+                    "overlay_detail_format",
+                    DEFAULT_OVERLAY_DETAIL_FORMATS,
+                )
+            )
+            != DEFAULT_OVERLAY_DETAIL_FORMATS,
+        )
+    ):
+        raise TopologyDiagramError(
+            "Overlay Service selectors/details cannot be combined with --no-overlay-service"
+        )
+    logger = setup_logging(args.log_file, args.verbose)
+    source = describe_network_diagram_source(args)
+    underlay_run_paths, underlay_run_texts = resolve_network_diagram_underlay_inputs(
+        args
+    )
+    evpn_summary_paths, evpn_summary_texts = (
+        resolve_network_diagram_evpn_summary_inputs(args)
+    )
+    overlay_operational_paths, overlay_operational_texts = (
+        resolve_network_diagram_overlay_operational_inputs(args)
+    )
+    if any(
+        (
+            getattr(args, "evidence_package", None),
+            getattr(args, "running_config_import", None),
+            bool(getattr(args, "latest_operation", False)),
+            getattr(args, "change_id", None),
+        )
+    ):
+        args.link_output_dir = args.output_dir
+    _resolve_renderer_link_source(args)
+    args.underlay_run_paths = underlay_run_paths
+    args.underlay_run_texts = underlay_run_texts
+    args.evpn_summary_paths = evpn_summary_paths
+    args.evpn_summary_texts = evpn_summary_texts
+    args.overlay_operational_paths = overlay_operational_paths
+    args.overlay_operational_texts = overlay_operational_texts
+    include_overlay_service = not bool(
+        getattr(args, "no_overlay_service", False)
+    )
+
+    output_dir = Path(args.output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    drawio_filename = (
+        DEFAULT_TOPOLOGY_DRAWIO_ALL_FILENAME
+        if args.all_graph
+        else DEFAULT_TOPOLOGY_DRAWIO_FILENAME
+    )
+    final_paths = {
+        "mermaid": output_dir / DEFAULT_TOPOLOGY_MERMAID_FILENAME,
+        "underlay": output_dir / DEFAULT_TOPOLOGY_UNDERLAY_MERMAID_FILENAME,
+        "evpn": output_dir / DEFAULT_TOPOLOGY_EVPN_MERMAID_FILENAME,
+        "evpn_model": output_dir / DEFAULT_EVPN_CONTROL_PLANE_MODEL_FILENAME,
+        "evpn_csv": output_dir / DEFAULT_EVPN_SESSION_LINKS_FILENAME,
+        "drawio": output_dir / drawio_filename,
+    }
+    if include_overlay_service:
+        final_paths.update(
+            {
+                "overlay": output_dir
+                / DEFAULT_TOPOLOGY_OVERLAY_SERVICE_MERMAID_FILENAME,
+                "overlay_model": output_dir
+                / DEFAULT_OVERLAY_SERVICE_MODEL_FILENAME,
+                "overlay_csv": output_dir
+                / DEFAULT_OVERLAY_SERVICE_LINKS_FILENAME,
+            }
+        )
+
+    with tempfile.TemporaryDirectory(
+        prefix=".network-diagram-",
+        dir=output_dir,
+    ) as temporary_name:
+        staging = Path(temporary_name)
+
+        mermaid_args = deepcopy(args)
+        mermaid_args.output = str(staging / DEFAULT_TOPOLOGY_MERMAID_FILENAME)
+        mermaid_args.underlay = False
+        mermaid_context = prepare_topology_diagram_context(mermaid_args, logger)
+        group_by_site = resolve_effective_site_grouping(
+            mermaid_args, mermaid_context, logger
+        )
+        write_text(
+            mermaid_args.output,
+            render_mermaid_context(
+                mermaid_args,
+                mermaid_context,
+                group_by_site=group_by_site,
+            ),
+        )
+
+        underlay_args = deepcopy(args)
+        underlay_args.output = str(
+            staging / DEFAULT_TOPOLOGY_UNDERLAY_MERMAID_FILENAME
+        )
+        underlay_args.underlay = True
+        underlay_context = prepare_topology_diagram_context(underlay_args, logger)
+        write_text(
+            underlay_args.output,
+            render_mermaid_context(
+                underlay_args,
+                underlay_context,
+                group_by_site=group_by_site,
+            ),
+        )
+
+        evpn_args = deepcopy(args)
+        evpn_args.output = str(staging / DEFAULT_TOPOLOGY_EVPN_MERMAID_FILENAME)
+        evpn_args.view = "evpn"
+        evpn_args.underlay = False
+        evpn_context = prepare_evpn_diagram_context(evpn_args, logger)
+        write_text(
+            evpn_args.output,
+            render_mermaid_context(
+                evpn_args,
+                evpn_context,
+                group_by_site=group_by_site,
+            ),
+        )
+        write_text(
+            staging / DEFAULT_EVPN_CONTROL_PLANE_MODEL_FILENAME,
+            yaml.safe_dump(
+                evpn_context["evpn_model"],
+                sort_keys=False,
+                allow_unicode=True,
+            ).rstrip("\n").splitlines(),
+        )
+        write_text(
+            staging / DEFAULT_EVPN_SESSION_LINKS_FILENAME,
+            evpn_sessions_csv_lines(evpn_context["evpn_model"]),
+        )
+
+        overlay_context = None
+        detail_keys: List[str] = []
+        detail_selected_ids: List[str] = []
+        detail_omitted_ids: List[str] = []
+        if include_overlay_service:
+            overlay_args = deepcopy(args)
+            overlay_args.output = str(
+                staging / DEFAULT_TOPOLOGY_OVERLAY_SERVICE_MERMAID_FILENAME
+            )
+            overlay_args.view = "overlay-service"
+            overlay_args.underlay = False
+            overlay_context = prepare_overlay_service_diagram_context(
+                overlay_args, logger
+            )
+            write_text(
+                overlay_args.output,
+                render_mermaid_context(
+                    overlay_args,
+                    overlay_context,
+                    group_by_site=group_by_site,
+                ),
+            )
+            write_text(
+                staging / DEFAULT_OVERLAY_SERVICE_MODEL_FILENAME,
+                yaml.safe_dump(
+                    overlay_context["overlay_service_model"],
+                    sort_keys=False,
+                    allow_unicode=True,
+                ).rstrip("\n").splitlines(),
+            )
+            write_text(
+                staging / DEFAULT_OVERLAY_SERVICE_LINKS_FILENAME,
+                overlay_service_links_csv_lines(
+                    overlay_context["overlay_service_model"]
+                ),
+            )
+            services_by_id = {
+                str(item["service_id"]): item
+                for item in overlay_context["overlay_service_model"]["spec"][
+                    "services"
+                ]
+            }
+            all_selected_detail_ids = sorted(
+                overlay_context["overlay_selected_ids"]
+            )
+            selected_detail_ids = list(all_selected_detail_ids)
+            if not bool(getattr(args, "all_overlay_details", False)):
+                selected_detail_ids = selected_detail_ids[
+                    : int(getattr(args, "overlay_detail_limit", 20))
+                ]
+            detail_selected_ids = list(selected_detail_ids)
+            detail_omitted_ids = [
+                service_id for service_id in all_selected_detail_ids
+                if service_id not in set(selected_detail_ids)
+            ]
+            detail_staging_dir = (
+                staging / DEFAULT_OVERLAY_SERVICE_DETAILS_DIRNAME
+            )
+            detail_formats = tuple(
+                getattr(
+                    args,
+                    "overlay_detail_format",
+                    DEFAULT_OVERLAY_DETAIL_FORMATS,
+                )
+            )
+            for service_id in selected_detail_ids:
+                service = services_by_id[service_id]
+                if "markdown" in detail_formats:
+                    filename = service_detail_filename(service_id, ".md")
+                    key = f"overlay_detail:markdown:{service_id}"
+                    detail_keys.append(key)
+                    staged_detail = detail_staging_dir / filename
+                    final_paths[key] = (
+                        output_dir
+                        / DEFAULT_OVERLAY_SERVICE_DETAILS_DIRNAME
+                        / filename
+                    )
+                    write_text(
+                        staged_detail,
+                        overlay_service_detail_markdown_lines(
+                            service,
+                            overlay_context["overlay_service_model"]["spec"][
+                                "route_leaks"
+                            ],
+                        ),
+                    )
+                if "drawio" in detail_formats:
+                    filename = service_detail_filename(service_id, ".drawio")
+                    key = f"overlay_detail:drawio:{service_id}"
+                    detail_keys.append(key)
+                    staged_detail = detail_staging_dir / filename
+                    final_paths[key] = (
+                        output_dir
+                        / DEFAULT_OVERLAY_SERVICE_DETAILS_DIRNAME
+                        / filename
+                    )
+                    detail_context = overlay_service_detail_render_context(
+                        service,
+                        overlay_context["overlay_service_model"]["spec"][
+                            "route_leaks"
+                        ],
+                    )
+                    detail_drawio_lines = render_drawio_xml_lines(
+                        rendered_links=detail_context["rendered_links"],
+                        roles=detail_context["roles"],
+                        normalized_inventory_map=detail_context[
+                            "normalized_inventory_map"
+                        ],
+                        normalized_mgmt_ip_map={},
+                        detect_node_role_func=detect_node_role,
+                        get_role_priority_func=get_role_priority,
+                        is_network_device_type_func=is_network_device_type,
+                        direction=args.direction,
+                        group_by_role=True,
+                        group_by_site=True,
+                        add_comments=False,
+                        title=detail_context["title"],
+                        candidate_links=detail_context[
+                            "rendered_candidate_links"
+                        ],
+                        node_address_lines_map=detail_context[
+                            "node_address_lines_map"
+                        ],
+                        link_label_map=detail_context["link_label_map"],
+                        node_role_map=detail_context["node_role_map"],
+                        node_site_map=detail_context["node_site_map"],
+                        sites=detail_context["sites"],
+                    )
+                    detail_root = ET.fromstring("\n".join(detail_drawio_lines))
+                    placement_roles = set(detail_context["placement_roles"])
+                    detail_roles = {
+                        "inbound",
+                        "outbound",
+                        "service",
+                        "l3vni-interface",
+                        "l2-service",
+                        "service-edge",
+                    } | placement_roles
+                    center_drawio_role_group(
+                        detail_root,
+                        roles={
+                            "l3vni-interface",
+                            "l2-service",
+                            "service-edge",
+                        },
+                        peer_roles=detail_roles,
+                    )
+                    center_drawio_role_container(
+                        detail_root,
+                        role="service",
+                        peer_roles=detail_roles,
+                    )
+                    center_drawio_role_group(
+                        detail_root,
+                        roles=placement_roles,
+                        peer_roles=detail_roles,
+                    )
+                    collapse_drawio_vpc_membership_edges(
+                        detail_root,
+                        vpc_group_roles=set(
+                            detail_context["vpc_group_roles"]
+                        ),
+                    )
+                    detail_page = detail_root.find("diagram")
+                    if detail_page is None:
+                        raise TopologyDiagramError(
+                            "Overlay Service detail draw.io has no diagram page"
+                        )
+                    detail_page.attrib["name"] = f"Overlay Detail {service_id}"
+                    detail_page.attrib["id"] = (
+                        re.sub(
+                            r"[^a-z0-9]+",
+                            "-",
+                            f"overlay-detail-{service_id}".casefold(),
+                        ).strip("-")
+                        or "overlay-detail"
+                    )
+                    write_text(
+                        staged_detail,
+                        ET.tostring(detail_root, encoding="unicode").splitlines(),
+                    )
+
+        drawio_args = deepcopy(args)
+        drawio_args.output = str(staging / drawio_filename)
+        drawio_args.group_by_site = group_by_site
+        drawio_args.evpn_render_context = evpn_context
+        drawio_args.overlay_service_render_context = overlay_context
+        if args.all_graph:
+            page_variants = build_drawio_page_variants(
+                resolve_drawio_page_directions(args),
+                include_overlay_service=include_overlay_service,
+            )
+            diagrams: List[ET.Element] = []
+            mxfile_attrs: Dict[str, str] | None = None
+            for page_name, direction, view in page_variants:
+                diagram, page_attrs = build_drawio_page_diagram(
+                    args=drawio_args,
+                    logger=logger,
+                    direction=direction,
+                    view=view,
+                    page_name=page_name,
+                )
+                diagrams.append(diagram)
+                if mxfile_attrs is None:
+                    mxfile_attrs = page_attrs
+            write_text(
+                drawio_args.output,
+                build_drawio_multipage_lines(diagrams, mxfile_attrs or {}),
+            )
+        else:
+            drawio_args.underlay = False
+            drawio_context = prepare_topology_diagram_context(drawio_args, logger)
+            write_text(
+                drawio_args.output,
+                render_drawio_xml_lines(
+                    rendered_links=drawio_context["rendered_links"],
+                    roles=drawio_context["roles"],
+                    normalized_inventory_map=drawio_context[
+                        "normalized_inventory_map"
+                    ],
+                    normalized_mgmt_ip_map=drawio_context[
+                        "normalized_mgmt_ip_map"
+                    ],
+                    detect_node_role_func=detect_node_role,
+                    get_role_priority_func=get_role_priority,
+                    is_network_device_type_func=is_network_device_type,
+                    direction=drawio_args.direction,
+                    group_by_role=drawio_args.group_by_role,
+                    group_by_site=group_by_site,
+                    add_comments=drawio_args.add_comments,
+                    title=drawio_context["title"],
+                    candidate_links=drawio_context["rendered_candidate_links"],
+                    node_address_map=drawio_context["node_address_map"],
+                    node_address_label_map=drawio_context[
+                        "node_address_label_map"
+                    ],
+                    node_address_lines_map=drawio_context[
+                        "node_address_lines_map"
+                    ],
+                    link_label_map=drawio_context["link_label_map"],
+                    node_interface_label_map=drawio_context[
+                        "node_interface_label_map"
+                    ],
+                    node_role_map=drawio_context["node_role_map"],
+                    node_site_map=drawio_context["node_site_map"],
+                    sites=drawio_context["sites"],
+                ),
+            )
+
+        staged_paths = {
+            key: (
+                staging / DEFAULT_OVERLAY_SERVICE_DETAILS_DIRNAME / path.name
+                if key.startswith("overlay_detail:")
+                else staging / path.name
+            )
+            for key, path in final_paths.items()
+        }
+        view_names = ["physical", "underlay", "evpn"]
+        if include_overlay_service:
+            view_names.append("overlay-service")
+        manifest = {
+            "api_version": API_VERSION,
+            "kind": "NetworkDiagramManifest",
+            "spec": {
+                "source": source,
+                "options": {
+                    "min_confidence": args.min_confidence,
+                    "direction": args.direction,
+                    "group_by_role": bool(args.group_by_role),
+                    "group_by_site": group_by_site,
+                    "all_graph": bool(args.all_graph),
+                    "overlay_service": include_overlay_service,
+                    "overlay_detail_limit": int(
+                        getattr(args, "overlay_detail_limit", 20)
+                    ),
+                    "all_overlay_details": bool(
+                        getattr(args, "all_overlay_details", False)
+                    ),
+                    "overlay_detail_formats": list(
+                        getattr(
+                            args,
+                            "overlay_detail_format",
+                            DEFAULT_OVERLAY_DETAIL_FORMATS,
+                        )
+                    ),
+                    "overlay_selectors": {
+                        "sites": list(getattr(args, "overlay_sites", None) or []),
+                        "vrfs": list(getattr(args, "overlay_vrfs", None) or []),
+                        "l2vnis": list(getattr(args, "overlay_l2vnis", None) or []),
+                        "l3vnis": list(getattr(args, "overlay_l3vnis", None) or []),
+                        "services": list(getattr(args, "overlay_services", None) or []),
+                    },
+                    "overlay_detail_selection": {
+                        "generated_service_ids": detail_selected_ids,
+                        "omitted_service_ids": detail_omitted_ids,
+                    },
+                    "drawio_directions": list(
+                        resolve_drawio_page_directions(args)
+                        if args.all_graph
+                        else (args.direction,)
+                    ),
+                    "views": view_names,
+                },
+                "inputs": network_diagram_input_records(args),
+                "artifacts": [
+                    {
+                        "path": str(final_paths[key]),
+                        "sha256": source_sha256(staged_paths[key]),
+                    }
+                    for key in [
+                        "mermaid", "underlay", "evpn", "evpn_model",
+                        "evpn_csv", *(
+                            ["overlay", "overlay_model", "overlay_csv"]
+                            if include_overlay_service else []
+                        ), "drawio", *detail_keys,
+                    ]
+                ],
+            },
+        }
+        validate_document(manifest, kind="NetworkDiagramManifest")
+        for key in [
+            "mermaid", "underlay", "evpn", "evpn_model", "evpn_csv",
+            *(
+                ["overlay", "overlay_model", "overlay_csv"]
+                if include_overlay_service else []
+            ), "drawio", *detail_keys,
+        ]:
+            atomic_write_bytes(
+                output_dir,
+                final_paths[key],
+                staged_paths[key].read_bytes(),
+            )
+        manifest_path = output_dir / DEFAULT_NETWORK_DIAGRAM_MANIFEST_FILENAME
+        atomic_write_yaml(
+            output_dir,
+            manifest_path,
+            manifest,
+            kind="NetworkDiagramManifest",
+        )
+
+    logger.info("Wrote Mermaid topology to %s", final_paths["mermaid"])
+    logger.info("Wrote Mermaid underlay to %s", final_paths["underlay"])
+    logger.info("Wrote Mermaid EVPN to %s", final_paths["evpn"])
+    logger.info("Wrote EVPN model to %s", final_paths["evpn_model"])
+    logger.info("Wrote EVPN session CSV to %s", final_paths["evpn_csv"])
+    if include_overlay_service:
+        logger.info("Wrote Overlay Service diagram to %s", final_paths["overlay"])
+        logger.info("Wrote Overlay Service model to %s", final_paths["overlay_model"])
+        logger.info("Wrote Overlay Service route leak CSV to %s", final_paths["overlay_csv"])
+        logger.info(
+            "Wrote %d Overlay Service detail artifacts for %d services",
+            len(detail_keys),
+            len(detail_selected_ids),
+        )
+    logger.info("Wrote draw.io diagram to %s", final_paths["drawio"])
+    logger.info("Wrote network diagram Manifest to %s", manifest_path)
+    partial = evpn_context["evpn_model"]["spec"]["status"] == "partial"
+    if partial:
+        logger.warning(
+            "EVPN diagram was generated with unresolved or conflicting evidence"
+        )
+    overlay_partial = bool(
+        overlay_context
+        and overlay_context["overlay_service_model"]["spec"]["status"]
+        == "partial"
+    )
+    if overlay_partial:
+        logger.warning(
+            "Overlay Service diagram was generated with unresolved or conflicting evidence"
+        )
+    partial = partial or overlay_partial
+    diagram_keys = ["mermaid", "underlay", "evpn"]
+    if include_overlay_service:
+        diagram_keys.append("overlay")
+    diagram_keys.append("drawio")
+    print(
+        "\n".join(
+            network_diagram_result_lines(
+                output_dir=output_dir,
+                diagram_paths=[final_paths[key] for key in diagram_keys],
+                detail_markdown_count=sum(
+                    key.startswith("overlay_detail:markdown:")
+                    for key in detail_keys
+                ),
+                detail_drawio_count=sum(
+                    key.startswith("overlay_detail:drawio:")
+                    for key in detail_keys
+                ),
+                status="PARTIAL" if partial else "SUCCESS",
+            )
+        )
+    )
+    if partial:
+        return 1
+    return None
 
 
 def cmd_generate_doc(args: argparse.Namespace) -> None:
@@ -7262,7 +10687,53 @@ def build_clab_set_step_args(
     return step_args
 
 
-def cmd_clab_set_cmds(args: argparse.Namespace) -> None:
+def _requested_clab_set_source(args: argparse.Namespace) -> dict[str, Any]:
+    if getattr(args, "evidence_package", None):
+        source = {
+            "type": "evidence-package-archive",
+            "path": str(args.evidence_package),
+        }
+        if getattr(args, "checksum_file", None):
+            source["checksum_file"] = str(args.checksum_file)
+        return source
+    if getattr(args, "evidence_import", None):
+        return {
+            "type": "evidence-package",
+            "path": str(args.evidence_import),
+        }
+    if getattr(args, "running_config_import", None):
+        return {
+            "type": "running-config-import",
+            "path": str(args.running_config_import),
+        }
+    return {
+        "type": (
+            "existing-raw"
+            if getattr(args, "without_collect", False)
+            else "direct-collection"
+        ),
+        "path": str(getattr(args, "output", "raw")),
+    }
+
+
+def _clab_set_expected_outputs() -> list[Path]:
+    return [
+        Path("hosts.lab.yaml"),
+        Path("raw/lab-transform-manifest.yaml"),
+        Path("output") / DEFAULT_LINKS_CONFIRMED_FILENAME,
+        Path("output") / DEFAULT_LINKS_CANDIDATES_FILENAME,
+        Path("output") / DEFAULT_TOPOLOGY_CLAB_FILENAME,
+        Path("output") / DEFAULT_TOPOLOGY_MERMAID_FILENAME,
+        Path("output") / DEFAULT_TOPOLOGY_DRAWIO_ALL_FILENAME,
+        Path("output") / DEFAULT_VNI_MAP_CSV_FILENAME,
+        Path("output") / DEFAULT_VNI_MAP_MD_FILENAME,
+    ]
+
+
+def _run_clab_set_cmds(
+    args: argparse.Namespace,
+    pipeline_attempt: ClabSetPipelineAttempt,
+) -> None:
     """
     Run the predefined collect/normalize/render pipeline for containerlab workflows.
     """
@@ -7277,24 +10748,205 @@ def cmd_clab_set_cmds(args: argparse.Namespace) -> None:
     }
 
     verbose = bool(getattr(args, "verbose", False))
+    evidence_archive = getattr(args, "evidence_package", None)
+    evidence_import = getattr(args, "evidence_import", None)
+    running_config_import = getattr(args, "running_config_import", None)
+    pipeline_attempt.start_step(
+        "source-resolution",
+        started_at=datetime.now().astimezone(),
+    )
+    if evidence_archive:
+        verification = verify_evidence_package(
+            evidence_archive,
+            checksum_file=getattr(args, "checksum_file", None),
+        )
+        import_root = Path(getattr(args, "evidence_import_dir", "imported-evidence"))
+        target = import_root / verification["package_id"]
+        if target.exists():
+            record_path = target / "import-record.yaml"
+            if not record_path.is_file():
+                raise EvidencePackageError(
+                    f"EVIDENCE_INTEGRITY_FAILED: existing import has no import record: {target}"
+                )
+            record = yaml.safe_load(record_path.read_text(encoding="utf-8")) or {}
+            if record.get("spec", {}).get("archive_sha256") != verification["archive_sha256"]:
+                raise EvidencePackageError(
+                    f"EVIDENCE_INTEGRITY_FAILED: existing import archive hash differs: {target}"
+                )
+            resolve_imported_digital_twin(
+                target,
+                acknowledge_sensitive_config=bool(
+                    getattr(args, "acknowledge_sensitive_config", False)
+                ),
+            )
+            evidence_import = str(target)
+            print(f"Evidence import reuse: {target}")
+        else:
+            imported = import_evidence_package(
+                evidence_archive,
+                output_dir=import_root,
+                checksum_file=getattr(args, "checksum_file", None),
+                acknowledge_sensitive_config=bool(
+                    getattr(args, "acknowledge_sensitive_config", False)
+                ),
+                imported_at=datetime.now().astimezone(),
+            )
+            evidence_import = str(imported["import_dir"])
+    offline_source = evidence_import or running_config_import
+    source_document: dict[str, Any]
+    if evidence_import:
+        manifest_path = Path(evidence_import) / "package-manifest.yaml"
+        source_document = {
+            "type": "evidence-package",
+            "path": str(evidence_import),
+            "manifest_sha256": source_sha256(manifest_path),
+        }
+    elif running_config_import:
+        _inventory, _configs, _lldp, import_manifest = resolve_running_config_import(
+            running_config_import
+        )
+        source_document = {
+            "type": "running-config-import",
+            "path": str(running_config_import),
+            "manifest_sha256": canonical_sha256(import_manifest),
+        }
+    else:
+        source_document = {
+            "type": (
+                "existing-raw"
+                if getattr(args, "without_collect", False)
+                else "direct-collection"
+            ),
+            "path": str(getattr(args, "output", "raw")),
+        }
+    pipeline_attempt.set_resolved_source(source_document)
+    pipeline_attempt.complete_step(
+        "source-resolution",
+        completed_at=datetime.now().astimezone(),
+    )
+    evidence_policy_paths: dict[str, str] = {}
+    if evidence_import:
+        policy_root = Path(evidence_import) / "policy"
+        evidence_policy_paths = {
+            "mappings": str(policy_root / "mappings.resolved.yaml"),
+            "roles": str(policy_root / "roles.resolved.yaml"),
+            "sites": str(policy_root / "sites.resolved.yaml"),
+        }
     for index, step in enumerate(DEFAULT_CLAB_SET_CMDS, start=1):
         name = str(step.get("name", f"step-{index}"))
         command = str(step.get("command", ""))
-        if getattr(args, "without_collect", False) and command == "collect":
-            print(f"[{index}/{len(DEFAULT_CLAB_SET_CMDS)}] {name} ({command}) [skip: --without-collect]")
+        if (getattr(args, "without_collect", False) or offline_source) and command == "collect":
+            reason = "offline source" if offline_source else "--without-collect"
+            print(f"[{index}/{len(DEFAULT_CLAB_SET_CMDS)}] {name} ({command}) [skip: {reason}]")
+            pipeline_attempt.skip_step(
+                name,
+                reason=reason,
+                completed_at=datetime.now().astimezone(),
+            )
             continue
+        pipeline_attempt.start_step(
+            name,
+            started_at=datetime.now().astimezone(),
+            device_access=command == "collect",
+        )
         handler = step_handlers.get(command)
         if handler is None:
             raise ValueError(f"Unsupported clab-set-cmds step command: {command}")
 
         step_args = build_clab_set_step_args(step, args, verbose)
+        if command == "clab-transform-config" and evidence_import:
+            step_args.evidence_import = evidence_import
+            step_args.running_config_import = None
+            step_args.hosts = None
+            step_args.lab_parameters = getattr(args, "lab_parameters", None)
+            step_args.acknowledge_sensitive_config = bool(
+                getattr(args, "acknowledge_sensitive_config", False)
+            )
+        elif command == "clab-transform-config" and running_config_import:
+            step_args.evidence_import = None
+            step_args.running_config_import = running_config_import
+            step_args.hosts = None
+            step_args.lab_parameters = getattr(args, "lab_parameters", None)
+            step_args.acknowledge_sensitive_config = False
+        if command == "normalize-links" and evidence_import:
+            step_args.evidence_package = evidence_import
+            step_args.running_config_import = None
+            step_args.input = None
+            step_args.hosts = None
+            step_args.mappings = None
+            step_args.description_rules = None
+            step_args.acknowledge_sensitive_config = bool(
+                getattr(args, "acknowledge_sensitive_config", False)
+            )
+        elif command == "normalize-links" and running_config_import:
+            step_args.evidence_package = None
+            step_args.running_config_import = running_config_import
+            step_args.input = None
+            step_args.hosts = None
+        if offline_source and command in {
+            "generate-clab", "generate-mermaid", "generate-drawio"
+        }:
+            step_args.hosts = "hosts.lab.yaml"
+        if evidence_policy_paths and command in {
+            "generate-clab", "generate-mermaid", "generate-drawio"
+        }:
+            step_args.mappings = evidence_policy_paths["mappings"]
+            step_args.roles = evidence_policy_paths["roles"]
+            step_args.sites = evidence_policy_paths["sites"]
+        if offline_source and hasattr(step_args, "underlay_raw"):
+            step_args.underlay_raw = "raw/labconfig"
+        if (
+            command in {"generate-mermaid", "generate-drawio"}
+            and getattr(step_args, "underlay_config", None)
+            and not Path(step_args.underlay_config).is_file()
+        ):
+            step_args.underlay_config = None
+        if offline_source and command == "generate-vni-map":
+            step_args.input = "raw/labconfig"
         print(f"[{index}/{len(DEFAULT_CLAB_SET_CMDS)}] {name} ({command})")
         handler(step_args)
+        pipeline_attempt.complete_step(
+            name,
+            completed_at=datetime.now().astimezone(),
+        )
 
 
-def _operation_cli_error(exc: Exception) -> None:
+def cmd_clab_set_cmds(args: argparse.Namespace) -> None:
+    """Run and persist one predefined Containerlab generation pipeline attempt."""
+    pipeline_attempt = ClabSetPipelineAttempt(
+        pipeline_root=Path("output/clab-set-cmds"),
+        requested_source=_requested_clab_set_source(args),
+        steps=DEFAULT_CLAB_SET_CMDS,
+        expected_outputs=_clab_set_expected_outputs(),
+        tool_version=__version__,
+        started_at=datetime.now().astimezone(),
+    )
+    try:
+        _run_clab_set_cmds(args, pipeline_attempt)
+        pipeline_attempt.finish_success(
+            completed_at=datetime.now().astimezone(),
+        )
+    except BaseException as exc:
+        pipeline_attempt.finish_failure(
+            exc,
+            completed_at=datetime.now().astimezone(),
+            sensitive_values=(
+                str(getattr(args, "password", "") or ""),
+                str(getattr(args, "enable_secret", "") or ""),
+            ),
+        )
+        raise
+
+
+def _operation_cli_error(
+    exc: Exception,
+    *,
+    artifacts: Sequence[tuple[str, Path]] = (),
+) -> None:
     code = getattr(exc, "code", "VALIDATION_ERROR")
     print(f"{code}: {exc}", file=sys.stderr)
+    for label, path in artifacts:
+        print(f"{label}: {path}", file=sys.stderr)
     raise SystemExit(2)
 
 
@@ -7320,26 +10972,49 @@ def _operation_recommended_action(
 
 def cmd_operation_status(args: argparse.Namespace) -> None:
     """Print concise common operation state without modifying the workspace."""
+    archived = False
     try:
-        workspace = open_operation_workspace(
-            args.operations_root,
-            args.change_id,
-        )
-        metadata = load_operation_metadata(workspace.operation_root)
-        execution = load_operation_execution(workspace.operation_root)
-        lock_data, lock_warning = read_operation_lock(workspace.operation_root)
-        preflight = preflight_operation_workspace(workspace)
+        location = load_operation_location(args.operations_root, args.change_id)
+        if location and location["spec"]["state"] == "archived":
+            metadata, execution, archive_manifest = load_archived_operation_documents(
+                args.operations_root, args.change_id
+            )
+            archived = True
+            workspace = None
+            lock_data = None
+            lock_warning = None
+            preflight = None
+        else:
+            workspace = open_operation_workspace(
+                args.operations_root,
+                args.change_id,
+            )
+            metadata = load_operation_metadata(workspace.operation_root)
+            execution = load_operation_execution(workspace.operation_root)
+            lock_data, lock_warning = read_operation_lock(workspace.operation_root)
+            preflight = preflight_operation_workspace(workspace)
     except Exception as exc:
         _operation_cli_error(exc)
         return
 
     last_transition = metadata["spec"]["last_transition"]
     print("=== OPERATION STATUS ===")
-    print(f"Change ID      : {workspace.change_id}")
+    print(f"Change ID      : {args.change_id}")
     print(f"Lifecycle      : {metadata['spec']['lifecycle']}")
     print(f"Workflow       : {metadata['spec']['workflow_state'] or '-'}")
     print(f"Timezone       : {metadata['metadata']['timezone']}")
-    print(f"Output         : {workspace.operation_root}")
+    print(
+        "Storage        : "
+        + ("archived" if archived else "live")
+    )
+    print(
+        "Output         : "
+        + (
+            str(Path(args.operations_root) / location["spec"]["relative_path"])
+            if archived
+            else str(workspace.operation_root)
+        )
+    )
     if lock_data:
         lock_findings = assess_operation_lock(lock_data)
         print(
@@ -7360,11 +11035,17 @@ def cmd_operation_status(args: argparse.Namespace) -> None:
         f"at {last_transition['at']}"
     )
     print(f"Transitions    : {len(execution['transitions'])}")
-    print(
-        "Preflight      : "
-        f"{'PASS' if preflight.ok else 'WARN/FAIL'} "
-        f"filesystem={preflight.filesystem_type or 'unknown'}"
-    )
+    if archived:
+        print(
+            "Archive files : "
+            f"{len(archive_manifest['spec']['files'])} (checksum verified)"
+        )
+    else:
+        print(
+            "Preflight      : "
+            f"{'PASS' if preflight.ok else 'WARN/FAIL'} "
+            f"filesystem={preflight.filesystem_type or 'unknown'}"
+        )
     print(
         "Recommended    : "
         + _operation_recommended_action(
@@ -7377,25 +11058,40 @@ def cmd_operation_status(args: argparse.Namespace) -> None:
 
 def cmd_operation_inspect(args: argparse.Namespace) -> None:
     """Print operation artifacts and transition history read-only."""
+    archived = False
     try:
-        workspace = open_operation_workspace(
-            args.operations_root,
-            args.change_id,
-        )
-        metadata = load_operation_metadata(workspace.operation_root)
-        execution = load_operation_execution(workspace.operation_root)
-        lock_data, lock_warning = read_operation_lock(workspace.operation_root)
+        location = load_operation_location(args.operations_root, args.change_id)
+        if location and location["spec"]["state"] == "archived":
+            metadata, execution, archive_manifest = load_archived_operation_documents(
+                args.operations_root, args.change_id
+            )
+            archived = True
+            workspace = None
+            lock_data = None
+            lock_warning = None
+        else:
+            workspace = open_operation_workspace(
+                args.operations_root,
+                args.change_id,
+            )
+            metadata = load_operation_metadata(workspace.operation_root)
+            execution = load_operation_execution(workspace.operation_root)
+            lock_data, lock_warning = read_operation_lock(workspace.operation_root)
     except Exception as exc:
         _operation_cli_error(exc)
         return
 
-    approval_files = sorted(
+    approval_files = [] if archived else sorted(
         (workspace.operation_root / "approval").glob("approval-record*.json")
     ) if (workspace.operation_root / "approval").is_dir() else []
     print("=== OPERATION INSPECT ===")
-    print(f"Change ID       : {workspace.change_id}")
-    print(f"Metadata SHA-256: {source_sha256(workspace.metadata_path)}")
-    print(f"Execution SHA-256: {source_sha256(workspace.execution_path)}")
+    print(f"Change ID       : {args.change_id}")
+    if archived:
+        print("Storage         : archived (checksum verified)")
+        print(f"Archive files   : {len(archive_manifest['spec']['files'])}")
+    else:
+        print(f"Metadata SHA-256: {source_sha256(workspace.metadata_path)}")
+        print(f"Execution SHA-256: {source_sha256(workspace.execution_path)}")
     print(f"Approvals       : {len(approval_files)}")
     for approval_path in approval_files:
         print(f"  - {approval_path}")
@@ -7423,6 +11119,68 @@ def cmd_operation_inspect(args: argparse.Namespace) -> None:
             f"({transition['reason'] or '-'})"
         )
     print(f"Errors: {len(execution['errors'])}")
+
+
+def get_operation_archive_after_days() -> int:
+    """Resolve the manual archive age default from environment or code default."""
+    raw = os.environ.get("ALRED_OPERATION_ARCHIVE_AFTER_DAYS", "14")
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise ValueError(
+            "ALRED_OPERATION_ARCHIVE_AFTER_DAYS must be an integer"
+        ) from exc
+    if value < 0:
+        raise ValueError(
+            "ALRED_OPERATION_ARCHIVE_AFTER_DAYS must be zero or greater"
+        )
+    return value
+
+
+def cmd_operation_archive(args: argparse.Namespace) -> None:
+    """Manually archive eligible terminal operations without device access."""
+    identifiers = (
+        [args.change_id]
+        if args.change_id
+        else list_live_operation_ids(args.operations_root)
+    )
+    if not identifiers:
+        print("No live operations found.")
+        return
+    archived = 0
+    eligible = 0
+    skipped = 0
+    for change_id in identifiers:
+        try:
+            result = archive_operation_workspace(
+                args.operations_root,
+                change_id,
+                older_than_days=args.older_than_days,
+                dry_run=args.dry_run,
+            )
+        except OperationError as exc:
+            if args.change_id:
+                _operation_cli_error(exc)
+                return
+            skipped += 1
+            print(f"SKIP {change_id}: {exc}")
+            continue
+        if args.dry_run:
+            eligible += 1
+            print(
+                f"ELIGIBLE {change_id}: lifecycle={result['lifecycle']} "
+                f"archive={result['archive']}"
+            )
+        else:
+            archived += 1
+            print(
+                f"ARCHIVED {change_id}: files={result['file_count']} "
+                f"archive={result['archive']}"
+            )
+    print(
+        "Archive summary: "
+        f"archived={archived} eligible={eligible} skipped={skipped}"
+    )
 
 
 def _parse_named_artifacts(values: List[str] | None) -> Dict[str, str]:
@@ -7845,7 +11603,14 @@ def cmd_overlay_change_save(args: argparse.Namespace) -> int:
             + " ==="
         )
         print(f"Change ID : {workspace.change_id}")
-        print("Devices   : " + ", ".join(targets))
+        print(
+            "Devices   : "
+            + (
+                ", ".join(targets)
+                if targets
+                else "(none; all plan devices are NO_CHANGE)"
+            )
+        )
         print(f"Snapshot  : {snapshot}")
         print("Approval  : save_on_success=true")
         print("Serial    : 1")
@@ -7890,6 +11655,82 @@ def cmd_overlay_change_save(args: argparse.Namespace) -> int:
             in {"APPLIED_AND_VERIFIED", "ROLLED_BACK_AND_SAVED"}
             else 5
         )
+    except (
+        ApprovalError,
+        QualificationError,
+        OperationError,
+        ValueError,
+        OSError,
+    ) as exc:
+        _operation_cli_error(exc)
+        return 2
+
+
+def cmd_overlay_change_accept_rollback_state_warn(
+    args: argparse.Namespace,
+) -> int:
+    """Accept an eligible published rollback WARN after explicit review."""
+    try:
+        workspace = open_operation_workspace(
+            args.operations_root,
+            args.change_id,
+        )
+        if not sys.stdin.isatty() or not sys.stdout.isatty():
+            raise ApprovalRequiredError(
+                "rollback state WARN acceptance requires an interactive TTY"
+            )
+
+        def confirm(summary: Mapping[str, Any]) -> bool:
+            print("=== ROLLBACK STATE WARN ACCEPTANCE ===")
+            print(f"Change ID    : {summary['change_id']}")
+            print(f"Attempt      : {summary['attempt_id']}")
+            print(f"Warnings     : {summary['warning_count']}")
+            classifications = ", ".join(
+                f"{name}={count}"
+                for name, count in sorted(
+                    summary["warning_classifications"].items()
+                )
+            )
+            print(f"Classifications: {classifications}")
+            print("Restoration gates:")
+            for name, passed in summary["gates"].items():
+                print(f"- {name}: {'PASS' if passed else 'FAIL'}")
+            print("WARN checks:")
+            for warning in summary["warnings"]:
+                print(
+                    f"- {warning['host']}/{warning['check_id']}: "
+                    f"{warning['classification']} - {warning['message']}"
+                )
+            print(f"Verification : {summary['verification_path']}")
+            print(f"               {summary['verification_sha256']}")
+            print(f"HealthResult : {summary['health_result_path']}")
+            print(f"               {summary['health_result_sha256']}")
+            print("Type the exact acceptance phrase:")
+            print(summary["confirmation_phrase"])
+            return input("> ").strip() == summary["confirmation_phrase"]
+
+        with OperationLock(
+            workspace,
+            "rollback-state-warn-acceptance",
+        ) as lock:
+            acceptance = accept_rollback_state_warn(
+                workspace,
+                confirm=confirm,
+                lock=lock,
+                now=lambda: now_in_timezone(workspace.timezone),
+            )
+        acceptance_root = (
+            workspace.operation_root / "qualification/rollback"
+            if acceptance["spec"]["verification_kind"]
+            == "QualificationRollbackVerification"
+            else workspace.operation_root / "rollback"
+        )
+        print(
+            "Acceptance  : "
+            f"{acceptance_root / 'state-warn-acceptance.json'}"
+        )
+        print("Workflow    : rolled_back_and_verified")
+        return 0
     except (
         ApprovalError,
         QualificationError,
@@ -8338,14 +12179,17 @@ def _write_overlay_conflict_report(
 def cmd_overlay_change_prepare_plan(args: argparse.Namespace) -> None:
     """Build a preparation-only plan from one prior healthy terminal state."""
     workspace = None
+    conflict_markdown_path: Path | None = None
     try:
         loaded_change_set = load_overlay_change_set(Path(args.change_set))
         change_set = loaded_change_set.document
         change_id = change_set["metadata"]["change_id"]
-        operation_root = Path(args.operations_root) / change_id
+        operation_root_exists = operation_location_exists(
+            args.operations_root, change_id
+        )
         workspace = (
             open_operation_workspace(args.operations_root, change_id)
-            if operation_root.exists()
+            if operation_root_exists
             else create_operation_workspace(
                 args.operations_root,
                 change_id=change_id,
@@ -8420,6 +12264,9 @@ def cmd_overlay_change_prepare_plan(args: argparse.Namespace) -> None:
                     reference_state=args.reference_state,
                     reference_operation_id=args.reference_operation_id,
                     reference_phase=args.reference_phase,
+                    allow_reference_state_warn=(
+                        args.allow_reference_state_warn
+                    ),
                 )
                 atomic_write_json(
                     workspace.operation_root,
@@ -8431,7 +12278,7 @@ def cmd_overlay_change_prepare_plan(args: argparse.Namespace) -> None:
                     change_set,
                     selected.snapshot,
                 )
-                conflict_path, _conflict_markdown = (
+                conflict_path, conflict_markdown_path = (
                     _write_overlay_conflict_report(
                         workspace.operation_root,
                         preparation_dir,
@@ -8500,21 +12347,44 @@ def cmd_overlay_change_prepare_plan(args: argparse.Namespace) -> None:
                     }
                     for host, result in sorted(rendered.items())
                 }
+                execution_warnings = [
+                    {
+                        "code": "PREPARATION_ONLY",
+                        "message": (
+                            "Collect a fresh before Snapshot and run normal "
+                            "overlay-change plan before approval or apply"
+                        ),
+                    }
+                ]
+                reference_health = selected.document["source"][
+                    "health_summary"
+                ]
+                if reference_health["result"] == "WARN":
+                    execution_warnings.append(
+                        {
+                            "code": "REFERENCE_STATE_WARN_ALLOWED",
+                            "message": (
+                                "Reference HealthResult WARN was explicitly "
+                                "allowed"
+                            ),
+                            "warning_count": reference_health[
+                                "warning_count"
+                            ],
+                            "warning_classifications": reference_health[
+                                "warning_classifications"
+                            ],
+                            "checklist_path": reference_health[
+                                "checklist_path"
+                            ],
+                        }
+                    )
                 execution = {
                     "schema_version": 1,
                     "change_id": change_id,
                     "preparation_only": True,
                     "capability_level": "PLAN_ONLY",
                     "devices": devices,
-                    "warnings": [
-                        {
-                            "code": "PREPARATION_ONLY",
-                            "message": (
-                                "Collect a fresh before Snapshot and run normal "
-                                "overlay-change plan before approval or apply"
-                            ),
-                        }
-                    ],
+                    "warnings": execution_warnings,
                     "artifacts": {
                         "reference_state": str(
                             preparation_dir / "reference-state.json"
@@ -8646,6 +12516,22 @@ def cmd_overlay_change_prepare_plan(args: argparse.Namespace) -> None:
             f"{selected.document['source']['operation_id']} "
             f"({selected.document['source']['phase']})"
         )
+        reference_health = selected.document["source"]["health_summary"]
+        print(f"Reference result: {reference_health['result']}")
+        if reference_health["result"] == "WARN":
+            classifications = ", ".join(
+                f"{name}={count}"
+                for name, count in reference_health[
+                    "warning_classifications"
+                ].items()
+            )
+            print(f"Warnings         : {reference_health['warning_count']}")
+            print(
+                "Warning classes  : "
+                + (classifications or "unclassified")
+            )
+            print(f"Checklist        : {reference_health['checklist_path']}")
+            print("Reference policy : WARN explicitly allowed")
         print(f"Reference age   : {selected.document['age']['days']} days")
         print(f"Conflict check  : {conflict_report['result']}")
         print(f"Devices         : {len(devices)}")
@@ -8660,7 +12546,15 @@ def cmd_overlay_change_prepare_plan(args: argparse.Namespace) -> None:
         ValueError,
         OSError,
     ) as exc:
-        _operation_cli_error(exc)
+        _operation_cli_error(
+            exc,
+            artifacts=(
+                (("Conflict report", conflict_markdown_path),)
+                if isinstance(exc, OverlayConflictError)
+                and conflict_markdown_path is not None
+                else ()
+            ),
+        )
 
 
 def _read_overlay_plan_artifact(path: Path, kind: str) -> dict[str, Any]:
@@ -8839,6 +12733,7 @@ def _resolve_overlay_plan_before(
 
 def cmd_overlay_change_plan(args: argparse.Namespace) -> None:
     """Build a PLAN_ONLY execution/rollback plan from a declared ChangeSet."""
+    conflict_markdown_path: Path | None = None
     try:
         change_set_path = Path(args.change_set)
         loaded_change_set = load_overlay_change_set(change_set_path)
@@ -8860,7 +12755,7 @@ def cmd_overlay_change_plan(args: argparse.Namespace) -> None:
         ):
             raise OperationStateError("plan artifacts already exist")
         conflict_report = assess_overlay_conflicts(change_set, before)
-        conflict_path, _conflict_markdown = _write_overlay_conflict_report(
+        conflict_path, conflict_markdown_path = _write_overlay_conflict_report(
             workspace.operation_root,
             plan_dir,
             conflict_report,
@@ -9097,7 +12992,7 @@ def cmd_overlay_change_plan(args: argparse.Namespace) -> None:
             )
             print(
                 f"- {host}: {device['status']} "
-                f"config={config_path}"
+                f"config: {config_path}"
             )
         print(f"Execution plan  : {execution_path}")
         print(f"Rollback plan   : {rollback_path}")
@@ -9122,37 +13017,56 @@ def cmd_overlay_change_plan(args: argparse.Namespace) -> None:
         ValueError,
         OSError,
     ) as exc:
-        _operation_cli_error(exc)
+        _operation_cli_error(
+            exc,
+            artifacts=(
+                (("Conflict report", conflict_markdown_path),)
+                if isinstance(exc, OverlayConflictError)
+                and conflict_markdown_path is not None
+                else ()
+            ),
+        )
 
 
 def _snapshot_workspace(args: argparse.Namespace):
     operations_root = Path(args.operations_root)
+    requested_purpose = getattr(args, "purpose", None)
     if args.phase != "before" and not args.change_id:
         raise OperationStateError(
             f"health-check snapshot --phase {args.phase} requires --change-id"
         )
     if args.change_id:
-        operation_root = operations_root / args.change_id
-        if operation_root.exists():
+        if operation_location_exists(operations_root, args.change_id):
             workspace = open_operation_workspace(
                 operations_root,
                 args.change_id,
             )
+            metadata = load_operation_metadata(workspace.operation_root)
+            fixed_purpose = metadata["spec"].get("purpose", "change")
+            if requested_purpose is not None and requested_purpose != fixed_purpose:
+                raise OperationStateError(
+                    "requested health-check purpose does not match operation metadata"
+                )
+            args.purpose = fixed_purpose
         elif args.phase == "before":
             workspace = create_operation_workspace(
                 operations_root,
                 change_id=args.change_id,
                 timezone_name=args.timezone,
+                purpose=requested_purpose or "change",
             )
         else:
             raise OperationPathError(
-                f"operation does not exist: {operation_root}"
+                f"operation does not exist: {args.change_id}"
             )
     else:
         workspace = create_operation_workspace(
             operations_root,
             timezone_name=args.timezone,
+            purpose=requested_purpose or "change",
         )
+    if getattr(args, "purpose", None) is None:
+        args.purpose = requested_purpose or "change"
     phase_directory = (
         f"{args.phase}-recheck"
         if bool(getattr(args, "recheck", False))
@@ -9342,6 +13256,16 @@ def cmd_health_check_snapshot(args: argparse.Namespace) -> int:
                 f"{phase_state}"
             )
         started_at = now_in_timezone(workspace.timezone)
+        collection_started_at = getattr(
+            args,
+            "_health_collection_started_at",
+            started_at,
+        )
+        collection_completed_at = getattr(
+            args,
+            "_health_collection_completed_at",
+            None,
+        )
         logging_time_range = _logging_time_range_from_args(args)
         resolved_path = (
             workspace.operation_root / "health" / "resolved-profiles.yaml"
@@ -9501,7 +13425,11 @@ def cmd_health_check_snapshot(args: argparse.Namespace) -> int:
                 allow_retry=retrying_phase,
             )
             try:
-                completed_at = now_in_timezone(workspace.timezone)
+                manifest_completed_at = (
+                    collection_completed_at
+                    if collection_completed_at is not None
+                    else now_in_timezone(workspace.timezone)
+                )
                 import_manifest = None
                 host_addresses: dict[str, str] = {}
                 if args.hosts:
@@ -9522,8 +13450,8 @@ def cmd_health_check_snapshot(args: argparse.Namespace) -> int:
                         change_id=workspace.change_id,
                         phase=args.phase,
                         profiles=profile_names,
-                        started_at=started_at,
-                        completed_at=completed_at,
+                        started_at=collection_started_at,
+                        completed_at=manifest_completed_at,
                         timezone=workspace.timezone,
                         host_addresses=host_addresses,
                     )
@@ -9534,7 +13462,7 @@ def cmd_health_check_snapshot(args: argparse.Namespace) -> int:
                         change_id=workspace.change_id,
                         phase=args.phase,
                         profiles=profile_names,
-                        imported_at=completed_at,
+                        imported_at=manifest_completed_at,
                         timezone=workspace.timezone,
                         hosts_path=args.hosts,
                     )
@@ -9545,7 +13473,7 @@ def cmd_health_check_snapshot(args: argparse.Namespace) -> int:
                 snapshot = build_health_snapshot(
                     manifest,
                     profile_refs=profile_names,
-                    created_at=completed_at,
+                    created_at=manifest_completed_at,
                     timezone=workspace.timezone,
                     profile_sha256=profile_sha256,
                 )
@@ -9553,15 +13481,26 @@ def cmd_health_check_snapshot(args: argparse.Namespace) -> int:
                     args,
                     workspace,
                     snapshot,
-                    resolved_at=completed_at,
+                    resolved_at=manifest_completed_at,
                 )
                 health_result = evaluate_snapshot(
                     snapshot,
                     resolved_profiles,
-                    started_at=started_at,
-                    completed_at=completed_at,
+                    started_at=collection_started_at,
+                    completed_at=manifest_completed_at,
                     resolved_roles=resolved_roles,
                 )
+                completed_at = now_in_timezone(workspace.timezone)
+                health_result["completed_at"] = completed_at.isoformat(
+                    timespec="seconds"
+                )
+                validate_document(health_result, kind="HealthResult")
+                if getattr(args, "purpose", "change") == "inspection":
+                    health_result["operation_gate"] = {
+                        "required": False,
+                        "reasons": [],
+                        "purpose": "inspection",
+                    }
                 if (
                     args.phase == "before"
                     and not resolved_path.exists()
@@ -9637,6 +13576,20 @@ def cmd_health_check_snapshot(args: argparse.Namespace) -> int:
                         output_dir / "vni-map.csv",
                         overlay_state_csv(overlay_state).encode("utf-8"),
                     )
+                    atomic_write_bytes(
+                        workspace.operation_root,
+                        output_dir / "vni_gateway_map.md",
+                        render_overlay_state_legacy_gateway_markdown(
+                            overlay_state
+                        ).encode("utf-8"),
+                    )
+                    atomic_write_bytes(
+                        workspace.operation_root,
+                        output_dir / "vni_gateway_map.csv",
+                        overlay_state_legacy_gateway_csv(overlay_state).encode(
+                            "utf-8"
+                        ),
+                    )
                 warning_count = sum(
                     len(host["parse_warnings"])
                     for host in snapshot["hosts"].values()
@@ -9700,10 +13653,13 @@ def cmd_health_check_snapshot(args: argparse.Namespace) -> int:
             print(f"Overlay   : {display_dir / 'overlay-state.yaml'}")
             print(f"VNI Map   : {display_dir / 'vni-map.md'}")
             print(f"VNI CSV   : {display_dir / 'vni-map.csv'}")
+            print(f"VNI GW Map: {display_dir / 'vni_gateway_map.md'}")
+            print(f"VNI GW CSV: {display_dir / 'vni_gateway_map.csv'}")
         if (
             args.phase == "before"
             and workspace.change_id_source == "generated"
             and args.hosts
+            and getattr(args, "purpose", "change") == "change"
         ):
             inventory_digest = source_sha256(args.hosts).removeprefix(
                 "sha256:"
@@ -9737,6 +13693,8 @@ def cmd_health_check_snapshot(args: argparse.Namespace) -> int:
                     },
                 },
             )
+        if getattr(args, "_health_attempt_id", None) is None:
+            publish_latest_operation_link(workspace)
         return _health_result_exit_code(health_result["result"])
     except (
         CollectionAdapterError,
@@ -9802,6 +13760,13 @@ def _write_health_execution_context(
         )
         args.policy = _optional_existing_file(args.policy, label="policy")
         args.credentials = _resolved_credentials_path(args)
+        args.mappings = _optional_existing_file(
+            getattr(args, "mappings", None), label="mappings"
+        )
+        args.description_rules = _optional_existing_file(
+            getattr(args, "description_rules", None),
+            label="description rules",
+        )
         collection = {
             "transport": args.transport,
             "target_hosts": sorted(parse_host_filter(args.target_hosts)),
@@ -9837,6 +13802,9 @@ def _write_health_execution_context(
                 args.enable_secret is not None if args.collect else False
             ),
         },
+        purpose=getattr(args, "purpose", "change"),
+        mappings_path=getattr(args, "mappings", None),
+        description_rules_path=getattr(args, "description_rules", None),
     )
     atomic_write_yaml(
         workspace.operation_root,
@@ -9876,6 +13844,12 @@ def _apply_health_followup_execution_context(
             "health execution context timezone does not match operation"
         )
     spec = context["spec"]
+    fixed_purpose = spec.get("purpose", "change")
+    if getattr(args, "purpose", None) not in {None, fixed_purpose}:
+        raise HealthExecutionContextError(
+            "health-check purpose does not match before"
+        )
+    args.purpose = fixed_purpose
     explicit_mode = bool(args.collect or args.input)
     if not explicit_mode:
         if spec["input_mode"] == "input":
@@ -9910,6 +13884,18 @@ def _apply_health_followup_execution_context(
         spec["policy"],
         args.policy,
         label="policy",
+        phase=phase,
+    )
+    args.mappings = _inherit_context_source(
+        spec.get("mappings"),
+        getattr(args, "mappings", None),
+        label="mappings",
+        phase=phase,
+    )
+    args.description_rules = _inherit_context_source(
+        spec.get("description_rules"),
+        getattr(args, "description_rules", None),
+        label="description rules",
         phase=phase,
     )
     collection = spec["collection"]
@@ -10040,11 +14026,51 @@ def _direct_health_collect(
         show_run_diff=False,
         show_run_diff_comands=False,
         show_only=False,
-        run_config_only=True,
+        run_config_only=False,
     )
     started_at = now_in_timezone(workspace.timezone)
+    args._health_collection_started_at = started_at
     collection_phase = f"{phase}_collect"
     with OperationLock(workspace, f"health-check-{collection_phase}") as lock:
+        metadata = load_operation_metadata(workspace.operation_root)
+        existing_collection = metadata["spec"].get("phases", {}).get(
+            collection_phase,
+            {},
+        )
+        if (
+            bool(getattr(args, "_health_retry", False))
+            and existing_collection.get("status")
+            in {"running", "waiting_for_user"}
+        ):
+            reconciled_at = now_in_timezone(workspace.timezone)
+            transition_phase(
+                workspace,
+                collection_phase,
+                "cancelled",
+                lock=lock,
+                reason="interrupted_direct_collection_reconciled",
+                now=reconciled_at,
+            )
+            record_operation_error(
+                workspace,
+                {
+                    "code": "COLLECTION_CANCELLED",
+                    "phase": collection_phase,
+                    "attempt_id": existing_collection.get("current_attempt"),
+                    "at": reconciled_at.isoformat(timespec="seconds"),
+                    "message": (
+                        "A previous direct collection ended without a terminal "
+                        "state and was reconciled before retry."
+                    ),
+                },
+                lock=lock,
+            )
+            if phase == "before":
+                _cancel_orphaned_before_attempts(
+                    workspace,
+                    current_attempt_id=str(attempt_id or ""),
+                    completed_at=reconciled_at,
+                )
         transition_phase(
             workspace,
             collection_phase,
@@ -10064,31 +14090,47 @@ def _direct_health_collect(
                 collect_args,
                 setup_logging(collect_args.log_file, collect_args.verbose),
             )
+            completed_at = now_in_timezone(workspace.timezone)
+            args._health_collection_completed_at = completed_at
             transition_phase(
                 workspace,
                 collection_phase,
                 "completed",
                 lock=lock,
                 reason="direct_collection_completed",
-                now=now_in_timezone(workspace.timezone),
+                now=completed_at,
             )
-        except Exception as exc:
+        except BaseException as exc:
             failed_at = now_in_timezone(workspace.timezone)
+            cancelled = isinstance(exc, KeyboardInterrupt)
             transition_phase(
                 workspace,
                 collection_phase,
-                "failed",
+                "cancelled" if cancelled else "failed",
                 lock=lock,
-                reason="direct_collection_failed",
+                reason=(
+                    "direct_collection_cancelled"
+                    if cancelled
+                    else "direct_collection_failed"
+                ),
                 now=failed_at,
             )
             record_operation_error(
                 workspace,
                 {
-                    "code": getattr(exc, "code", "COLLECTION_ERROR"),
+                    "code": (
+                        "COLLECTION_CANCELLED"
+                        if cancelled
+                        else getattr(exc, "code", "COLLECTION_ERROR")
+                    ),
                     "phase": collection_phase,
+                    "attempt_id": attempt_id,
                     "at": failed_at.isoformat(timespec="seconds"),
-                    "message": str(exc),
+                    "message": (
+                        "Direct health collection was interrupted by the user."
+                        if cancelled
+                        else str(exc)
+                    ),
                 },
                 lock=lock,
             )
@@ -10101,6 +14143,11 @@ def _validate_before_retry_context(args: argparse.Namespace, workspace) -> None:
     if context is None:
         return
     spec = context["spec"]
+    fixed_purpose = spec.get("purpose", "change")
+    if getattr(args, "purpose", fixed_purpose) != fixed_purpose:
+        raise HealthExecutionContextError(
+            "before retry purpose does not match the fixed before context"
+        )
     requested_mode = "collect" if args.collect else "input"
     if spec["input_mode"] != requested_mode:
         raise HealthExecutionContextError(
@@ -10127,6 +14174,22 @@ def _validate_before_retry_context(args: argparse.Namespace, workspace) -> None:
             raise HealthExecutionContextError(
                 "policy was not fixed by the original before"
             )
+        for name, label in (
+            ("mappings", "mappings"),
+            ("description_rules", "description rules"),
+        ):
+            reference = spec.get(name)
+            supplied = getattr(args, name, None)
+            if reference is not None:
+                setattr(
+                    args,
+                    name,
+                    verify_source_file(reference, supplied, label=label),
+                )
+            elif supplied is not None:
+                raise HealthExecutionContextError(
+                    f"{label} was not fixed by the original before"
+                )
 
 
 def _profile_value_changes(
@@ -10396,13 +14459,24 @@ def _fail_before_attempt(workspace, attempt: dict[str, Any], exc: BaseException)
     attempt_dir = Path(attempt["artifact_dir"])
     execution = load_operation_execution(workspace.operation_root)
     last_error = execution["errors"][-1] if execution["errors"] else {}
-    code = last_error.get("code") or getattr(exc, "code", "VALIDATION_ERROR")
+    if last_error.get("attempt_id") != attempt["attempt_id"]:
+        last_error = {}
+    cancelled = isinstance(exc, KeyboardInterrupt)
+    code = last_error.get("code") or (
+        "COLLECTION_CANCELLED"
+        if cancelled
+        else getattr(exc, "code", "VALIDATION_ERROR")
+    )
     if not isinstance(code, str):
         code = "VALIDATION_ERROR"
-    message = last_error.get("message") or str(exc)
+    message = last_error.get("message") or (
+        "Health-check before was interrupted by the user."
+        if cancelled
+        else str(exc)
+    )
     attempt.update(
         {
-            "status": "FAILED",
+            "status": "CANCELLED" if cancelled else "FAILED",
             "completed_at": now_in_timezone(workspace.timezone).isoformat(
                 timespec="seconds"
             ),
@@ -10417,6 +14491,46 @@ def _fail_before_attempt(workspace, attempt: dict[str, Any], exc: BaseException)
     )
 
 
+def _cancel_orphaned_before_attempts(
+    workspace,
+    *,
+    current_attempt_id: str,
+    completed_at: datetime,
+) -> None:
+    attempts_root = workspace.operation_root / "health/before/attempts"
+    if not attempts_root.is_dir():
+        return
+    for result_path in sorted(attempts_root.glob("*/result.json")):
+        if not result_path.is_file() or result_path.is_symlink():
+            continue
+        try:
+            result = json.loads(result_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            continue
+        if (
+            result.get("status") != "RUNNING"
+            or result.get("attempt_id") == current_attempt_id
+        ):
+            continue
+        result.update(
+            {
+                "status": "CANCELLED",
+                "completed_at": completed_at.isoformat(timespec="seconds"),
+                "error": {
+                    "code": "COLLECTION_CANCELLED",
+                    "message": (
+                        "The interrupted collection attempt was reconciled "
+                        "before retry."
+                    ),
+                },
+            }
+        )
+        atomic_write_json(
+            workspace.operation_root,
+            result_path,
+            result,
+            kind="HealthPhaseAttempt",
+        )
 def _publish_before_attempt(workspace, attempt: dict[str, Any]) -> None:
     attempt_dir = Path(attempt["artifact_dir"])
     phase_root = workspace.operation_root / "health" / "before"
@@ -11024,7 +15138,6 @@ def cmd_health_check_phase(args: argparse.Namespace) -> int:
             # collected raw to the offline Snapshot path. Without this, the
             # second workspace resolution generates a different operation.
             args.change_id = workspace.change_id
-            started_at = now_in_timezone(workspace.timezone)
             if phase == "before":
                 resolved = args._health_resolved_profiles
             elif phase == "rollback":
@@ -11039,7 +15152,7 @@ def cmd_health_check_phase(args: argparse.Namespace) -> int:
             args.input = [str(raw_dir)]
             args.input_format = "alred-collect"
         result = cmd_health_check_snapshot(args)
-    except (Exception, SystemExit) as exc:
+    except BaseException as exc:
         if before_attempt is not None:
             workspace = open_operation_workspace(
                 args.operations_root,
@@ -11052,6 +15165,13 @@ def cmd_health_check_phase(args: argparse.Namespace) -> int:
                 args.change_id,
             )
             _fail_rollback_attempt(workspace, rollback_attempt, exc)
+        if isinstance(exc, KeyboardInterrupt):
+            print(
+                "COLLECTION_CANCELLED: health collection was interrupted; "
+                "retry with the same change ID and fixed input context",
+                file=sys.stderr,
+            )
+            raise SystemExit(130) from None
         raise
     if phase == "before":
         workspace = open_operation_workspace(
@@ -11073,7 +15193,10 @@ def cmd_health_check_phase(args: argparse.Namespace) -> int:
         )
         health_result = json.loads(result_path.read_text(encoding="utf-8"))
         gate = health_result.get("operation_gate", {})
-        if gate.get("required"):
+        if (
+            gate.get("required")
+            and getattr(args, "purpose", "change") == "change"
+        ):
             continued = False
             if sys.stdin.isatty() and sys.stdout.isatty():
                 print("=== OPERATION GATE ===")
@@ -11199,6 +15322,7 @@ def cmd_health_check_phase(args: argparse.Namespace) -> int:
                 else 4
             ),
         )
+    publish_latest_operation_link(workspace)
     return result
 
 
@@ -11611,16 +15735,36 @@ def cmd_overlay_check_evaluate(args: argparse.Namespace) -> int:
                     / "overlay"
                     / "health-result.json"
                 )
-                if (
-                    not original_result_path.is_file()
-                    or json.loads(
+                original_result = (
+                    json.loads(
                         original_result_path.read_text(encoding="utf-8")
                     ).get("result")
-                    != "UNKNOWN"
-                ):
+                    if original_result_path.is_file()
+                    and not original_result_path.is_symlink()
+                    else None
+                )
+                common_result_path = (
+                    workspace.operation_root
+                    / "health/report/health-result.json"
+                )
+                common_result = (
+                    json.loads(
+                        common_result_path.read_text(encoding="utf-8")
+                    ).get("result")
+                    if common_result_path.is_file()
+                    and not common_result_path.is_symlink()
+                    else None
+                )
+                recoverable_warn_gate = (
+                    original_result in {"VERIFIED", "OBSERVED_HEALTHY"}
+                    and common_result == "WARN"
+                )
+                if original_result != "UNKNOWN" and not recoverable_warn_gate:
                     raise OperationStateError(
                         "rollback_required can only be reconciled by "
-                        "--recheck when the original Overlay result is UNKNOWN"
+                        "--recheck when the original Overlay result is UNKNOWN, "
+                        "or when a verified Overlay was blocked by common "
+                        "Health WARN"
                     )
                 completes_apply_after = True
             common_after_result = None
@@ -11723,7 +15867,7 @@ def cmd_overlay_check_evaluate(args: argparse.Namespace) -> int:
                 )
                 if completes_apply_after:
                     after_ok = (
-                        common_after_result["result"] == "PASS"
+                        common_after_result["result"] in {"PASS", "WARN"}
                         and result["result"]
                         in {"VERIFIED", "OBSERVED_HEALTHY"}
                     )
@@ -11732,7 +15876,11 @@ def cmd_overlay_check_evaluate(args: argparse.Namespace) -> int:
                         "after_completed" if after_ok else "health_failed",
                         lock=lock,
                         reason=(
-                            "overlay_after_verified"
+                            (
+                                "overlay_after_verified_with_warnings"
+                                if common_after_result["result"] == "WARN"
+                                else "overlay_after_verified"
+                            )
                             if after_ok
                             else "overlay_after_health_failed"
                         ),
@@ -11994,6 +16142,34 @@ def build_parser() -> argparse.ArgumentParser:
             help=f"Operation root directory (default: {DEFAULT_OPERATIONS_ROOT})",
         )
         operation_parser.set_defaults(func=handler)
+    p_operation_archive = operation_subparsers.add_parser(
+        "archive",
+        help="Manually archive eligible terminal operation directories",
+    )
+    p_operation_archive.add_argument(
+        "--change-id",
+        help="Archive one operation ID; omit to evaluate all live operations",
+    )
+    p_operation_archive.add_argument(
+        "--older-than-days",
+        type=int,
+        default=get_operation_archive_after_days(),
+        help=(
+            "Minimum age from the terminal transition "
+            "(default: ALRED_OPERATION_ARCHIVE_AFTER_DAYS or 14)"
+        ),
+    )
+    p_operation_archive.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="List eligible operations without creating or deleting files",
+    )
+    p_operation_archive.add_argument(
+        "--operations-root",
+        default=DEFAULT_OPERATIONS_ROOT,
+        help=f"Operation root directory (default: {DEFAULT_OPERATIONS_ROOT})",
+    )
+    p_operation_archive.set_defaults(func=cmd_operation_archive)
 
     p_overlay_change = subparsers.add_parser(
         "overlay-change",
@@ -12078,6 +16254,14 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=30,
         help="Maximum reference Snapshot age in days (default: 30)",
+    )
+    p_overlay_prepare_plan.add_argument(
+        "--allow-reference-state-warn",
+        action="store_true",
+        help=(
+            "Explicitly allow WARN from an Overlay terminal reference or "
+            "an explicitly selected standalone after"
+        ),
     )
     p_overlay_prepare_plan.add_argument(
         "--operations-root",
@@ -12210,6 +16394,26 @@ def build_parser() -> argparse.ArgumentParser:
         "--operations-root", default=DEFAULT_OPERATIONS_ROOT
     )
     p_overlay_save.set_defaults(func=cmd_overlay_change_save)
+    p_overlay_accept_rollback_warn = overlay_change_subparsers.add_parser(
+        "accept-rollback-state-warn",
+        help="Explicitly accept eligible pre-existing rollback state WARN",
+        description=(
+            "Review the latest published rollback WARN evidence, require an "
+            "exact interactive phrase, pin artifact hashes, and transition "
+            "the operation to rolled_back_and_verified without saving config."
+        ),
+    )
+    p_overlay_accept_rollback_warn.add_argument(
+        "--change-id",
+        required=True,
+    )
+    p_overlay_accept_rollback_warn.add_argument(
+        "--operations-root",
+        default=DEFAULT_OPERATIONS_ROOT,
+    )
+    p_overlay_accept_rollback_warn.set_defaults(
+        func=cmd_overlay_change_accept_rollback_state_warn,
+    )
     p_overlay_rollback_save = overlay_change_subparsers.add_parser(
         "save-rollback",
         help="Save the restored baseline after verified rollback",
@@ -12535,6 +16739,18 @@ def build_parser() -> argparse.ArgumentParser:
                 "existing operation ID"
             ),
         )
+        if phase_name == "before":
+            phase_parser.add_argument(
+                "--purpose",
+                choices=["change", "inspection"],
+                default="change",
+                help=(
+                    "Operation purpose; inspection does not register an active "
+                    "change or require a change-continuation gate"
+                ),
+            )
+        else:
+            phase_parser.set_defaults(purpose=None)
         phase_parser.add_argument(
             "--profile",
             action="append",
@@ -12548,6 +16764,20 @@ def build_parser() -> argparse.ArgumentParser:
             help=(
                 "Versioned role policy YAML; before defaults to ./roles.yaml "
                 "when present, after/rollback reuse the policy fixed by before"
+            ),
+        )
+        phase_parser.add_argument(
+            "--mappings",
+            help=(
+                "Hostname/interface mapping YAML; after/rollback inherit and "
+                "hash-verify the before source"
+            ),
+        )
+        phase_parser.add_argument(
+            "--description-rules",
+            help=(
+                "Interface description rule YAML; after/rollback inherit and "
+                "hash-verify the before source"
             ),
         )
         if phase_name == "before":
@@ -12658,6 +16888,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--change-id",
         help="Operation change ID; generated for before when omitted",
     )
+    p_health_snapshot.add_argument(
+        "--purpose",
+        choices=["change", "inspection"],
+        help="Operation purpose used when creating a before workspace (default: change)",
+    )
+    p_health_snapshot.add_argument("--mappings")
+    p_health_snapshot.add_argument("--description-rules")
     p_health_snapshot.add_argument(
         "--profile",
         action="append",
@@ -12833,6 +17070,117 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_overlay_converge.set_defaults(func=cmd_overlay_check_converge)
 
+    p_evidence = subparsers.add_parser(
+        "evidence-package",
+        help="Create, inspect, verify, and safely import portable evidence archives",
+    )
+    evidence_subparsers = p_evidence.add_subparsers(
+        dest="evidence_package_command",
+        required=True,
+    )
+    p_evidence_create = evidence_subparsers.add_parser("create")
+    evidence_source_group = p_evidence_create.add_mutually_exclusive_group()
+    evidence_source_group.add_argument(
+        "--change-id",
+        help=(
+            "Select the published current before attempt from this live Operation; "
+            "default: latest published current before across live Operations"
+        ),
+    )
+    evidence_source_group.add_argument(
+        "--collection-manifest",
+        help="Explicit Collection Manifest; requires --input",
+    )
+    p_evidence_create.add_argument(
+        "--input",
+        help="Raw collection root used with --collection-manifest",
+    )
+    p_evidence_create.add_argument(
+        "--operations-root",
+        default=DEFAULT_OPERATIONS_ROOT,
+        help="Operation root used for automatic or --change-id source selection",
+    )
+    p_evidence_create.add_argument(
+        "--profile",
+        choices=["digital-twin", "ai-analysis", "support"],
+        required=True,
+    )
+    p_evidence_create.add_argument(
+        "--disclosure-preset",
+        choices=["protected-preserve", "pseudonymized", "minimal"],
+        help=(
+            "Disclosure preset (default: protected-preserve for digital-twin; "
+            "pseudonymized for ai-analysis)"
+        ),
+    )
+    p_evidence_create.add_argument(
+        "--config-content",
+        choices=["sanitized", "verbatim", "exclude"],
+        default="sanitized",
+        help="Config content mode (default: sanitized)",
+    )
+    p_evidence_create.add_argument("--acknowledge-sensitive-config", action="store_true")
+    p_evidence_create.add_argument(
+        "--output-dir",
+        default="evidence-packages",
+        help="Output directory (default: evidence-packages)",
+    )
+    p_evidence_create.set_defaults(func=cmd_evidence_package_create)
+
+    p_evidence_inspect = evidence_subparsers.add_parser("inspect")
+    p_evidence_inspect.add_argument("--bundle", required=True)
+    p_evidence_inspect.add_argument("--format", choices=["text", "json"], default="text")
+    p_evidence_inspect.set_defaults(func=cmd_evidence_package_inspect)
+
+    p_evidence_verify = evidence_subparsers.add_parser("verify")
+    p_evidence_verify.add_argument("--bundle", required=True)
+    p_evidence_verify.add_argument(
+        "--checksum-file",
+        help=(
+            "external checksum file; defaults to <package-id>.sha256 "
+            "beside the bundle when present"
+        ),
+    )
+    p_evidence_verify.add_argument("--format", choices=["text", "json"], default="text")
+    p_evidence_verify.set_defaults(func=cmd_evidence_package_verify)
+
+    p_evidence_import = evidence_subparsers.add_parser("import")
+    p_evidence_import.add_argument("--bundle", required=True)
+    p_evidence_import.add_argument(
+        "--checksum-file",
+        help=(
+            "external checksum file; defaults to <package-id>.sha256 "
+            "beside the bundle when present"
+        ),
+    )
+    p_evidence_import.add_argument(
+        "--acknowledge-sensitive-config", action="store_true"
+    )
+    p_evidence_import.add_argument("--output-dir", default="imported-evidence")
+    p_evidence_import.set_defaults(func=cmd_evidence_package_import)
+
+    p_import_run = subparsers.add_parser(
+        "import-running-config",
+        help="Import external per-host or transcript running configs without device access",
+    )
+    p_import_run.add_argument("--input", required=True, help="External input directory")
+    p_import_run.add_argument(
+        "--input-format",
+        required=True,
+        choices=["alred-collect", "running-config-directory", "nxos-transcript"],
+    )
+    p_import_run.add_argument(
+        "-i", "--inventory", "--hosts", dest="hosts", required=True,
+        help="Inventory used for canonical hostname and alias resolution",
+    )
+    p_import_run.add_argument("--source-map", help="Explicit source relative path to hostname YAML")
+    p_import_run.add_argument("--lldp-input", help="Optional per-host LLDP directory")
+    p_import_run.add_argument(
+        "--output", default="imported-running-config",
+        help="Import workspace (default: imported-running-config)",
+    )
+    p_import_run.set_defaults(func=cmd_import_running_config)
+
     p_support = subparsers.add_parser(
         "support-bundle",
         help="Create and verify redacted operation support archives",
@@ -12916,6 +17264,29 @@ def build_parser() -> argparse.ArgumentParser:
         help="Transform hosts.yaml and NX-OS running-config files for containerlab / NX-OS 9000v lab use",
     )
     p_transform.add_argument("-i", "--inventory", "--hosts", dest="hosts", help=f"Input hosts.yaml (default: ./{DEFAULT_HOSTS_PATH})")
+    p_transform.add_argument(
+        "--evidence-package",
+        "--evidence-import",
+        dest="evidence_import",
+        help="Imported digital-twin package directory; resolves inventory/config from its Manifest",
+    )
+    p_transform.add_argument(
+        "--running-config-import",
+        help="Running config import root, successful attempt, or Manifest",
+    )
+    p_transform.add_argument(
+        "--lab-parameters",
+        help="LabTransformParameters YAML (built-in safe removal policy when omitted)",
+    )
+    p_transform.add_argument(
+        "--acknowledge-sensitive-config",
+        action="store_true",
+        help="Acknowledge use of Manifest-selected verbatim config",
+    )
+    p_transform.add_argument(
+        "--manifest-output",
+        help="Output lab-transform-manifest.yaml path (default: beside --output-dir)",
+    )
     p_transform.add_argument(
         "--clab-env",
         help="containerlab env YAML used to read mgmt.ipv4-subnet (default: ./clab_merge.yaml if exists)",
@@ -13468,6 +17839,27 @@ def build_parser() -> argparse.ArgumentParser:
         "clab-set-cmds",
         help="Run the predefined collect/normalize/containerlab/Mermaid/VNI pipeline",
     )
+    p_clab_set_source = p_clab_set.add_mutually_exclusive_group()
+    p_clab_set_source.add_argument(
+        "--evidence-package",
+        help="Portable Evidence Package tar.gz; verify and import before the offline pipeline",
+    )
+    p_clab_set_source.add_argument(
+        "--evidence-import",
+        help="Already imported Evidence Package directory",
+    )
+    p_clab_set_source.add_argument(
+        "--running-config-import",
+        help="External running config import root, successful attempt, or Manifest",
+    )
+    p_clab_set.add_argument(
+        "--evidence-import-dir",
+        default="imported-evidence",
+        help="Evidence import root used with --evidence-package (default: imported-evidence)",
+    )
+    p_clab_set.add_argument("--checksum-file", help="Optional explicit Evidence Package checksum")
+    p_clab_set.add_argument("--acknowledge-sensitive-config", action="store_true")
+    p_clab_set.add_argument("--lab-parameters", help="LabTransformParameters YAML")
     p_clab_set.add_argument("-i", "--inventory", "--hosts", dest="hosts", help=f"Input hosts.yaml (default: ./{DEFAULT_HOSTS_PATH})")
     p_clab_set.add_argument("--policy", help="Policy YAML path")
     p_clab_set.add_argument("-u", "--user", "--username", dest="username", help="SSH username")
@@ -13513,7 +17905,20 @@ def build_parser() -> argparse.ArgumentParser:
         "--sites",
         help=f"Site detection YAML path override for render steps (default: ./{DEFAULT_SITES_PATH} if exists)",
     )
-    p_clab_set.add_argument("--group-by-site", action="store_true", help="Group rendered diagrams by site/domain metadata or sites.yaml")
+    p_clab_set_site_group = p_clab_set.add_mutually_exclusive_group()
+    p_clab_set_site_group.add_argument(
+        "--group-by-site",
+        dest="group_by_site",
+        action="store_true",
+        help="Group rendered diagrams by site, using default for unresolved nodes",
+    )
+    p_clab_set_site_group.add_argument(
+        "--no-group-by-site",
+        dest="group_by_site",
+        action="store_false",
+        help="Disable site grouping and Mermaid site auto-detection",
+    )
+    p_clab_set.set_defaults(group_by_site=None)
     p_clab_set.add_argument("--linux-csv", help="CSV override for generate-clab")
     p_clab_set.add_argument("--kind-cluster-csv", help="Kind cluster CSV override for generate-clab")
     p_clab_set.add_argument("--clab-env", help="YAML override for clab-transform-config")
@@ -13593,14 +17998,82 @@ def build_parser() -> argparse.ArgumentParser:
             help="Timeout in seconds for pre-flight TCP/authentication checks",
         )
 
+    p_clab_apply = subparsers.add_parser(
+        "clab-apply-config",
+        help="Wait for cisco_n9kv readiness and push transformed config after boot",
+    )
+    add_push_target_arguments(p_clab_apply)
+    p_clab_apply.add_argument("--topology", required=True, help="Deployed topology.clab.yaml")
+    p_clab_apply_input = p_clab_apply.add_mutually_exclusive_group(required=True)
+    p_clab_apply_input.add_argument("--lab-transform-manifest")
+    p_clab_apply_input.add_argument("--input-dir")
+    p_clab_apply.add_argument("--file-suffix", default="")
+    p_clab_apply.add_argument("--file-hostname-include", action="store_true")
+    p_clab_apply_errors = p_clab_apply.add_mutually_exclusive_group()
+    p_clab_apply_errors.add_argument("--allow-cli-error-pattern")
+    p_clab_apply_errors.add_argument(
+        "--ignore-all-cli-errors",
+        action="store_true",
+        help="Deprecated: continue after detected CLI errors; results are never saved",
+    )
+    p_clab_apply.add_argument(
+        "--fail-fast",
+        action="store_true",
+        help="Stop starting unstarted hosts after the first host failure",
+    )
+    p_clab_apply.add_argument("--health-timeout", type=float, default=1200)
+    p_clab_apply.add_argument("--poll-interval", type=float, default=10)
+    p_clab_apply.add_argument("--ignore-startup-delay", action="store_true")
+    p_clab_apply.add_argument("--accept-connectivity-risk", action="store_true")
+    p_clab_apply.add_argument(
+        "--reapply-all",
+        action="store_true",
+        help="Disable live VERIFIED reuse from a matching successful current attempt",
+    )
+    p_clab_apply.add_argument(
+        "--write-memory",
+        action="store_true",
+        help="Save only nodes that pass post-apply semantic verification",
+    )
+    p_clab_apply.add_argument(
+        "--accept-verification-diff",
+        action="store_true",
+        help="Allow save for VERIFIED_WITH_DIFF; invariant failures are never allowed",
+    )
+    p_clab_apply.add_argument(
+        "--output-dir",
+        default=f"{default_output_dir}/clab-apply-config",
+        help="Immutable per-attempt apply and verification artifacts",
+    )
+    p_clab_apply.add_argument(
+        "--log-file", default=f"{default_log_dir}/clab-apply-config.log"
+    )
+    p_clab_apply.add_argument("--verbose", action="store_true")
+    p_clab_apply.set_defaults(func=cmd_clab_apply_config)
+
     p_push = subparsers.add_parser("push-config", help="Push config lines to devices")
     add_push_target_arguments(p_push)
+    p_push_cli_errors = p_push.add_mutually_exclusive_group()
+    p_push_cli_errors.add_argument(
+        "--allow-cli-error-pattern",
+        help="YAML allowlist for bounded command/response CLI error patterns",
+    )
+    p_push_cli_errors.add_argument(
+        "--ignore-all-cli-errors",
+        action="store_true",
+        help="Deprecated: continue after detected CLI errors and disable save eligibility",
+    )
     p_push.add_argument("--config-file", required=True, help="Config lines file (one line per command)")
     p_push.add_argument(
         "--write-memory",
         action="store_true",
         dest="write_memory",
         help="Save config after push (default: disabled)",
+    )
+    p_push.add_argument(
+        "--fail-fast",
+        action="store_true",
+        help="Stop starting unstarted hosts after the first host failure",
     )
     p_push.add_argument("--log-file", default=f"{default_log_dir}/push-config.log", help="Log file path")
     p_push.add_argument("--verbose", action="store_true", help="Verbose logging")
@@ -13611,10 +18084,24 @@ def build_parser() -> argparse.ArgumentParser:
         help="Push per-host config files from directory pattern <hostname><suffix>",
     )
     add_push_target_arguments(p_push_dir)
-    p_push_dir.add_argument(
+    p_push_dir_cli_errors = p_push_dir.add_mutually_exclusive_group()
+    p_push_dir_cli_errors.add_argument(
+        "--allow-cli-error-pattern",
+        help="YAML allowlist for bounded command/response CLI error patterns",
+    )
+    p_push_dir_cli_errors.add_argument(
+        "--ignore-all-cli-errors",
+        action="store_true",
+        help="Deprecated: continue after detected CLI errors and disable save eligibility",
+    )
+    p_push_dir_input = p_push_dir.add_mutually_exclusive_group()
+    p_push_dir_input.add_argument(
         "--input-dir",
-        default=f"{default_raw_dir}/config",
-        help="Input directory containing per-host config files",
+        help=f"Input directory containing per-host config files (default: {default_raw_dir}/config)",
+    )
+    p_push_dir_input.add_argument(
+        "--lab-transform-manifest",
+        help="Validated LabTransformManifest used to resolve per-host config paths and hashes",
     )
     p_push_dir.add_argument(
         "--file-suffix",
@@ -13631,6 +18118,19 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         dest="write_memory",
         help="Save config after all pushes complete (default: disabled)",
+    )
+    p_push_dir.add_argument(
+        "--fail-fast",
+        action="store_true",
+        help="Stop starting unstarted hosts after the first host failure",
+    )
+    p_push_dir.add_argument(
+        "--force",
+        action="store_true",
+        help=(
+            "Include NX-OS current login user, management VRF, mgmt0, and "
+            "line vty config that is excluded by default"
+        ),
     )
     p_push_dir.add_argument("--log-file", default=f"{default_log_dir}/push-config-dir.log", help="Log file path")
     p_push_dir.add_argument("--verbose", action="store_true", help="Verbose logging")
@@ -13654,10 +18154,32 @@ def build_parser() -> argparse.ArgumentParser:
         help="Parse raw LLDP/running-config output and generate confirmed/candidate CSV",
     )
     p_norm.add_argument("-i", "--inventory", "--hosts", dest="hosts", help=f"Input hosts.yaml (default: ./{DEFAULT_HOSTS_PATH})")
-    p_norm.add_argument(
+    p_norm_source = p_norm.add_mutually_exclusive_group()
+    p_norm_source.add_argument(
         "--input",
-        default=default_raw_dir,
-        help="Raw root directory (reads <input>/lldp and <input>/config when present)",
+        help=f"Raw root directory (default: {default_raw_dir}; reads lldp/ and config/)",
+    )
+    p_norm_source.add_argument(
+        "--evidence-package",
+        help="Imported Evidence Package directory; inventory, policy, and raw artifacts are Manifest-pinned",
+    )
+    p_norm_source.add_argument(
+        "--running-config-import",
+        help="Running config import root, successful attempt, or Manifest",
+    )
+    p_norm_source.add_argument(
+        "--latest-operation",
+        action="store_true",
+        help="Use the latest successfully published current before attempt",
+    )
+    p_norm_source.add_argument(
+        "--change-id",
+        help="Use the published current before attempt from this Operation",
+    )
+    p_norm.add_argument(
+        "--operations-root",
+        default=DEFAULT_OPERATIONS_ROOT,
+        help=f"Operation root for --latest-operation/--change-id (default: {DEFAULT_OPERATIONS_ROOT})",
     )
     p_norm.add_argument("--mappings", help="Mappings YAML path")
     p_norm.add_argument(
@@ -13671,13 +18193,21 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_norm.add_argument(
         "--output-confirmed",
-        default=f"{default_links_dir}/{DEFAULT_LINKS_CONFIRMED_FILENAME}",
         help="Output confirmed CSV",
     )
     p_norm.add_argument(
         "--output-candidates",
-        default=f"{default_links_dir}/{DEFAULT_LINKS_CANDIDATES_FILENAME}",
         help="Output candidate CSV",
+    )
+    p_norm.add_argument(
+        "--output-dir",
+        default=default_links_dir,
+        help=f"Output directory when individual output paths are omitted (default: {default_links_dir})",
+    )
+    p_norm.add_argument(
+        "--acknowledge-sensitive-config",
+        action="store_true",
+        help="Acknowledge Manifest-selected verbatim config in an Evidence Package",
     )
     p_norm.add_argument("--log-file", default=f"{default_log_dir}/normalize-links.log", help="Log file path")
     p_norm.add_argument("--verbose", action="store_true", help="Verbose logging")
@@ -13744,6 +18274,30 @@ def build_parser() -> argparse.ArgumentParser:
     p_gen.add_argument("--verbose", action="store_true", help="Verbose logging")
     p_gen.set_defaults(func=cmd_generate_clab)
 
+    def add_overlay_service_selector_arguments(
+        parser: argparse.ArgumentParser,
+    ) -> None:
+        parser.add_argument(
+            "--site", dest="overlay_sites", action="append", default=[],
+            help="Select Overlay Services by site (repeatable, union semantics)",
+        )
+        parser.add_argument(
+            "--vrf", dest="overlay_vrfs", action="append", default=[],
+            help="Select Overlay Services by VRF (repeatable, union semantics)",
+        )
+        parser.add_argument(
+            "--l2vni", dest="overlay_l2vnis", action="append", type=int, default=[],
+            help="Select Overlay Services by L2VNI (repeatable, union semantics)",
+        )
+        parser.add_argument(
+            "--l3vni", dest="overlay_l3vnis", action="append", type=int, default=[],
+            help="Select Overlay Services by L3VNI (repeatable, union semantics)",
+        )
+        parser.add_argument(
+            "--service", dest="overlay_services", action="append", default=[],
+            help="Select one canonical <site>/<vrf> or <site>/l2vni:<vni> identity (repeatable)",
+        )
+
     p_mermaid = subparsers.add_parser("generate-mermaid", help="Generate Mermaid markdown from links CSV")
     p_mermaid.add_argument(
         "--input",
@@ -13752,15 +18306,73 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_mermaid.add_argument("--input-format", choices=["auto", "csv", "clab"], default="auto", help="Input format (default: auto)")
     p_mermaid.add_argument("--input-candidates", help="Optional input candidate links CSV")
+    p_mermaid_source = p_mermaid.add_mutually_exclusive_group()
+    p_mermaid_source.add_argument(
+        "--evidence-package", help="Imported Evidence Package directory"
+    )
+    p_mermaid_source.add_argument(
+        "--running-config-import", help="External running config import"
+    )
+    p_mermaid_source.add_argument(
+        "--latest-operation", action="store_true",
+        help="Normalize the latest published current before attempt before rendering",
+    )
+    p_mermaid_source.add_argument(
+        "--change-id", help="Normalize this Operation current before attempt before rendering"
+    )
+    p_mermaid.add_argument(
+        "--operations-root", default=DEFAULT_OPERATIONS_ROOT,
+        help=f"Operation root for latest/change-id source (default: {DEFAULT_OPERATIONS_ROOT})",
+    )
+    p_mermaid.add_argument(
+        "--link-output-dir", default=default_links_dir,
+        help="Normalized link artifact directory for non-CSV sources",
+    )
+    p_mermaid.add_argument("--acknowledge-sensitive-config", action="store_true")
     p_mermaid.add_argument("-i", "--inventory", "--hosts", dest="hosts", help=f"Input hosts.yaml (default: ./{DEFAULT_HOSTS_PATH} if exists)")
     p_mermaid.add_argument("--mappings", help="Mappings YAML path")
     p_mermaid.add_argument("--roles", help=f"Role detection YAML path (default: ./{DEFAULT_ROLES_PATH} if exists)")
     p_mermaid.add_argument("--sites", help=f"Site detection YAML path (default: ./{DEFAULT_SITES_PATH} if exists)")
     p_mermaid.add_argument("--min-confidence", choices=["low", "medium", "high"], default="low")
-    p_mermaid.add_argument("--direction", choices=["TD", "LR", "BT", "RL"], default="TD")
-    p_mermaid.add_argument("--group-by-role", action="store_true")
-    p_mermaid.add_argument("--group-by-site", action="store_true", help="Group nodes by site/domain metadata or sites.yaml")
+    p_mermaid.add_argument(
+        "--direction",
+        choices=["TD", "LR", "BT", "RL"],
+        default="TD",
+        help="Diagram direction (default: TD)",
+    )
+    p_mermaid_role_group = p_mermaid.add_mutually_exclusive_group()
+    p_mermaid_role_group.add_argument(
+        "--group-by-role",
+        dest="group_by_role",
+        action="store_true",
+        help="Group nodes by role (default: enabled)",
+    )
+    p_mermaid_role_group.add_argument(
+        "--no-group-by-role",
+        dest="group_by_role",
+        action="store_false",
+        help="Do not group nodes by role",
+    )
+    p_mermaid_site_group = p_mermaid.add_mutually_exclusive_group()
+    p_mermaid_site_group.add_argument(
+        "--group-by-site",
+        dest="group_by_site",
+        action="store_true",
+        help="Group nodes by site, using default for unresolved nodes",
+    )
+    p_mermaid_site_group.add_argument(
+        "--no-group-by-site",
+        dest="group_by_site",
+        action="store_false",
+        help="Do not group nodes by site or auto-detect site metadata",
+    )
     p_mermaid.add_argument("--add-comments", action="store_true")
+    p_mermaid.add_argument(
+        "--view",
+        choices=["physical", "underlay", "evpn", "overlay-service"],
+        default=None,
+        help="Diagram view (default: physical)",
+    )
     p_mermaid.add_argument("--underlay", action="store_true", help="Show underlay loopback instead of mgmt for target roles")
     p_mermaid.add_argument("--underlay-config", help="YAML config for underlay display (roles/vrf/interface/label)")
     p_mermaid.add_argument(
@@ -13776,7 +18388,183 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_mermaid.add_argument("--log-file", default=f"{default_log_dir}/generate-mermaid.log", help="Log file path")
     p_mermaid.add_argument("--verbose", action="store_true", help="Verbose logging")
-    p_mermaid.set_defaults(func=cmd_generate_mermaid)
+    add_overlay_service_selector_arguments(p_mermaid)
+    p_mermaid.set_defaults(
+        func=cmd_generate_mermaid,
+        group_by_role=True,
+        group_by_site=None,
+    )
+
+    p_network_diagram = subparsers.add_parser(
+        "generate-network-diagram",
+        help="Generate Physical, Underlay, EVPN, and Overlay Service diagrams from one source",
+    )
+    p_network_diagram.add_argument(
+        "--input",
+        default=f"{default_links_dir}/{DEFAULT_LINKS_CONFIRMED_FILENAME}",
+        help="Input confirmed links CSV or containerlab YAML",
+    )
+    p_network_diagram.add_argument(
+        "--input-format",
+        choices=["auto", "csv", "clab"],
+        default="auto",
+        help="Input format (default: auto)",
+    )
+    p_network_diagram.add_argument(
+        "--input-candidates",
+        help="Optional input candidate links CSV",
+    )
+    p_network_diagram_source = p_network_diagram.add_mutually_exclusive_group()
+    p_network_diagram_source.add_argument(
+        "--evidence-package",
+        help="Imported Evidence Package directory",
+    )
+    p_network_diagram_source.add_argument(
+        "--running-config-import",
+        help="External running config import",
+    )
+    p_network_diagram_source.add_argument(
+        "--latest-operation",
+        action="store_true",
+        help="Use the latest published current before attempt",
+    )
+    p_network_diagram_source.add_argument(
+        "--change-id",
+        help="Use this Operation current before attempt",
+    )
+    p_network_diagram.add_argument(
+        "--operations-root",
+        default=DEFAULT_OPERATIONS_ROOT,
+        help=f"Operation root for latest/change-id source (default: {DEFAULT_OPERATIONS_ROOT})",
+    )
+    p_network_diagram.add_argument("--acknowledge-sensitive-config", action="store_true")
+    p_network_diagram.add_argument(
+        "-i",
+        "--inventory",
+        "--hosts",
+        dest="hosts",
+        help=f"Input hosts.yaml (default: ./{DEFAULT_HOSTS_PATH} if exists)",
+    )
+    p_network_diagram.add_argument("--mappings", help="Mappings YAML path")
+    p_network_diagram.add_argument(
+        "--description-rules",
+        help="Description rules YAML path for normalized non-Package sources",
+    )
+    p_network_diagram.add_argument(
+        "--roles",
+        help=f"Role detection YAML path (default: ./{DEFAULT_ROLES_PATH} if exists)",
+    )
+    p_network_diagram.add_argument(
+        "--sites",
+        help=f"Site detection YAML path (default: ./{DEFAULT_SITES_PATH} if exists)",
+    )
+    p_network_diagram.add_argument("--include-svi", action="store_true")
+    p_network_diagram.add_argument(
+        "--min-confidence",
+        choices=["low", "medium", "high"],
+        default="low",
+    )
+    p_network_diagram.add_argument(
+        "--direction",
+        choices=["TD", "LR", "BT", "RL"],
+        default="TD",
+        help="Diagram direction (default: TD)",
+    )
+    p_network_diagram_role_group = p_network_diagram.add_mutually_exclusive_group()
+    p_network_diagram_role_group.add_argument(
+        "--group-by-role",
+        dest="group_by_role",
+        action="store_true",
+        help="Group nodes by role (default: enabled)",
+    )
+    p_network_diagram_role_group.add_argument(
+        "--no-group-by-role",
+        dest="group_by_role",
+        action="store_false",
+        help="Do not group nodes by role",
+    )
+    p_network_diagram_site_group = p_network_diagram.add_mutually_exclusive_group()
+    p_network_diagram_site_group.add_argument(
+        "--group-by-site",
+        dest="group_by_site",
+        action="store_true",
+        help="Group nodes by site, using default for unresolved nodes",
+    )
+    p_network_diagram_site_group.add_argument(
+        "--no-group-by-site",
+        dest="group_by_site",
+        action="store_false",
+        help="Do not group nodes by site or auto-detect site metadata",
+    )
+    p_network_diagram.add_argument("--add-comments", action="store_true")
+    p_network_diagram.add_argument(
+        "--underlay-config",
+        help="YAML config for Underlay display (roles/vrf/interface/label)",
+    )
+    p_network_diagram.add_argument(
+        "--underlay-raw",
+        default=default_raw_dir,
+        help="Raw root used for Underlay lookup with direct CSV/containerlab input",
+    )
+    p_network_diagram.add_argument(
+        "--all-graph",
+        action="store_true",
+        help="Write multi-page draw.io Physical/Underlay/EVPN/Overlay Service variants",
+    )
+    p_network_diagram.add_argument(
+        "--no-overlay-service",
+        action="store_true",
+        help="Do not generate Overlay Service artifacts or draw.io pages",
+    )
+    add_overlay_service_selector_arguments(p_network_diagram)
+    p_network_diagram_detail = p_network_diagram.add_mutually_exclusive_group()
+    p_network_diagram_detail.add_argument(
+        "--overlay-detail-limit",
+        type=int,
+        default=20,
+        metavar="COUNT",
+        help="Maximum Overlay Service detail files (default: 20; 0 disables details)",
+    )
+    p_network_diagram_detail.add_argument(
+        "--all-overlay-details",
+        action="store_true",
+        help="Generate detail files for every selected Overlay Service",
+    )
+    p_network_diagram.add_argument(
+        "--overlay-detail-format",
+        type=parse_overlay_detail_formats,
+        default=DEFAULT_OVERLAY_DETAIL_FORMATS,
+        metavar="markdown,drawio",
+        help=(
+            "Comma-separated Overlay Service detail formats "
+            "(default: markdown; drawio is opt-in)"
+        ),
+    )
+    p_network_diagram.add_argument(
+        "--directions",
+        type=parse_drawio_page_directions,
+        default=None,
+        metavar="TD,LR",
+        help="Comma-separated --all-graph page directions (default: TD,LR)",
+    )
+    p_network_diagram.add_argument("--title", default="Network Topology")
+    p_network_diagram.add_argument(
+        "--output-dir",
+        default=default_topology_dir,
+        help=f"Output directory (default: {default_topology_dir})",
+    )
+    p_network_diagram.add_argument(
+        "--log-file",
+        default=f"{default_log_dir}/generate-network-diagram.log",
+        help="Log file path",
+    )
+    p_network_diagram.add_argument("--verbose", action="store_true")
+    p_network_diagram.set_defaults(
+        func=cmd_generate_network_diagram,
+        group_by_role=True,
+        group_by_site=None,
+        link_output_dir=None,
+    )
 
     p_graphviz = subparsers.add_parser("generate-graphviz", help="Generate Graphviz DOT from links CSV")
     p_graphviz.add_argument(
@@ -13795,6 +18583,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_graphviz.add_argument("--group-by-role", action="store_true")
     p_graphviz.add_argument("--group-by-site", action="store_true", help="Group nodes by site/domain metadata or sites.yaml")
     p_graphviz.add_argument("--add-comments", action="store_true")
+    p_graphviz.add_argument(
+        "--view",
+        choices=["physical", "underlay", "evpn", "overlay-service"],
+        default=None,
+        help="Diagram view (default: physical)",
+    )
     p_graphviz.add_argument("--underlay", action="store_true", help="Show underlay loopback instead of mgmt for target roles")
     p_graphviz.add_argument("--underlay-config", help="YAML config for underlay display (roles/vrf/interface/label)")
     p_graphviz.add_argument(
@@ -13810,6 +18604,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_graphviz.add_argument("--log-file", default=f"{default_log_dir}/generate-graphviz.log", help="Log file path")
     p_graphviz.add_argument("--verbose", action="store_true", help="Verbose logging")
+    add_overlay_service_selector_arguments(p_graphviz)
     p_graphviz.set_defaults(func=cmd_generate_graphviz)
 
     p_drawio = subparsers.add_parser("generate-drawio", help="Generate draw.io XML from links CSV")
@@ -13829,7 +18624,30 @@ def build_parser() -> argparse.ArgumentParser:
     p_drawio.add_argument("--group-by-role", action="store_true")
     p_drawio.add_argument("--group-by-site", action="store_true", help="Group nodes by site/domain metadata or sites.yaml")
     p_drawio.add_argument("--add-comments", action="store_true")
-    p_drawio.add_argument("--all-graph", action="store_true", help="Write all draw.io graph variants as separate pages")
+    p_drawio.add_argument(
+        "--view",
+        choices=["physical", "underlay", "evpn", "overlay-service"],
+        default=None,
+        help="Diagram view (default: physical)",
+    )
+    p_drawio.add_argument(
+        "--all-graph",
+        action="store_true",
+        help="Write multi-page Physical/Underlay/EVPN/Overlay Service variants",
+    )
+    p_drawio.add_argument(
+        "--no-overlay-service",
+        action="store_true",
+        help="Keep the legacy Physical/Underlay/EVPN page set",
+    )
+    add_overlay_service_selector_arguments(p_drawio)
+    p_drawio.add_argument(
+        "--directions",
+        type=parse_drawio_page_directions,
+        default=None,
+        metavar="TD,LR",
+        help="Comma-separated --all-graph page directions (default: TD,LR)",
+    )
     p_drawio.add_argument("--underlay", action="store_true", help="Show underlay loopback instead of mgmt for target roles")
     p_drawio.add_argument("--underlay-config", help="YAML config for underlay display (roles/vrf/interface/label)")
     p_drawio.add_argument(
@@ -13861,7 +18679,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Add staggered startup-delay to cisco_n9kv nodes as BATCH,SECONDS, e.g. 5,600",
     )
     p_doc.add_argument("--include-nodes", action="store_true")
-    p_doc.add_argument("--direction", choices=["TD", "LR", "BT", "RL"], default="TD")
+    p_doc.add_argument(
+        "--direction",
+        choices=["TD", "LR", "BT", "RL"],
+        default="TD",
+        help="Mermaid diagram direction (default: TD)",
+    )
     p_doc.add_argument("--group-by-role", action="store_true")
     p_doc.add_argument("--add-comments", action="store_true")
     p_doc.add_argument("--underlay", action="store_true", help="Show underlay loopback instead of mgmt for target roles")
@@ -14060,5 +18883,22 @@ def main() -> None:
         result = args.func(args)
     except (OperationError, ProfileResolutionError) as exc:
         _operation_cli_error(exc)
+    except EVPNDiagramError as exc:
+        print(f"{exc.code}: {exc}", file=sys.stderr)
+        raise SystemExit(3)
+    except (
+        ClabReadinessError,
+        LabTransformError,
+        TopologyDiagramError,
+        DocumentValidationError,
+        UnsupportedSchemaError,
+    ) as exc:
+        _operation_cli_error(exc)
+    except EvidencePackageError as exc:
+        print(f"{exc.code}: {exc}", file=sys.stderr)
+        raise SystemExit(6)
+    except ClabApplyError as exc:
+        print(f"{exc.code}: {exc}", file=sys.stderr)
+        raise SystemExit(5)
     if isinstance(result, int) and result:
         raise SystemExit(result)

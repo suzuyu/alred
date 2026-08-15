@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://alred.local/schemas/v1/lab-transform-manifest.schema.json",
+  "title": "LabTransformManifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["api_version", "kind", "spec"],
+  "properties": {
+    "api_version": {"const": "alred/v1"},
+    "kind": {"const": "LabTransformManifest"},
+    "spec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["parameter_source_sha256", "resolved_parameter_sha256", "devices"],
+      "properties": {
+        "parameter_source_sha256": {
+          "type": ["string", "null"],
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "resolved_parameter_sha256": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "evidence_package": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["package_id", "package_manifest_sha256", "config_content"],
+          "properties": {
+            "package_id": {"type": "string", "minLength": 1},
+            "package_manifest_sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+            "config_content": {"enum": ["sanitized", "verbatim"]}
+          }
+        },
+        "devices": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "hostname", "platform", "source_path", "source_sha256",
+              "output_path", "output_sha256", "legacy_stats", "adapter_stats",
+              "warnings", "primary_username", "post_apply_username",
+              "post_apply_password_ref", "bootstrap_action"
+            ],
+            "properties": {
+              "hostname": {"type": "string", "minLength": 1},
+              "platform": {"type": "string", "minLength": 1},
+              "source_path": {"type": "string", "minLength": 1},
+              "source_sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+              "output_path": {"type": "string", "minLength": 1},
+              "output_sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+              "legacy_stats": {"type": "object", "additionalProperties": {"type": "integer"}},
+              "adapter_stats": {"type": "object", "additionalProperties": {"type": "integer"}},
+              "warnings": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["id", "message"],
+                  "properties": {
+                    "id": {"type": "string", "minLength": 1},
+                    "message": {"type": "string", "minLength": 1}
+                  }
+                }
+              },
+              "risk_findings": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["id", "level", "summary"],
+                  "properties": {
+                    "id": {"type": "string", "minLength": 1},
+                    "level": {"enum": ["BLOCK", "WARN", "INFO"]},
+                    "summary": {"type": "string", "minLength": 1}
+                  }
+                }
+              },
+              "primary_username": {"type": ["string", "null"]}
+              ,
+              "post_apply_username": {"type": "string", "minLength": 1},
+              "post_apply_password_ref": {"type": ["string", "null"]},
+              "bootstrap_action": {
+                "enum": ["preserve", "replace-credential", "remove-after-primary-ready"]
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

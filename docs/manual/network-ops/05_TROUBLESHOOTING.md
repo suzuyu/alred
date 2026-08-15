@@ -48,7 +48,7 @@ Checklist例:
 raw確認例:
 
 ```bash
-sed -n '309,724p' operations/<change-id>/health/before/raw/leaf01/leaf01_shows.log
+sed -n '309,724p' operations/live/YYYY/MM/DD/<change-id>/health/before/raw/leaf01/leaf01_shows.log
 ```
 
 severity番号を持たないNX-OSのtimestamp付き非構造化recordは有効なrecordとして扱われ、
@@ -153,7 +153,7 @@ afterでは通常profileを指定しません。beforeのresolved-profiles.yaml�
 
 ```bash
 alred health-check snapshot \
-  --input operations/<change-id>/health/before/raw \
+  --input operations/live/YYYY/MM/DD/<change-id>/health/before/raw \
   --input-format alred-collect \
   --phase before \
   --change-id <change-id> \

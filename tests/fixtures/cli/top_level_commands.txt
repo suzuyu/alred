@@ -1,6 +1,7 @@
 __complete
 check-clab-startup-config
 check-logging
+clab-apply-config
 clab-set-cmds
 clab-transform-config
 collect
@@ -14,16 +15,19 @@ collect-run-diff
 collect-run-diff-cmd
 completion
 csv-to-md
+evidence-package
 generate-clab
 generate-doc
 generate-drawio
 generate-graphviz
 generate-mermaid
+generate-network-diagram
 generate-sample-config
 generate-tf
 generate-vni-config
 generate-vni-map
 health-check
+import-running-config
 init-clab
 normalize-links
 operation

@@ -1,0 +1,9 @@
+session_id,left_node,left_address,right_node,right_address,relationship,state,resolution_status,rr_node,client_node
+evpn-b3d065fb74139848,adc-lfsw0101,10.0.0.1,adc-spsw0101,10.0.0.254,rr-client,configured,confirmed,adc-spsw0101,adc-lfsw0101
+evpn-fadb40260ec4cdea,adc-lfsw0101,10.0.0.1,adc-spsw0102,10.0.0.253,rr-client,configured,confirmed,adc-spsw0102,adc-lfsw0101
+evpn-8b167cb2a7b2f252,adc-lfsw0102,10.0.0.2,adc-spsw0101,10.0.0.254,rr-client,configured,confirmed,adc-spsw0101,adc-lfsw0102
+evpn-a829869f6ee7ed94,adc-lfsw0102,10.0.0.2,adc-spsw0102,10.0.0.253,rr-client,configured,confirmed,adc-spsw0102,adc-lfsw0102
+evpn-6fc4903e0942e33e,adc-lfsw0103,10.0.0.3,adc-spsw0101,10.0.0.254,rr-client,configured,confirmed,adc-spsw0101,adc-lfsw0103
+evpn-14255f6ce549dc6b,adc-lfsw0103,10.0.0.3,adc-spsw0102,10.0.0.253,rr-client,configured,confirmed,adc-spsw0102,adc-lfsw0103
+evpn-e95f7638a1f27eb6,adc-lfsw0104,10.0.0.4,adc-spsw0101,10.0.0.254,rr-client,configured,confirmed,adc-spsw0101,adc-lfsw0104
+evpn-a65a366d4c0bd6c9,adc-lfsw0104,10.0.0.4,adc-spsw0102,10.0.0.253,rr-client,configured,confirmed,adc-spsw0102,adc-lfsw0104

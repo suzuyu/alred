@@ -14,7 +14,8 @@
       "required": ["mode", "max_age_days"],
       "properties": {
         "mode": {"enum": ["latest-known-good", "explicit"]},
-        "max_age_days": {"type": "integer", "minimum": 1}
+        "max_age_days": {"type": "integer", "minimum": 1},
+        "allow_reference_state_warn": {"type": "boolean"}
       }
     },
     "source": {
@@ -34,6 +35,31 @@
         "snapshot_created_at": {"type": "string", "format": "date-time"},
         "health_result_path": {"type": "string", "minLength": 1},
         "health_result_sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "health_summary": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["result", "warning_count", "warning_classifications", "checklist_path"],
+          "properties": {
+            "result": {"enum": ["PASS", "WARN"]},
+            "warning_count": {"type": "integer", "minimum": 0},
+            "warning_classifications": {
+              "type": "object",
+              "propertyNames": {"type": "string", "minLength": 1},
+              "additionalProperties": {"type": "integer", "minimum": 1}
+            },
+            "checklist_path": {"type": "string", "minLength": 1}
+          }
+        },
+        "overlay_result": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["path", "sha256", "result"],
+          "properties": {
+            "path": {"type": "string", "minLength": 1},
+            "sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+            "result": {"enum": ["VERIFIED", "OBSERVED_HEALTHY"]}
+          }
+        },
         "comparison": {
           "type": "object",
           "additionalProperties": false,

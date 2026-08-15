@@ -20,5 +20,5 @@ operation、Health Check、Overlay、VNI、config生成、apply、save、rollbac
 ## Sources
 
 - [Design index](../../docs/design/README.md)
-- [Operation State and Approval](../../docs/design/OPERATION_STATE_AND_APPROVAL_DESIGN.md)
+- [Operation State and Approval](../../docs/design/common/OPERATION_STATE_AND_APPROVAL_DESIGN.md)
 - [Implementation Status](../../docs/implementation/IMPLEMENTATION_STATUS.md)

@@ -504,6 +504,6 @@ def test_overlay_change_plan_writes_plan_only_artifacts(tmp_path, capsys):
     output = capsys.readouterr().out
     assert "Apply            : BLOCKED" in output
     assert (
-        f"config={workspace.operation_root / 'generated-config/leaf01.cfg'}"
+        f"config: {workspace.operation_root / 'generated-config/leaf01.cfg'}"
         in output
     )

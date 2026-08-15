@@ -337,10 +337,42 @@ def test_manual_external_and_inline_samples_render_identically():
     external = load_overlay_change_set(root / "desired-changes.yaml")
     minimal = load_overlay_change_set(root / "desired-changes.minimal.yaml")
     inline = load_overlay_change_set(root / "desired-changes.inline.yaml")
+    change_id = external.document["metadata"]["change_id"]
+    config_root = Path(
+        "docs/manual/containerlab/examples/single-site-fabric/labconfig"
+    )
+    hosts = {}
+    for path in sorted(config_root.glob("adc-lfsw01*_run.txt")):
+        config = parse_overlay_running_config(path.read_text(encoding="utf-8"))
+        for vlan, value in list(config["vlans"].items()):
+            if value.get("vni") != 10100:
+                continue
+            config["vlans"].pop(vlan)
+            config["svis"].pop(vlan)
+        config["nve"]["l2vnis"].pop("10100")
+        hosts[path.stem.removesuffix("_run")] = {
+            "common": {
+                "system": {
+                    "platform": "nxos",
+                    "model": "N9K-C9300v",
+                    "version": "10.5(4)",
+                }
+            },
+            "profiles": {"nxos-overlay": {"config": config}},
+            "sources": {},
+        }
+    snapshot = {
+        "schema_version": 1,
+        "change_id": change_id,
+        "collection_id": f"{change_id}-before-001",
+        "phase": "before",
+        "profile_sha256": "sha256:" + "a" * 64,
+        "hosts": hosts,
+    }
 
-    external_rendered = render_changeset(external.document, _snapshot("CHG-2026-00123"))
-    minimal_rendered = render_changeset(minimal.document, _snapshot("CHG-2026-00123"))
-    inline_rendered = render_changeset(inline.document, _snapshot("CHG-2026-00123"))
+    external_rendered = render_changeset(external.document, snapshot)
+    minimal_rendered = render_changeset(minimal.document, snapshot)
+    inline_rendered = render_changeset(inline.document, snapshot)
 
     expected = {
         host: result.forward_config
@@ -352,3 +384,10 @@ def test_manual_external_and_inline_samples_render_identically():
     assert expected == {
         host: result.forward_config for host, result in inline_rendered.items()
     }
+    for host in ("adc-lfsw0101", "adc-lfsw0103"):
+        assert external_rendered[host].forward_config == (
+            root / f"{host}.cfg"
+        ).read_text(encoding="utf-8")
+        assert external_rendered[host].rollback_config == (
+            root / f"{host}-rollback.cfg"
+        ).read_text(encoding="utf-8")

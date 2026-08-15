@@ -7,7 +7,11 @@ import json
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
-from .approval import calculate_approval_artifact_hashes, validate_approval
+from .approval import (
+    ApprovalRequiredError,
+    calculate_approval_artifact_hashes,
+    validate_approval,
+)
 from .health.evaluator import compare_snapshots
 from .health.profile import load_resolved_profiles
 from .health.report import render_health_summary
@@ -37,11 +41,18 @@ from .qualification import (
 )
 from .rollback_verification import (
     build_device_verification,
+    evaluate_rollback_health_gate,
     render_rollback_verification_checklist,
     rollback_snapshot_is_fresh,
     rollback_verification_passes,
 )
 from .schema import API_VERSION, source_sha256, validate_document
+
+
+class RollbackStateWarnAcceptanceError(QualificationError):
+    """Raised when rollback state WARN cannot be explicitly accepted."""
+
+    code = "VALIDATION_ERROR"
 
 
 def _load_json(path: Path) -> dict[str, Any]:
@@ -51,6 +62,323 @@ def _load_json(path: Path) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise QualificationError(f"managed artifact must be an object: {path}")
     return value
+
+
+def rollback_state_warn_confirmation_phrase(change_id: str) -> str:
+    """Return the exact phrase required to accept rollback state WARN."""
+    return f"ACCEPT ROLLBACK STATE WARN {change_id}"
+
+
+def _rollback_verification_root(workspace: OperationWorkspace) -> Path:
+    qualification = (
+        workspace.operation_root
+        / "qualification/qualification-record.json"
+    ).is_file()
+    return (
+        workspace.operation_root / "qualification/rollback"
+        if qualification
+        else workspace.operation_root / "rollback"
+    )
+
+
+def _operation_artifact_path(
+    workspace: OperationWorkspace,
+    value: str | Path,
+) -> Path:
+    candidate = Path(value)
+    resolved = candidate.resolve()
+    operation_root = workspace.operation_root.resolve()
+    if not resolved.is_relative_to(operation_root) and not candidate.is_absolute():
+        resolved = (operation_root / candidate).resolve()
+    if not resolved.is_relative_to(operation_root):
+        raise RollbackStateWarnAcceptanceError(
+            f"rollback acceptance artifact is outside operation root: {value}"
+        )
+    if not resolved.is_file() or resolved.is_symlink():
+        raise RollbackStateWarnAcceptanceError(
+            f"rollback acceptance artifact is not a regular file: {value}"
+        )
+    return resolved
+
+
+def build_rollback_state_warn_acceptance_summary(
+    workspace: OperationWorkspace,
+) -> dict[str, Any]:
+    """Validate and summarize the latest eligible rollback WARN evidence."""
+    workflow_state = load_operation_metadata(workspace.operation_root)["spec"][
+        "workflow_state"
+    ]
+    if workflow_state not in {
+        "rollback_health_failed",
+        "rolled_back_and_verified",
+    }:
+        raise OperationStateError(
+            "rollback state WARN acceptance requires rollback_health_failed "
+            "or a legacy WARN-based rolled_back_and_verified "
+            f"workflow state (current workflow state: {workflow_state})"
+        )
+    verification_root = _rollback_verification_root(workspace)
+    acceptance_path = verification_root / "state-warn-acceptance.json"
+    if acceptance_path.exists():
+        raise RollbackStateWarnAcceptanceError(
+            f"rollback state WARN acceptance already exists: {acceptance_path}"
+        )
+    current_path = verification_root / "verification-current.json"
+    current = _load_json(current_path)
+    validate_document(current, kind="RollbackVerificationCurrent")
+    if current["change_id"] != workspace.change_id:
+        raise RollbackStateWarnAcceptanceError(
+            "rollback verification current change_id mismatch"
+        )
+    verification_path = _operation_artifact_path(
+        workspace,
+        current["verification_path"],
+    )
+    health_result_path = _operation_artifact_path(
+        workspace,
+        current["health_report_path"],
+    )
+    verification = _load_json(verification_path)
+    verification_kind = verification.get("kind")
+    if verification_kind not in {
+        "ManagedRollbackVerification",
+        "QualificationRollbackVerification",
+    }:
+        raise RollbackStateWarnAcceptanceError(
+            "rollback verification kind is not eligible for state WARN acceptance"
+        )
+    validate_document(verification, kind=verification_kind)
+    health_result = _load_json(health_result_path)
+    validate_document(health_result, kind="HealthResult")
+    if (
+        verification["metadata"]["change_id"] != workspace.change_id
+        or health_result["change_id"] != workspace.change_id
+    ):
+        raise RollbackStateWarnAcceptanceError(
+            "rollback acceptance evidence change_id mismatch"
+        )
+    if _operation_artifact_path(
+        workspace,
+        verification["artifacts"]["health_result"],
+    ) != health_result_path:
+        raise RollbackStateWarnAcceptanceError(
+            "rollback verification HealthResult path mismatch"
+        )
+    status = verification["status"]
+    health_gate = evaluate_rollback_health_gate(health_result)
+    recorded_health_gate = status.get("health_gate")
+    if (
+        recorded_health_gate is not None
+        and "state_warn_eligible" in recorded_health_gate
+        and recorded_health_gate != health_gate
+    ):
+        raise RollbackStateWarnAcceptanceError(
+            "rollback verification health gate does not match HealthResult"
+        )
+    normal_warn_candidate = (
+        workflow_state == "rollback_health_failed"
+        and current["result"] == "ROLLBACK_HEALTH_FAILED"
+        and status.get("result") == "ROLLBACK_HEALTH_FAILED"
+    )
+    legacy_warn_candidate = (
+        workflow_state == "rolled_back_and_verified"
+        and current["result"] == "ROLLED_BACK_AND_VERIFIED"
+        and status.get("result") == "ROLLED_BACK_AND_VERIFIED"
+        and bool(recorded_health_gate)
+        and recorded_health_gate.get("allow_state_warn") is True
+        and recorded_health_gate.get("warn_allowed") is True
+    )
+    if (
+        not (normal_warn_candidate or legacy_warn_candidate)
+        or status.get("health_result") != "WARN"
+        or health_result.get("result") != "WARN"
+        or not health_gate["state_warn_eligible"]
+        or not status.get("snapshot_fresh")
+        or not status.get("raw_config_equal")
+        or not status.get("semantic_config_equal")
+    ):
+        raise RollbackStateWarnAcceptanceError(
+            "rollback state WARN is not eligible for acceptance"
+        )
+    before_snapshot_path = _operation_artifact_path(
+        workspace,
+        verification["artifacts"]["before_snapshot"],
+    )
+    rollback_snapshot_path = _operation_artifact_path(
+        workspace,
+        verification["artifacts"]["rollback_snapshot"],
+    )
+    rollback_current_path = workspace.operation_root / "health/rollback/current.json"
+    rollback_current = _load_json(rollback_current_path)
+    validate_document(rollback_current, kind="HealthPhaseCurrent")
+    if (
+        rollback_current["attempt_id"] != current["attempt_id"]
+        or _operation_artifact_path(
+            workspace,
+            rollback_current["snapshot_path"],
+        )
+        != rollback_snapshot_path
+        or rollback_current["snapshot_sha256"]
+        != source_sha256(rollback_snapshot_path)
+    ):
+        raise RollbackStateWarnAcceptanceError(
+            "rollback current Snapshot does not match verification attempt"
+        )
+    warnings = [
+        {
+            "host": str(check.get("host", "global")),
+            "check_id": str(check.get("check_id", "unknown")),
+            "classification": str(check.get("classification", "unclassified")),
+            "message": str(check.get("message", "")),
+        }
+        for check in health_result["checks"]
+        if check.get("result") == "WARN"
+    ]
+    return {
+        "change_id": workspace.change_id,
+        "source_workflow_state": workflow_state,
+        "attempt_id": current["attempt_id"],
+        "confirmation_phrase": rollback_state_warn_confirmation_phrase(
+            workspace.change_id
+        ),
+        "verification_kind": verification_kind,
+        "verification_path": str(verification_path),
+        "verification_sha256": source_sha256(verification_path),
+        "health_result_path": str(health_result_path),
+        "health_result_sha256": source_sha256(health_result_path),
+        "before_snapshot_path": str(before_snapshot_path),
+        "before_snapshot_sha256": source_sha256(before_snapshot_path),
+        "rollback_snapshot_path": str(rollback_snapshot_path),
+        "rollback_snapshot_sha256": source_sha256(rollback_snapshot_path),
+        "warning_count": health_gate["warning_count"],
+        "warning_classifications": health_gate["warning_classifications"],
+        "gates": {
+            "snapshot_fresh": status["snapshot_fresh"],
+            "raw_config_equal": status["raw_config_equal"],
+            "semantic_config_equal": status["semantic_config_equal"],
+        },
+        "warnings": warnings,
+        "acceptance_path": str(
+            acceptance_path
+        ),
+    }
+
+
+def accept_rollback_state_warn(
+    workspace: OperationWorkspace,
+    *,
+    confirm: Callable[[Mapping[str, Any]], bool],
+    lock: OperationLock,
+    now: Callable[[], datetime],
+) -> dict[str, Any]:
+    """Accept an eligible published rollback WARN without mutating evidence."""
+    lock.assert_held()
+    summary = build_rollback_state_warn_acceptance_summary(workspace)
+    if not confirm(summary):
+        raise ApprovalRequiredError(
+            "exact rollback state WARN acceptance phrase was not provided"
+        )
+    accepted_at = now()
+    document = {
+        "api_version": API_VERSION,
+        "kind": "RollbackStateWarnAcceptance",
+        "metadata": {
+            "change_id": workspace.change_id,
+            "accepted_at": accepted_at.isoformat(timespec="seconds"),
+            "timezone": workspace.timezone,
+        },
+        "spec": {
+            "attempt_id": summary["attempt_id"],
+            "source_workflow_state": summary["source_workflow_state"],
+            "confirmation_phrase": summary["confirmation_phrase"],
+            "verification_kind": summary["verification_kind"],
+            "verification_path": summary["verification_path"],
+            "verification_sha256": summary["verification_sha256"],
+            "health_result_path": summary["health_result_path"],
+            "health_result_sha256": summary["health_result_sha256"],
+            "before_snapshot_path": summary["before_snapshot_path"],
+            "before_snapshot_sha256": summary["before_snapshot_sha256"],
+            "rollback_snapshot_path": summary["rollback_snapshot_path"],
+            "rollback_snapshot_sha256": summary[
+                "rollback_snapshot_sha256"
+            ],
+            "warning_count": summary["warning_count"],
+            "warning_classifications": summary[
+                "warning_classifications"
+            ],
+        },
+        "status": {"result": "ACCEPTED"},
+    }
+    acceptance_path = Path(summary["acceptance_path"])
+    atomic_write_json(
+        workspace.operation_root,
+        acceptance_path,
+        document,
+        kind="RollbackStateWarnAcceptance",
+    )
+    if summary["source_workflow_state"] == "rollback_health_failed":
+        transition_workflow(
+            workspace,
+            "rolled_back_and_verified",
+            lock=lock,
+            reason="rollback_state_warn_accepted",
+            now=accepted_at,
+        )
+    return document
+
+
+def validate_rollback_state_warn_acceptance(
+    workspace: OperationWorkspace,
+    verification: Mapping[str, Any],
+) -> tuple[str, str, str]:
+    acceptance_path = (
+        workspace.operation_root / "rollback/state-warn-acceptance.json"
+    )
+    if not acceptance_path.is_file() or acceptance_path.is_symlink():
+        raise RollbackStateWarnAcceptanceError(
+            "rollback WARN save requires "
+            "overlay-change accept-rollback-state-warn first"
+        )
+    acceptance = _load_json(acceptance_path)
+    validate_document(acceptance, kind="RollbackStateWarnAcceptance")
+    if (
+        acceptance["metadata"]["change_id"] != workspace.change_id
+        or acceptance["status"]["result"] != "ACCEPTED"
+        or acceptance["spec"]["verification_kind"]
+        != "ManagedRollbackVerification"
+    ):
+        raise RollbackStateWarnAcceptanceError(
+            "rollback state WARN acceptance does not match managed operation"
+        )
+    spec = acceptance["spec"]
+    artifacts = (
+        ("verification_path", "verification_sha256"),
+        ("health_result_path", "health_result_sha256"),
+        ("before_snapshot_path", "before_snapshot_sha256"),
+        ("rollback_snapshot_path", "rollback_snapshot_sha256"),
+    )
+    for path_key, hash_key in artifacts:
+        artifact = _operation_artifact_path(workspace, spec[path_key])
+        if source_sha256(artifact) != spec[hash_key]:
+            raise RollbackStateWarnAcceptanceError(
+                f"rollback state WARN acceptance artifact changed: {path_key}"
+            )
+    canonical_verification = (
+        workspace.operation_root / "rollback/verification.json"
+    )
+    if (
+        source_sha256(canonical_verification)
+        != spec["verification_sha256"]
+        or verification["status"].get("health_result") != "WARN"
+    ):
+        raise RollbackStateWarnAcceptanceError(
+            "rollback state WARN acceptance no longer matches verification"
+        )
+    return (
+        str(acceptance_path),
+        source_sha256(acceptance_path),
+        spec["rollback_snapshot_sha256"],
+    )
 
 
 def _write_evidence(
@@ -221,7 +549,11 @@ def execute_approved_apply(
             workspace,
             "apply_running",
             lock=lock,
-            reason="approved_apply_precheck_failed",
+            reason=(
+                "approved_overlay_apply_no_changes"
+                if not devices
+                else "approved_apply_precheck_failed"
+            ),
             now=completed_at,
         )
     execution = build_execution_document(
@@ -320,12 +652,36 @@ def execute_approved_save(
         if save_mode == "apply"
         else "rolled_back_and_verified"
     )
-    if load_operation_metadata(workspace.operation_root)["spec"][
+    workflow_state = load_operation_metadata(workspace.operation_root)["spec"][
         "workflow_state"
-    ] != required_state:
+    ]
+    if workflow_state != required_state:
+        state_details = [f"current workflow state: {workflow_state}"]
+        if save_mode == "rollback":
+            verification_path = (
+                workspace.operation_root / "rollback/verification.json"
+            )
+            if verification_path.is_file() and not verification_path.is_symlink():
+                verification = _load_json(verification_path)
+                status = verification.get("status", {})
+                state_details.append(
+                    "verification result: "
+                    f"{status.get('result', 'UNKNOWN')}"
+                )
+                if status.get("health_gate", {}).get(
+                    "state_warn_eligible"
+                ):
+                    state_details.append(
+                        "next action: overlay-change "
+                        "accept-rollback-state-warn"
+                    )
+                state_details.append(
+                    "health result: "
+                    f"{status.get('health_result', 'UNKNOWN')}"
+                )
         raise OperationStateError(
             f"approved {save_mode} save requires {required_state} "
-            "workflow state"
+            f"workflow state ({'; '.join(state_details)})"
         )
     if plan.get("capability_level") != "APPLY_VERIFIED":
         raise QualificationError("approved plan is not APPLY_VERIFIED")
@@ -333,6 +689,7 @@ def execute_approved_save(
     apply_path = workspace.operation_root / "apply/execution.json"
     apply_execution = _load_json(apply_path)
     validate_document(apply_execution, kind="OverlayConfigExecution")
+    state_warn_acceptance: tuple[str, str, str] | None = None
     if save_mode == "apply":
         if apply_execution["status"]["result"] != "APPLIED_PENDING_HEALTH":
             raise QualificationError(
@@ -346,14 +703,14 @@ def execute_approved_save(
         )
         validate_document(common_health, kind="HealthResult")
         validate_document(overlay_health, kind="OverlayHealthResult")
-        if common_health["result"] != "PASS" or overlay_health[
+        if common_health["result"] not in {"PASS", "WARN"} or overlay_health[
             "result"
         ] not in {
             "VERIFIED",
             "OBSERVED_HEALTHY",
         }:
             raise QualificationError(
-                "approved save requires PASS common health and "
+                "approved save requires PASS or WARN common health and "
                 "verified Overlay"
             )
         execution_path = apply_path
@@ -368,9 +725,14 @@ def execute_approved_save(
             verification,
             kind="ManagedRollbackVerification",
         )
-        if verification["status"]["result"] != "ROLLED_BACK_AND_VERIFIED":
-            raise QualificationError(
-                "rollback verification does not permit save"
+        if (
+            verification["status"]["result"]
+            != "ROLLED_BACK_AND_VERIFIED"
+            or verification["status"].get("health_result") == "WARN"
+        ):
+            state_warn_acceptance = validate_rollback_state_warn_acceptance(
+                workspace,
+                verification,
             )
         execution_path = (
             workspace.operation_root / "rollback/execution.json"
@@ -411,6 +773,14 @@ def execute_approved_save(
             )
 
     snapshot = _load_json(Path(after_snapshot_path))
+    if (
+        state_warn_acceptance is not None
+        and source_sha256(Path(after_snapshot_path))
+        != state_warn_acceptance[2]
+    ):
+        raise RollbackStateWarnAcceptanceError(
+            "rollback Snapshot changed after state WARN acceptance"
+        )
     if snapshot.get("phase") != expected_phase:
         raise QualificationError(
             f"approved {save_mode} save requires a "
@@ -574,11 +944,11 @@ def execute_approved_save(
             "approval_id": approval["approval_id"],
             "execution_plan_sha256": hashes["execution_plan"],
             "rollback_plan_sha256": hashes["rollback_plan"],
-        "mode": (
-            "after_verified_apply"
-            if save_mode == "apply"
-            else "after_verified_rollback"
-        ),
+            "mode": (
+                "after_verified_apply"
+                if save_mode == "apply"
+                else "after_verified_rollback"
+            ),
             "serial": 1,
             "stop_on_first_error": True,
             "automatic_retry": False,
@@ -588,6 +958,16 @@ def execute_approved_save(
             ],
             "save_command": save_command,
             "success_marker": success_marker,
+            "state_warn_acceptance_path": (
+                state_warn_acceptance[0]
+                if save_mode == "rollback" and state_warn_acceptance
+                else None
+            ),
+            "state_warn_acceptance_sha256": (
+                state_warn_acceptance[1]
+                if save_mode == "rollback" and state_warn_acceptance
+                else None
+            ),
         },
         "status": {
             "result": (
@@ -953,6 +1333,7 @@ def verify_approved_rollback(
     semantic_equal = all(
         item["semantic_config_equal"] for item in devices.values()
     )
+    health_gate = evaluate_rollback_health_gate(health)
     verified = rollback_verification_passes(
         snapshot_fresh=snapshot_fresh,
         health_result=health["result"],
@@ -974,6 +1355,7 @@ def verify_approved_rollback(
                 else "ROLLBACK_HEALTH_FAILED"
             ),
             "health_result": health["result"],
+            "health_gate": health_gate,
             "snapshot_fresh": snapshot_fresh,
             "raw_config_equal": raw_equal,
             "semantic_config_equal": semantic_equal,

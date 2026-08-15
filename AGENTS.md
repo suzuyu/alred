@@ -7,6 +7,14 @@
 alredの設計、実装、テスト、文書更新を行う前に本書を確認すること。サブディレクトリに
 より具体的な`AGENTS.md`が追加された場合は、そのディレクトリ配下では両方に従う。
 
+## Japanese writing style
+
+- 日本語と英数字の境界には、原則として半角スペースを入れる。
+- command、option、file path、code、識別子は原表記を維持し、必要に応じて backtick で囲む。
+- 句読点、括弧、記号の直前・直後には、意味のない半角スペースを追加しない。
+- 新規作成する文章と、作業で変更する文章およびその周辺へ適用する。
+- 表記統一だけを目的として、依頼と無関係な既存 file を一括変更しない。
+
 ## Instruction routing
 
 全作業で本書を適用し、変更内容に応じて次の領域別instructionを作業前に最後まで読む。
@@ -14,10 +22,10 @@ alredの設計、実装、テスト、文書更新を行う前に本書を確認
 
 | 対象 | 追加instruction |
 |---|---|
-| inventory、認証、SSH/NX-API、`collect-*`、`push-config*`、`write-memory` | [.agents/instructions/device-access-and-collection.md](.agents/instructions/device-access-and-collection.md) |
+| inventory、`prepare-hosts`、`generate-tf`、認証、SSH/NX-API、`collect-*`、`push-config*`、`write-memory` | [.agents/instructions/device-access-and-collection.md](.agents/instructions/device-access-and-collection.md) |
 | operation、Health Check、Overlay、VNI、apply、rollback、support bundle | [.agents/instructions/network-ops.md](.agents/instructions/network-ops.md) |
 | containerlab、lab config変換、lab起動確認 | [.agents/instructions/containerlab.md](.agents/instructions/containerlab.md) |
-| LLDP、link正規化、Mermaid、Graphviz、draw.io、Terraform | [.agents/instructions/topology.md](.agents/instructions/topology.md) |
+| LLDP、link正規化、Mermaid、Graphviz、draw.io | [.agents/instructions/topology.md](.agents/instructions/topology.md) |
 | 設計書、manual、sample、ADR、実装状況 | [.agents/instructions/documentation.md](.agents/instructions/documentation.md) |
 
 `collect-clab`はdevice accessとcontainerlab、`clab-set-cmds`はdevice access、containerlab、
@@ -35,6 +43,8 @@ topologyを読む。
 ## Sources of truth
 
 仕様の正本は[docs/design/README.md](docs/design/README.md)から参照できる設計書とする。
+全体構成、データflow、主要operation lifecycleは
+[ARCHITECTURE_OVERVIEW.md](docs/design/ARCHITECTURE_OVERVIEW.md)を入口とする。
 実装計画は
 [docs/implementation/OVERLAY_CHANGE_IMPLEMENTATION_PLAN.md](docs/implementation/OVERLAY_CHANGE_IMPLEMENTATION_PLAN.md)、
 実装状況は
@@ -49,31 +59,51 @@ topologyを読む。
 
 主な責務は次のとおり。
 
+- CLI、設定、path、package resource:
+  [CLI_CONFIGURATION_AND_RESOURCES_DESIGN.md](docs/design/common/CLI_CONFIGURATION_AND_RESOURCES_DESIGN.md)
+- inventory、credential、機器access:
+  [INVENTORY_CREDENTIALS_AND_DEVICE_ACCESS_DESIGN.md](docs/design/common/INVENTORY_CREDENTIALS_AND_DEVICE_ACCESS_DESIGN.md)
+- 既存収集artifact:
+  [COLLECTION_DESIGN.md](docs/design/common/COLLECTION_DESIGN.md)
 - 共通正常性確認:
-  [HEALTH_CHECK_FRAMEWORK_DESIGN.md](docs/design/HEALTH_CHECK_FRAMEWORK_DESIGN.md)
+  [HEALTH_CHECK_FRAMEWORK_DESIGN.md](docs/design/network-ops/HEALTH_CHECK_FRAMEWORK_DESIGN.md)
 - NX-OS共通取得コマンド:
-  [NXOS_BASELINE_HEALTH_CHECK_COMMANDS.md](docs/design/NXOS_BASELINE_HEALTH_CHECK_COMMANDS.md)
+  [NXOS_BASELINE_HEALTH_CHECK_COMMANDS.md](docs/design/network-ops/NXOS_BASELINE_HEALTH_CHECK_COMMANDS.md)
 - 正常性確認の出力:
-  [HEALTH_CHECK_OUTPUT_FORMATS.md](docs/design/HEALTH_CHECK_OUTPUT_FORMATS.md)
+  [HEALTH_CHECK_OUTPUT_FORMATS.md](docs/design/network-ops/HEALTH_CHECK_OUTPUT_FORMATS.md)
 - 実行シナリオ:
-  [HEALTH_CHECK_EXECUTION_SCENARIOS.md](docs/design/HEALTH_CHECK_EXECUTION_SCENARIOS.md)
+  [HEALTH_CHECK_EXECUTION_SCENARIOS.md](docs/design/network-ops/HEALTH_CHECK_EXECUTION_SCENARIOS.md)
 - Overlay変更管理:
-  [OVERLAY_CHANGE_MANAGEMENT_DESIGN.md](docs/design/OVERLAY_CHANGE_MANAGEMENT_DESIGN.md)
+  [OVERLAY_CHANGE_MANAGEMENT_DESIGN.md](docs/design/network-ops/OVERLAY_CHANGE_MANAGEMENT_DESIGN.md)
 - NX-OS config生成:
-  [NXOS_OVERLAY_CONFIG_RENDERING_DESIGN.md](docs/design/NXOS_OVERLAY_CONFIG_RENDERING_DESIGN.md)
+  [NXOS_OVERLAY_CONFIG_RENDERING_DESIGN.md](docs/design/network-ops/NXOS_OVERLAY_CONFIG_RENDERING_DESIGN.md)
 - 障害解析用bundle:
-  [SUPPORT_BUNDLE_DESIGN.md](docs/design/SUPPORT_BUNDLE_DESIGN.md)
+  [SUPPORT_BUNDLE_DESIGN.md](docs/design/common/SUPPORT_BUNDLE_DESIGN.md)
 - operation状態、承認、排他制御:
-  [OPERATION_STATE_AND_APPROVAL_DESIGN.md](docs/design/OPERATION_STATE_AND_APPROVAL_DESIGN.md)
+  [OPERATION_STATE_AND_APPROVAL_DESIGN.md](docs/design/common/OPERATION_STATE_AND_APPROVAL_DESIGN.md)
 - schema互換性:
-  [SCHEMA_AND_COMPATIBILITY_POLICY.md](docs/design/SCHEMA_AND_COMPATIBILITY_POLICY.md)
+  [SCHEMA_AND_COMPATIBILITY_POLICY.md](docs/design/common/SCHEMA_AND_COMPATIBILITY_POLICY.md)
 - error code:
-  [ERROR_CATALOG.md](docs/design/ERROR_CATALOG.md)
+  [ERROR_CATALOG.md](docs/design/common/ERROR_CATALOG.md)
 - NX-OS対応範囲:
-  [NXOS_CAPABILITY_AND_FIXTURE_MATRIX.md](docs/design/NXOS_CAPABILITY_AND_FIXTURE_MATRIX.md)
+  [NXOS_CAPABILITY_AND_FIXTURE_MATRIX.md](docs/design/network-ops/NXOS_CAPABILITY_AND_FIXTURE_MATRIX.md)
 - NX-OS hardware文書確認:
-  [NXOS_HARDWARE_DOCUMENT_REVIEW.md](docs/design/NXOS_HARDWARE_DOCUMENT_REVIEW.md)
-- 既存config投入のAs-Is:
+  [NXOS_HARDWARE_DOCUMENT_REVIEW.md](docs/design/network-ops/NXOS_HARDWARE_DOCUMENT_REVIEW.md)
+- 既存VNI map／CSV:
+  [VNI_MAP_AND_LEGACY_CSV_DESIGN.md](docs/design/network-ops/VNI_MAP_AND_LEGACY_CSV_DESIGN.md)
+- 既存config投入:
+  [DIRECT_CONFIG_PUSH_AND_SAVE_DESIGN.md](docs/design/network-ops/DIRECT_CONFIG_PUSH_AND_SAVE_DESIGN.md)
+- containerlab workflow:
+  [CONTAINERLAB_WORKFLOW_DESIGN.md](docs/design/containerlab/CONTAINERLAB_WORKFLOW_DESIGN.md)
+- link正規化:
+  [LINK_DISCOVERY_AND_NORMALIZATION_DESIGN.md](docs/design/topology/LINK_DISCOVERY_AND_NORMALIZATION_DESIGN.md)
+- diagram:
+  [TOPOLOGY_RENDERING_DESIGN.md](docs/design/topology/TOPOLOGY_RENDERING_DESIGN.md)
+- Terraform inventory生成:
+  [TERRAFORM_INVENTORY_GENERATION_DESIGN.md](docs/design/common/TERRAFORM_INVENTORY_GENERATION_DESIGN.md)
+- 開発、test、packaging:
+  [DEVELOPMENT_TESTING_AND_PACKAGING_DESIGN.md](docs/design/development/DEVELOPMENT_TESTING_AND_PACKAGING_DESIGN.md)
+- 既存config投入の観測記録:
   [PUSH_CONFIG_AS_IS.md](docs/as-is/PUSH_CONFIG_AS_IS.md)
 
 設計書、実装、テストに不一致がある場合は、暗黙にどれかへ合わせないこと。不一致と影響を

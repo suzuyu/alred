@@ -22,8 +22,9 @@ from alred.health.profile import (
     ProfileResolutionError,
     resolve_profiles,
 )
-from alred.health.parsers import parse_nxos_command
+from alred.health.parsers import ParserError, parse_nxos_command
 from alred.health.report import render_health_checklist
+from alred.operation import open_operation_workspace
 
 
 JST_NOW = datetime.fromisoformat("2026-08-02T10:02:03+09:00")
@@ -131,6 +132,11 @@ BASELINE_COMMAND_FIXTURES = {
     "show system config reload-pending": (
         NXOS_FIXTURES / "show_reload_pending" / "c9300v_10_5_4_no_pending.txt"
     ),
+    "show running-config diff unified": (
+        NXOS_FIXTURES
+        / "show_running_config_diff"
+        / "c9300v_10_5_4_clean.txt"
+    ),
     "show logging": (NXOS_FIXTURES / "show_logging" / "c9300v_10_5_4_healthy.txt"),
     "show ip route summary vrf all": (
         NXOS_FIXTURES / "show_route_summary_ipv4" / "c9300v_10_5_4.txt"
@@ -222,6 +228,11 @@ def _snapshot(resolved, *, phase="before"):
                         "required": False,
                         "commands": [],
                     },
+                    "running_config_diff": {
+                        "different": False,
+                        "line_count": 0,
+                        "output_sha256": "0" * 64,
+                    },
                     "logging": {
                         "records": [],
                         "parse_warnings": [],
@@ -249,6 +260,7 @@ def _snapshot(resolved, *, phase="before"):
                     "interface_errors",
                     "port_channel_summary",
                     "reload_pending",
+                    "running_config_diff",
                     "show_logging",
                     "route_summary_ipv4",
                     "vpc_brief",
@@ -320,7 +332,8 @@ def test_builtin_profiles_resolve_deterministically():
                 "bgp_l2vpn_evpn",
                 "route_ipv4_all_vrfs",
                 "route_ipv6_all_vrfs",
-                "running_config",
+            "running_config",
+            "running_config_diff",
             "clock",
             "ntp_status",
             "ntp_peers",
@@ -470,6 +483,40 @@ def test_phase3_nxos_parsers_normalize_environment_routes_and_neighbors():
     assert bgp_default["neighbors"]["192.0.2.254"]["state"] == "Idle"
 
 
+def test_running_config_diff_parser_and_health_check_warn_on_unsaved_config():
+    clean, _profiles = parse_nxos_command("running_config_diff", "")
+    changed, _profiles = parse_nxos_command(
+        "running_config_diff",
+        "interface Ethernet1/1\n  description unsaved",
+    )
+
+    assert clean["running_config_diff"]["different"] is False
+    assert changed["running_config_diff"] == {
+        "different": True,
+        "line_count": 2,
+        "output_sha256": changed["running_config_diff"]["output_sha256"],
+    }
+
+    resolved = _resolved()
+    snapshot = _snapshot(resolved)
+    snapshot["hosts"]["leaf01"]["common"]["running_config_diff"] = changed[
+        "running_config_diff"
+    ]
+    result = evaluate_snapshot(
+        snapshot,
+        resolved,
+        started_at=JST_NOW,
+        completed_at=JST_NOW,
+    )
+    finding = next(
+        check
+        for check in result["checks"]
+        if check["check_id"] == "running_config_diff"
+    )
+    assert finding["result"] == "WARN"
+    assert "2 non-empty output lines" in finding["message"]
+
+
 def test_single_snapshot_evaluates_baseline_and_cpu_threshold_inclusively():
     resolved = _resolved()
     snapshot = _snapshot(resolved)
@@ -482,7 +529,7 @@ def test_single_snapshot_evaluates_baseline_and_cpu_threshold_inclusively():
     )
     assert healthy["result"] == "PASS"
     assert healthy["counts"] == {
-        "pass": 11,
+        "pass": 12,
         "warn": 0,
         "fail": 0,
         "unknown": 0,
@@ -658,6 +705,95 @@ def test_additional_baseline_parsers_and_evaluators_cover_device_health():
     )
 
 
+def test_interface_status_normalizes_nxos_truncated_not_connected_state():
+    interfaces, _ = parse_nxos_command(
+        "interface_status",
+        (
+            NXOS_FIXTURES
+            / "show_interface_status"
+            / "c9300v_10_5_4_not_connected.txt"
+        ).read_text(encoding="utf-8"),
+    )
+
+    assert interfaces["interfaces"]["Eth1/49"] == {
+        "admin_state": "up",
+        "operational_state": "down",
+        "status": "notconnect",
+    }
+    assert interfaces["interfaces"]["Eth1/50"] == {
+        "admin_state": "down",
+        "operational_state": "down",
+        "status": "disabled",
+    }
+
+    resolved = _resolved()
+    snapshot = _snapshot(resolved)
+    snapshot["hosts"]["leaf01"]["common"].update(interfaces)
+    result = evaluate_snapshot(
+        snapshot,
+        resolved,
+        started_at=JST_NOW,
+        completed_at=JST_NOW,
+    )
+    check = next(
+        item for item in result["checks"] if item["check_id"] == "interface_health"
+    )
+
+    assert check["result"] == "FAIL"
+    assert check["classification"] == "target_not_ready"
+    assert check["after"]["admin_up_oper_down"] == ["Eth1/49"]
+    assert check["message"] == "Admin-up interfaces are down: Eth1/49"
+
+
+def test_interface_status_rejects_unknown_state_instead_of_partial_pass():
+    output = """\
+Port                Name               Status    Vlan      Duplex  Speed   Type
+Eth1/1              uplink             connected trunk     full    1000    10g
+Eth1/2              --                 mystery   1         auto    auto    10g
+"""
+
+    with pytest.raises(
+        ParserError,
+        match=r"unsupported interface status row\(s\): Eth1/2=mystery",
+    ):
+        parse_nxos_command("interface_status", output)
+
+    resolved = _resolved()
+    snapshot = _snapshot(resolved)
+    host = snapshot["hosts"]["leaf01"]
+    host["common"]["interfaces"] = {
+        "Vlan10": {
+            "admin_state": "up",
+            "operational_state": "up",
+            "status": "connected",
+        }
+    }
+    host["sources"]["interface_status"].update(
+        parse_status="unknown",
+        parse_warning="unsupported interface status row(s): Eth1/2=mystery",
+    )
+    host["sources"]["interface_brief"] = {
+        "status": "success",
+        "parse_status": "parsed",
+        "command": "show interface brief",
+        "file": "/fixtures/interface_brief.txt",
+        "sha256": "b" * 64,
+    }
+    result = evaluate_snapshot(
+        snapshot,
+        resolved,
+        started_at=JST_NOW,
+        completed_at=JST_NOW,
+    )
+    check = next(
+        item for item in result["checks"] if item["check_id"] == "interface_health"
+    )
+
+    assert check["result"] == "UNKNOWN"
+    assert check["classification"] == "collection_error"
+    assert check["message"] == "Interface status could not be parsed"
+
+
 def test_baseline_command_ids_connect_collected_health_outputs() -> None:
     assert {
         command: command_id(command)
@@ -669,6 +805,8 @@ def test_baseline_command_ids_connect_collected_health_outputs() -> None:
             "show interface status",
             "show interface counters errors non-zero",
             "show port-channel summary",
+            "show running-config diff",
+            "show running-config diff unified",
         )
     } == {
         "show clock": "clock",
@@ -678,6 +816,8 @@ def test_baseline_command_ids_connect_collected_health_outputs() -> None:
         "show interface status": "interface_status",
         "show interface counters errors non-zero": "interface_errors",
         "show port-channel summary": "port_channel_summary",
+        "show running-config diff": "running_config_diff",
+        "show running-config diff unified": "running_config_diff",
     }
 
 
@@ -1447,9 +1587,17 @@ def test_snapshot_and_compare_cli_write_reports_and_return_health_exit_codes(
         ]
     )
     assert cmd_health_check_snapshot(before_args) == 0
+    latest = operations_root / "live" / "latest"
+    assert latest.is_symlink()
+    assert latest.resolve() == open_operation_workspace(
+        operations_root, "CHG-1"
+    ).operation_root.resolve()
+    operation_root = open_operation_workspace(
+        operations_root, "CHG-1"
+    ).operation_root
 
     resolved_document = yaml.safe_load(
-        (operations_root / "CHG-1" / "health" / "resolved-profiles.yaml").read_text()
+        (operation_root / "health" / "resolved-profiles.yaml").read_text()
     )
     logging = resolved_document["spec"]["resolved"]["effective"]["spec"]["thresholds"][
         "logging"
@@ -1476,7 +1624,7 @@ def test_snapshot_and_compare_cli_write_reports_and_return_health_exit_codes(
     )
     assert cmd_health_check_snapshot(before_recheck_args) == 0
     assert (
-        operations_root / "CHG-1" / "health" / "before-recheck" / "health-result.json"
+        operation_root / "health" / "before-recheck" / "health-result.json"
     ).is_file()
     after_args = build_parser().parse_args(
         [
@@ -1498,8 +1646,8 @@ def test_snapshot_and_compare_cli_write_reports_and_return_health_exit_codes(
     )
     assert cmd_health_check_snapshot(after_args) == 1
 
-    before_snapshot = operations_root / "CHG-1" / "health" / "before" / "snapshot.json"
-    after_snapshot = operations_root / "CHG-1" / "health" / "after" / "snapshot.json"
+    before_snapshot = operation_root / "health" / "before" / "snapshot.json"
+    after_snapshot = operation_root / "health" / "after" / "snapshot.json"
     compare_args = build_parser().parse_args(
         [
             "health-check",
@@ -1516,7 +1664,7 @@ def test_snapshot_and_compare_cli_write_reports_and_return_health_exit_codes(
     )
     assert cmd_health_check_compare(compare_args) == 4
 
-    report_dir = operations_root / "CHG-1" / "health" / "report"
+    report_dir = operation_root / "health" / "report"
     result = json.loads((report_dir / "health-result.json").read_text(encoding="utf-8"))
     assert result["result"] == "FAIL"
     assert (report_dir / "summary.md").is_file()
@@ -1537,5 +1685,5 @@ def test_snapshot_and_compare_cli_write_reports_and_return_health_exit_codes(
     )
     assert cmd_health_check_compare(recheck_args) == 4
     assert (
-        operations_root / "CHG-1" / "health" / "report-recheck" / "health-result.json"
+        operation_root / "health" / "report-recheck" / "health-result.json"
     ).is_file()

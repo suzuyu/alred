@@ -20,4 +20,4 @@ inventory、credentials、SSH/NX-API、`collect-*`、`push-config*`、`write-mem
 
 - [Collect Output As-Is](../../docs/as-is/COLLECT_OUTPUT_AS_IS.md)
 - [Push Config As-Is](../../docs/as-is/PUSH_CONFIG_AS_IS.md)
-- [Health Check Framework](../../docs/design/HEALTH_CHECK_FRAMEWORK_DESIGN.md)
+- [Health Check Framework](../../docs/design/network-ops/HEALTH_CHECK_FRAMEWORK_DESIGN.md)

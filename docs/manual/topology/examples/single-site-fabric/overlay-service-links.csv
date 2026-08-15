@@ -1,0 +1,7 @@
+leak_id,source_service,destination_service,address_families,scope,matched_route_targets,policy_state,operational_state,verification_scope,expected_prefixes,received_prefixes
+route-leak-6acc3fb168dfcaae,adc/controller-vpc1,adc/tenant1-vpc1,ipv6,evpn,65001:9001,configured,unknown,unknown,0,0
+route-leak-bb9a7d7370f5ea96,adc/controller-vpc1,adc/tenant2-vpc1,ipv6,evpn,65001:9001,configured,unknown,unknown,0,0
+route-leak-34131c0262dd1e1d,adc/tenant1-vpc1,adc/controller-vpc1,ipv4,evpn,65001:19001,configured,unknown,unknown,0,0
+route-leak-6a3abd8dc0c3999f,adc/tenant1-vpc1,adc/controller-vpc1,ipv6,evpn,65001:19001,configured,unknown,unknown,0,0
+route-leak-24aa954be700c8f0,adc/tenant2-vpc1,adc/controller-vpc1,ipv4,evpn,65001:29001,configured,unknown,unknown,0,0
+route-leak-5eb13cae1ee18da1,adc/tenant2-vpc1,adc/controller-vpc1,ipv6,evpn,65001:29001,configured,unknown,unknown,0,0

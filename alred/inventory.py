@@ -10,6 +10,24 @@ from typing import Any, Callable, Dict, List
 from .constants import DEVICE_MAP
 
 
+def apply_device_inventory_defaults(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Fill transport metadata using the same device map as prepare-hosts."""
+    hosts = data.get("all", {}).get("hosts", {})
+    if not isinstance(hosts, dict):
+        return data
+    for attrs in hosts.values():
+        if not isinstance(attrs, dict):
+            continue
+        device_type = str(
+            attrs.get("device_type") or attrs.get("os_type") or "unknown"
+        )
+        attrs.setdefault("device_type", device_type)
+        attrs.setdefault("os_type", device_type)
+        for key, value in DEVICE_MAP.get(device_type, {}).items():
+            attrs.setdefault(key, value)
+    return data
+
+
 def parse_hosts_comment(comment: str) -> Dict[str, Any]:
     """
     Parse hosts.txt comment metadata.
@@ -128,7 +146,7 @@ def build_inventory(entries: List[Dict[str, str]]) -> Dict[str, Any]:
         host_vars.update(DEVICE_MAP.get(entry["device_type"], {}))
         inventory["all"]["hosts"][entry["hostname"]] = host_vars
 
-    return inventory
+    return apply_device_inventory_defaults(inventory)
 
 
 def load_inventory_data(data: Dict[str, Any]) -> List[Dict[str, Any]]:

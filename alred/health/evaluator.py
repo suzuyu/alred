@@ -676,10 +676,28 @@ def _evaluate_ntp(snapshot, host, definition, effective):
 
 def _evaluate_interfaces(snapshot, host, definition, _effective):
     value = snapshot["hosts"][host]["common"].get("interfaces")
-    evidence = _source_evidence(snapshot, host, "interface_status")
-    if value is None:
+    evidence = [
+        *_source_evidence(snapshot, host, "interface_status"),
+        *_source_evidence(snapshot, host, "interface_brief"),
+    ]
+    status_source = snapshot["hosts"][host]["sources"].get("interface_status")
+    if status_source is None or status_source.get("parse_status") != "parsed":
         if _optional_uncollected(snapshot, host, ("interface_status",)):
-            return _unknown(definition, host, "Interface status was not collected", [], resource="interfaces")
+            return _unknown(
+                definition,
+                host,
+                "Interface status was not collected",
+                evidence,
+                resource="interfaces",
+            )
+        return _unknown(
+            definition,
+            host,
+            "Interface status could not be parsed",
+            evidence,
+            resource="interfaces",
+        )
+    if value is None:
         return _unknown(definition, host, "Interface status is unavailable", evidence, resource="interfaces")
     down = sorted(name for name, item in value.items() if item.get("admin_state") == "up" and item.get("operational_state") != "up")
     result = "FAIL" if down else "PASS"
@@ -753,6 +771,49 @@ def _evaluate_reload(
         evidence=evidence,
         resource="system/reload-pending",
         after=pending,
+    )
+
+
+def _evaluate_running_config_diff(
+    snapshot: Mapping[str, Any],
+    host: str,
+    definition: Mapping[str, Any],
+    _effective_profile: Mapping[str, Any],
+) -> dict[str, Any]:
+    value = snapshot["hosts"][host]["common"].get("running_config_diff")
+    evidence = _source_evidence(snapshot, host, "running_config_diff")
+    if value is None:
+        if _optional_uncollected(snapshot, host, ("running_config_diff",)):
+            return _unknown(
+                definition,
+                host,
+                "Running/startup configuration diff was not collected",
+                [],
+                resource="system/running-startup-diff",
+            )
+        return _unknown(
+            definition,
+            host,
+            "Running/startup configuration diff is unavailable",
+            evidence,
+            resource="system/running-startup-diff",
+        )
+    different = bool(value.get("different"))
+    return _check(
+        check_id=definition["id"],
+        profile=definition["profile"],
+        host=host,
+        result="WARN" if different else "PASS",
+        classification="pre_existing" if different else "normal",
+        message=(
+            f"Running-config differs from startup-config "
+            f"({value.get('line_count', 0)} non-empty output lines)"
+            if different
+            else "Running-config matches startup-config"
+        ),
+        evidence=evidence,
+        resource="system/running-startup-diff",
+        after=value,
     )
 
 
@@ -1889,6 +1950,7 @@ SINGLE_EVALUATORS: dict[
     "interface_error_health": _evaluate_interface_errors,
     "port_channel_health": _evaluate_port_channels,
     "logging_health": _evaluate_logging,
+    "running_config_diff": _evaluate_running_config_diff,
     "reload_pending": _evaluate_reload,
     "ipv4_route_count": _evaluate_route_count,
     "ospf_neighbor_health": _evaluate_ospf,

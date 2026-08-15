@@ -1,0 +1,37 @@
+api_version: alred/v1
+kind: LabTransformParameters
+metadata:
+  name: quick-start-nxos-sample
+spec:
+  services:
+    ntp:
+      action: replace
+      servers:
+        - address: 172.20.20.200
+    logging:
+      action: remove
+    dns:
+      action: remove
+    aaa:
+      action: remove
+    snmp:
+      action: remove
+  access_control:
+    management_access_class:
+      action: remove
+  credentials:
+    certificates:
+      action: remove
+    private_keys:
+      action: remove
+  source_local_users:
+    action: remove
+  lab_users:
+    users: []
+  bootstrap_user:
+    action: preserve
+  management:
+    ipv4_subnet: 172.20.20.0/24
+    gateway: 172.20.20.1
+  vpc_keepalive:
+    action: remove

@@ -7,6 +7,7 @@ from __future__ import annotations
 import csv
 import ipaddress
 from logging import Logger
+import os
 import re
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
@@ -918,7 +919,10 @@ def merge_lldp_and_description_links(
 
     all_keys = set(lldp_map.keys()) | set(desc_map.keys())
 
-    for key in all_keys:
+    # Both directions of a confirmed link are present in all_keys.  Always
+    # visit the lexicographically smaller directional key first so the
+    # selected row does not depend on Python's hash seed.
+    for key in sorted(all_keys):
         reverse_key = (key[2], key[3], key[0], key[1])
         canon_key = tuple(sorted([key, reverse_key]))
 
@@ -1022,7 +1026,8 @@ def write_links_csv(records: List[Dict[str, str]], path: str) -> None:
         records: Link records.
         path: Output CSV path.
     """
-    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    output_path = Path(path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
     fields = [
         "src_node",
         "src_if",
@@ -1035,11 +1040,29 @@ def write_links_csv(records: List[Dict[str, str]], path: str) -> None:
         "rule_name",
         "warning",
     ]
-    with open(path, "w", newline="", encoding="utf-8") as f:
+    ordered_records = sorted(
+        records,
+        key=lambda record: (
+            tuple(
+                sorted(
+                    (
+                        (record.get("src_node", ""), record.get("src_if", "")),
+                        (record.get("dst_node", ""), record.get("dst_if", "")),
+                    )
+                )
+            ),
+            record.get("protocol", ""),
+            record.get("evidence", ""),
+            record.get("warning", ""),
+        ),
+    )
+    temporary = output_path.with_name(f".{output_path.name}.tmp")
+    with temporary.open("w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=fields)
         writer.writeheader()
-        for r in records:
+        for r in ordered_records:
             writer.writerow({k: r.get(k, "") for k in fields})
+    os.replace(temporary, output_path)
 
 
 def read_links_csv(path: str) -> List[Dict[str, str]]:

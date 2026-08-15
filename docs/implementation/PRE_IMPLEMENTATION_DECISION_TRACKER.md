@@ -23,14 +23,14 @@ Health CheckとOverlay変更管理の実装前に必要な設計判断を管理�
 | ID | 項目 | 決定 | 状態 | 正本・反映先 |
 |---|---|---|---|---|
 | A-01 | As-Is解析順 | 現行VNI生成、collect、CLI基盤の順 | `accepted` | [既存機能設計書化状況](./EXISTING_FEATURE_DOCUMENTATION_STATUS.md) |
-| A-02 | 入力schema未知field | fail closedで拒否 | `designed` | [Schema Policy](../design/SCHEMA_AND_COMPATIBILITY_POLICY.md) |
-| A-03 | 出力reader未知field | 同じmajor schema内では保持または無視可能 | `designed` | [Schema Policy](../design/SCHEMA_AND_COMPATIBILITY_POLICY.md) |
-| A-04 | Schema version | 初期`alred/v1`、破壊的変更でmajor更新 | `designed` | [Schema Policy](../design/SCHEMA_AND_COMPATIBILITY_POLICY.md) |
-| A-05 | Error taxonomy | 共通code、終了code、retry可否を中央定義 | `designed` | [Error Catalog](../design/ERROR_CATALOG.md) |
+| A-02 | 入力schema未知field | fail closedで拒否 | `designed` | [Schema Policy](../design/common/SCHEMA_AND_COMPATIBILITY_POLICY.md) |
+| A-03 | 出力reader未知field | 同じmajor schema内では保持または無視可能 | `designed` | [Schema Policy](../design/common/SCHEMA_AND_COMPATIBILITY_POLICY.md) |
+| A-04 | Schema version | 初期`alred/v1`、破壊的変更でmajor更新 | `designed` | [Schema Policy](../design/common/SCHEMA_AND_COMPATIBILITY_POLICY.md) |
+| A-05 | Error taxonomy | 共通code、終了code、retry可否を中央定義 | `designed` | [Error Catalog](../design/common/ERROR_CATALOG.md) |
 | A-06 | CLI分割 | 新規CLIを別moduleへ分離し、既存CLIは一括変更しない | `accepted` | 実装計画 |
-| A-07 | Fixture管理 | release、platform、取得元、匿名化、期待結果を記録 | `designed` | [Capability Matrix](../design/NXOS_CAPABILITY_AND_FIXTURE_MATRIX.md) |
+| A-07 | Fixture管理 | release、platform、取得元、匿名化、期待結果を記録 | `designed` | [Capability Matrix](../design/network-ops/NXOS_CAPABILITY_AND_FIXTURE_MATRIX.md) |
 | A-08 | 不明状態 | 推測で補完せず`UNKNOWN`または`UNSUPPORTED` | `designed` | Health Check Framework、Error Catalog |
-| A-09 | Operation status | 読み取り専用statusを提供 | `designed` | [Operation State Design](../design/OPERATION_STATE_AND_APPROVAL_DESIGN.md) |
+| A-09 | Operation status | 読み取り専用statusを提供 | `designed` | [Operation State Design](../design/common/OPERATION_STATE_AND_APPROVAL_DESIGN.md) |
 | A-10 | Operation自動削除 | 行わない | `designed` | Operation State Design |
 | A-11 | Symlink | operation workspaceの入出力では拒否 | `designed` | Operation State Design |
 | A-12 | 新規依存 | 必要性確定まで最小限 | `accepted` | `AGENTS.md`、実装計画 |

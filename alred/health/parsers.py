@@ -12,7 +12,22 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from .overlay import parse_overlay_running_config
 from ..logging_check import parse_nxos_log_records
 
-NXOS_PARSER_VERSION = "1.11"
+NXOS_PARSER_VERSION = "1.13"
+
+_INTERFACE_STATUS_NAME_RE = re.compile(
+    r"^(?:Eth|Ethernet|Po|port-channel|mgmt|Vlan|Lo|loopback)\S+",
+    re.IGNORECASE,
+)
+_INTERFACE_STATUS_ALIASES = {
+    "connected": "connected",
+    "notconnect": "notconnect",
+    "notconnec": "notconnect",
+    "disabled": "disabled",
+    "err-disabled": "err-disabled",
+    "inactive": "inactive",
+    "sfpabsent": "sfpAbsent",
+    "down": "down",
+}
 
 
 class ParserError(ValueError):
@@ -179,6 +194,43 @@ def _parse_reload_pending(output: str) -> tuple[dict[str, Any], dict[str, Any]]:
     }, {}
 
 
+def _parse_running_config_diff(
+    output: str,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Classify the device-native running/startup configuration diff."""
+    stripped = output.strip()
+    if not stripped:
+        return {
+            "running_config_diff": {
+                "different": False,
+                "line_count": 0,
+                "output_sha256": hashlib.sha256(b"").hexdigest(),
+            }
+        }, {}
+    text = _require_output(output)
+    no_difference_markers = {
+        "no changes",
+        "no differences",
+        "running configuration is same as startup configuration",
+        "running-config is same as startup-config",
+    }
+    normalized = " ".join(text.lower().split())
+    different = normalized not in no_difference_markers
+    return {
+        "running_config_diff": {
+            "different": different,
+            "line_count": (
+                sum(1 for line in text.splitlines() if line.strip())
+                if different
+                else 0
+            ),
+            "output_sha256": hashlib.sha256(
+                text.encode("utf-8")
+            ).hexdigest(),
+        }
+    }, {}
+
+
 def _parse_clock(output: str, *, timezone: str) -> tuple[dict[str, Any], dict[str, Any]]:
     text = _require_output(output)
     match = re.search(
@@ -341,13 +393,43 @@ def _parse_ntp_peer_status(
 def _parse_interface_status(output: str) -> tuple[dict[str, Any], dict[str, Any]]:
     text = _require_output(output)
     interfaces: dict[str, Any] = {}
-    status_values = {"connected", "notconnect", "disabled", "err-disabled", "inactive", "sfpAbsent"}
+    unsupported: list[tuple[str, str]] = []
+    table_header_seen = False
     for line in text.splitlines():
-        fields = line.split()
-        if len(fields) < 2 or not re.match(r"^(?:Eth|Ethernet|Po|port-channel|mgmt|Vlan|Lo|loopback)\S+", fields[0], re.IGNORECASE):
+        header = re.match(
+            r"^\s*Port\s+Name\s+Status\s+Vlan\b",
+            line,
+            re.IGNORECASE,
+        )
+        if header:
+            table_header_seen = True
             continue
-        status = next((value for value in fields[1:] if value in status_values), None)
+        fields = line.split()
+        if len(fields) < 2 or not _INTERFACE_STATUS_NAME_RE.match(fields[0]):
+            continue
+
+        raw_status = ""
+        if table_header_seen and len(fields) >= 6:
+            # Name may contain spaces, while Vlan, Duplex, Speed, and Type are
+            # the four stable columns following Status.
+            raw_status = fields[-5]
+        if not raw_status:
+            raw_status = next(
+                (
+                    value
+                    for value in fields[1:]
+                    if value.casefold() in _INTERFACE_STATUS_ALIASES
+                ),
+                "",
+            )
+        status = _INTERFACE_STATUS_ALIASES.get(raw_status.casefold())
         if status is None:
+            unsupported.append((fields[0], raw_status or "<missing>"))
+            continue
+
+        if status == "down" and fields[0].casefold().startswith("vlan"):
+            # The Status column alone cannot distinguish an administratively
+            # down SVI. ``show interface brief`` owns that classification.
             continue
         admin_up = status != "disabled"
         operational_up = status == "connected"
@@ -356,6 +438,11 @@ def _parse_interface_status(output: str) -> tuple[dict[str, Any], dict[str, Any]
             "operational_state": "up" if operational_up else "down",
             "status": status,
         }
+    if unsupported:
+        details = ", ".join(
+            f"{interface}={status}" for interface, status in unsupported
+        )
+        raise ParserError(f"unsupported interface status row(s): {details}")
     if not interfaces:
         raise ParserError("interface status rows were not recognized")
     return {"interfaces": interfaces}, {}
@@ -365,6 +452,7 @@ def _parse_interface_brief(output: str) -> tuple[dict[str, Any], dict[str, Any]]
     """Parse the SVI Status and Reason columns in ``show interface brief``."""
     text = _require_output(output)
     svis: dict[str, Any] = {}
+    common_svis: dict[str, Any] = {}
     for line in text.splitlines():
         match = re.match(
             r"^\s*(Vlan\d+)\s+\S+\s+(up|down)\s*(.*?)\s*$",
@@ -386,9 +474,23 @@ def _parse_interface_brief(output: str) -> tuple[dict[str, Any], dict[str, Any]]
             "status": status,
             "reason": reason or None,
         }
+        common_svis[name] = {
+            "admin_state": svis[name]["admin_state"],
+            "operational_state": status,
+            "status": (
+                "connected"
+                if status == "up"
+                else "disabled"
+                if svis[name]["admin_state"] == "down"
+                else "down"
+            ),
+            "reason": reason or None,
+        }
     if not svis:
         raise ParserError("SVI rows in interface brief were not recognized")
-    return {}, {"nxos-overlay": {"svis": {"interfaces": svis}}}
+    return {"interfaces": common_svis}, {
+        "nxos-overlay": {"svis": {"interfaces": svis}}
+    }
 
 
 def _parse_vlan_brief(output: str) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -1016,6 +1118,7 @@ PARSERS = {
     "processes_cpu": _parse_processes_cpu,
     "system_resources": _parse_system_resources,
     "environment": _parse_environment,
+    "running_config_diff": _parse_running_config_diff,
     "reload_pending": _parse_reload_pending,
     "ntp_status": _parse_ntp_status,
     "ntp_peers": _parse_ntp_peers,

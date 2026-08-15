@@ -4,20 +4,27 @@ import ipaddress
 import logging
 import tempfile
 import unittest
+from unittest.mock import patch
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import yaml
 
 from alred.cli import (
+    apply_cisco_n9kv_kind_defaults,
     apply_n9kv_startup_delay,
     build_clab_set_step_args,
     build_parser,
     collect_cable_description_warnings,
+    filter_links_by_target_roles,
 )
 from alred.constants import DEFAULT_CLAB_SET_CMDS
 from alred.design import normalize_and_validate_cables
-from alred.parsing import load_node_map_csv, normalize_interface_name
+from alred.parsing import (
+    load_node_map_csv,
+    merge_lldp_and_description_links,
+    normalize_interface_name,
+)
 from alred.topology import detect_node_site
 from alred.transform import transform_inventory_mgmt_subnet, transform_run_config_text
 
@@ -30,6 +37,29 @@ class DeviceAwareNormalizationTests(unittest.TestCase):
         self.assertEqual(normalize_interface_name("eth3", mappings, "linux"), "eth3")
         self.assertEqual(normalize_interface_name("Eth1/1", mappings, "nxos"), "Ethernet1/1")
 
+    def test_bidirectional_link_selection_is_input_order_independent(self) -> None:
+        forward = {
+            "src_node": "leaf01",
+            "src_if": "Ethernet1/1",
+            "dst_node": "spine01",
+            "dst_if": "Ethernet1/1",
+            "remote_mgmt_ip": "192.0.2.10",
+        }
+        reverse = {
+            "src_node": "spine01",
+            "src_if": "Ethernet1/1",
+            "dst_node": "leaf01",
+            "dst_if": "Ethernet1/1",
+            "remote_mgmt_ip": "192.0.2.20",
+        }
+
+        first, _ = merge_lldp_and_description_links([forward, reverse], [])
+        second, _ = merge_lldp_and_description_links([reverse, forward], [])
+
+        self.assertEqual(first, second)
+        self.assertEqual(first[0]["src_node"], "leaf01")
+        self.assertEqual(first[0]["dst_node"], "spine01")
+
     def test_explicit_mapping_has_priority(self) -> None:
         mappings = {
             "interface_name_map": {"Port 1": "eth10"},
@@ -38,6 +68,62 @@ class DeviceAwareNormalizationTests(unittest.TestCase):
         }
         self.assertEqual(normalize_interface_name("Port 1", mappings, "linux"), "eth10")
 
+    def test_underlay_target_roles_use_explicit_group_before_hostname(self) -> None:
+        roles = {
+            "spine": {"priority": 1, "contains": ["spine"]},
+            "server": {"priority": 10, "contains": ["server"]},
+        }
+        links = [{"endpoints": ["spine-shaped-server:eth1", "spine01:eth1"]}]
+
+        assert filter_links_by_target_roles(
+            links,
+            roles,
+            {"spine"},
+            {
+                "spine-shaped-server": "server",
+                "spine01": "spine",
+            },
+        ) == []
+
+        assert filter_links_by_target_roles(
+            links,
+            roles,
+            {"spine"},
+            {
+                "spine-shaped-server": "spine",
+                "spine01": "spine",
+            },
+        ) == links
+
+
+class CiscoN9kvDefaultsTests(unittest.TestCase):
+    def test_default_does_not_enable_startup_config(self) -> None:
+        topology = {"topology": {"nodes": {"leaf01": {"kind": "cisco_n9kv"}}}}
+
+        result = apply_cisco_n9kv_kind_defaults(
+            topology, "raw", logging.getLogger("test")
+        )
+
+        kind = result["topology"]["kinds"]["cisco_n9kv"]
+        self.assertNotIn("startup-config", kind)
+        self.assertIn("image", kind)
+
+    def test_explicit_startup_config_is_preserved(self) -> None:
+        topology = {
+            "topology": {
+                "kinds": {"cisco_n9kv": {"startup-config": "explicit.cfg"}},
+                "nodes": {"leaf01": {"kind": "cisco_n9kv"}},
+            }
+        }
+
+        result = apply_cisco_n9kv_kind_defaults(
+            topology, "raw", logging.getLogger("test")
+        )
+
+        self.assertEqual(
+            result["topology"]["kinds"]["cisco_n9kv"]["startup-config"],
+            "explicit.cfg",
+        )
 
 class DesignValidationTests(unittest.TestCase):
     def test_duplicate_endpoint_and_linux_eth0_are_errors(self) -> None:
@@ -474,6 +560,19 @@ class ClabSetCmdsTests(unittest.TestCase):
             step_args = build_clab_set_step_args(step, args, verbose=False)
             self.assertEqual(step_args.input_format, "csv")
             self.assertIsNone(step_args.sites)
+            if step.get("command") == "generate-mermaid":
+                self.assertIsNone(step_args.group_by_site)
+            else:
+                self.assertFalse(step_args.group_by_site)
+
+    def test_clab_set_site_grouping_override_is_forwarded(self) -> None:
+        parser = build_parser()
+        args = parser.parse_args(["clab-set-cmds", "--no-group-by-site"])
+
+        for step in DEFAULT_CLAB_SET_CMDS:
+            if step.get("command") not in {"generate-mermaid", "generate-drawio"}:
+                continue
+            step_args = build_clab_set_step_args(step, args, verbose=False)
             self.assertFalse(step_args.group_by_site)
 
     def test_transform_step_receives_credentials(self) -> None:
@@ -606,6 +705,17 @@ interface mgmt0
             self.assertEqual(
                 transformed_inventory["all"]["hosts"]["lab-leaf01"]["ansible_host"],
                 "10.0.0.11",
+            )
+            self.assertEqual(
+                transformed_inventory["all"]["hosts"]["lab-leaf01"],
+                {
+                    "ansible_host": "10.0.0.11",
+                    "device_type": "nxos",
+                    "os_type": "nxos",
+                    "ansible_network_os": "cisco.nxos.nxos",
+                    "ansible_connection": "network_cli",
+                    "netmiko_device_type": "cisco_nxos",
+                },
             )
 
     def test_node_map_uses_source_config_with_lab_inventory(self) -> None:
@@ -785,6 +895,42 @@ class InitClabIntegrationTests(unittest.TestCase):
 
 
 class GenerateMermaidClabInputTests(unittest.TestCase):
+    def test_generate_mermaid_grouping_defaults_and_overrides(self) -> None:
+        parser = build_parser()
+
+        defaults = parser.parse_args(["generate-mermaid"])
+        self.assertTrue(defaults.group_by_role)
+        self.assertIsNone(defaults.group_by_site)
+        self.assertEqual(defaults.direction, "TD")
+
+        network_defaults = parser.parse_args(["generate-network-diagram"])
+        self.assertEqual(network_defaults.direction, "TD")
+        self.assertIsNone(network_defaults.directions)
+
+        all_directions = parser.parse_args([
+            "generate-network-diagram",
+            "--directions",
+            "TD,LR,BT,RL",
+        ])
+        self.assertEqual(all_directions.directions, ("TD", "LR", "BT", "RL"))
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "--directions requires --all-graph",
+        ):
+            all_directions.func(all_directions)
+
+        document_defaults = parser.parse_args(["generate-doc", "--input", "links.csv"])
+        self.assertEqual(document_defaults.direction, "TD")
+
+        disabled = parser.parse_args([
+            "generate-mermaid",
+            "--no-group-by-role",
+            "--no-group-by-site",
+        ])
+        self.assertFalse(disabled.group_by_role)
+        self.assertFalse(disabled.group_by_site)
+
     def test_generates_mermaid_from_clab_topology_with_standalone_nodes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -813,7 +959,6 @@ class GenerateMermaidClabInputTests(unittest.TestCase):
             args = parser.parse_args([
                 "generate-mermaid",
                 "--input", str(clab),
-                "--group-by-role",
                 "--output", str(output),
                 "--log-file", str(root / "generate-mermaid.log"),
             ])
@@ -861,8 +1006,6 @@ class GenerateMermaidClabInputTests(unittest.TestCase):
             args = parser.parse_args([
                 "generate-mermaid",
                 "--input", str(clab),
-                "--group-by-site",
-                "--group-by-role",
                 "--output", str(output),
                 "--log-file", str(root / "generate-mermaid.log"),
             ])
@@ -1078,6 +1221,236 @@ class GenerateMermaidClabInputTests(unittest.TestCase):
             wan_nic_geom = wan_nic.find("mxGeometry")
             self.assertIsNotNone(wan_nic_geom)
             self.assertEqual(int(float(wan_nic_geom.attrib.get("y", "0"))), 0)
+
+
+class GenerateNetworkDiagramTests(unittest.TestCase):
+    def _write_inputs(self, root: Path) -> tuple[Path, Path, Path]:
+        clab = root / "topology.clab.yaml"
+        roles = root / "roles.yaml"
+        raw = root / "raw"
+        raw.mkdir()
+        clab.write_text(
+            "topology:\n"
+            "  nodes:\n"
+            "    spine01:\n"
+            "      kind: cisco_n9kv\n"
+            "      mgmt-ipv4: 192.0.2.10\n"
+            "      labels:\n"
+            "        site: dc1\n"
+            "    leaf01:\n"
+            "      kind: cisco_n9kv\n"
+            "      mgmt-ipv4: 192.0.2.11\n"
+            "      labels:\n"
+            "        site: dc1\n"
+            "  links:\n"
+            "    - endpoints: [\"spine01:Ethernet1/1\", \"leaf01:Ethernet1/1\"]\n",
+            encoding="utf-8",
+        )
+        roles.write_text(
+            "role_detection:\n"
+            "  spine:\n"
+            "    priority: 1\n"
+            "    startswith: [spine]\n"
+            "  leaf:\n"
+            "    priority: 2\n"
+            "    startswith: [leaf]\n",
+            encoding="utf-8",
+        )
+        (raw / "spine01_run.txt").write_text(
+            "interface loopback0\n"
+            "  ip address 10.0.0.1/32\n"
+            "interface Ethernet1/1\n"
+            "  ip address 10.255.0.0/31\n",
+            encoding="utf-8",
+        )
+        (raw / "leaf01_run.txt").write_text(
+            "interface loopback0\n"
+            "  ip address 10.0.0.2/32\n"
+            "interface Ethernet1/1\n"
+            "  ip address 10.255.0.1/31\n",
+            encoding="utf-8",
+        )
+        return clab, roles, raw
+
+    def test_generates_topology_underlay_drawio_and_manifest(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            clab, roles, raw = self._write_inputs(root)
+            output = root / "output"
+
+            args = build_parser().parse_args([
+                "generate-network-diagram",
+                "--input", str(clab),
+                "--roles", str(roles),
+                "--underlay-raw", str(raw),
+                "--output-dir", str(output),
+                "--log-file", str(root / "generate-network-diagram.log"),
+            ])
+            args.func(args)
+
+            topology = (output / "topology-graph.md").read_text(encoding="utf-8")
+            underlay = (output / "topology_underlay.md").read_text(encoding="utf-8")
+            drawio = (output / "topology-graph.drawio").read_text(encoding="utf-8")
+            manifest = yaml.safe_load(
+                (output / "network-diagram-manifest.yaml").read_text(encoding="utf-8")
+            )
+
+            self.assertIn("mgmt: 192.0.2.10", topology)
+            self.assertIn("lo0: 10.0.0.1/32", underlay)
+            self.assertIn("10.255.0.0 ↔ 10.255.0.1", underlay)
+            self.assertIn("dc1", drawio)
+            self.assertEqual(manifest["kind"], "NetworkDiagramManifest")
+            self.assertTrue(manifest["spec"]["options"]["group_by_role"])
+            self.assertTrue(manifest["spec"]["options"]["group_by_site"])
+            self.assertEqual(manifest["spec"]["options"]["direction"], "TD")
+            self.assertEqual(len(manifest["spec"]["artifacts"]), 9)
+            self.assertEqual(
+                manifest["spec"]["options"]["views"],
+                ["physical", "underlay", "evpn", "overlay-service"],
+            )
+            evpn_model = yaml.safe_load(
+                (output / "evpn-control-plane-model.yaml").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertEqual(
+                evpn_model["spec"]["status"], "insufficient-evidence"
+            )
+            self.assertTrue((output / "topology_evpn.md").is_file())
+            self.assertTrue((output / "evpn-session-links.csv").is_file())
+            self.assertTrue((output / "topology_overlay_service.md").is_file())
+            self.assertTrue((output / "overlay-service-model.yaml").is_file())
+            self.assertTrue((output / "overlay-service-links.csv").is_file())
+
+    def test_render_failure_keeps_previous_diagrams(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            clab, roles, raw = self._write_inputs(root)
+            output = root / "output"
+            output.mkdir()
+            previous = {
+                "topology-graph.md": "previous topology\n",
+                "topology_underlay.md": "previous underlay\n",
+                "topology-graph.drawio": "previous drawio\n",
+            }
+            for filename, content in previous.items():
+                (output / filename).write_text(content, encoding="utf-8")
+
+            args = build_parser().parse_args([
+                "generate-network-diagram",
+                "--input", str(clab),
+                "--roles", str(roles),
+                "--underlay-raw", str(raw),
+                "--output-dir", str(output),
+                "--log-file", str(root / "generate-network-diagram.log"),
+            ])
+            with patch(
+                "alred.cli.render_drawio_xml_lines",
+                side_effect=ValueError("synthetic draw.io failure"),
+            ):
+                with self.assertRaisesRegex(ValueError, "synthetic draw.io failure"):
+                    args.func(args)
+
+            for filename, content in previous.items():
+                self.assertEqual(
+                    (output / filename).read_text(encoding="utf-8"),
+                    content,
+                )
+            self.assertFalse((output / "network-diagram-manifest.yaml").exists())
+
+    def test_all_graph_writes_eight_page_drawio_by_default(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            clab, roles, raw = self._write_inputs(root)
+            output = root / "output"
+            args = build_parser().parse_args([
+                "generate-network-diagram",
+                "--input", str(clab),
+                "--roles", str(roles),
+                "--underlay-raw", str(raw),
+                "--output-dir", str(output),
+                "--all-graph",
+                "--log-file", str(root / "generate-network-diagram.log"),
+            ])
+
+            args.func(args)
+
+            drawio = ET.fromstring(
+                (output / "topology-graph-all.drawio").read_text(encoding="utf-8")
+            )
+            self.assertEqual(
+                [item.get("name") for item in drawio.findall("diagram")],
+                [
+                    "Topology TD", "Topology LR",
+                    "Underlay TD", "Underlay LR",
+                    "EVPN TD", "EVPN LR",
+                    "Overlay Service TD", "Overlay Service LR",
+                ],
+            )
+            self.assertFalse((output / "topology-graph.drawio").exists())
+
+    def test_all_graph_accepts_explicit_full_direction_set(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            clab, roles, raw = self._write_inputs(root)
+            output = root / "output"
+            args = build_parser().parse_args([
+                "generate-network-diagram",
+                "--input", str(clab),
+                "--roles", str(roles),
+                "--underlay-raw", str(raw),
+                "--output-dir", str(output),
+                "--all-graph",
+                "--directions", "TD,LR,BT,RL",
+                "--log-file", str(root / "generate-network-diagram.log"),
+            ])
+
+            args.func(args)
+
+            drawio = ET.fromstring(
+                (output / "topology-graph-all.drawio").read_text(encoding="utf-8")
+            )
+            self.assertEqual(
+                [item.get("name") for item in drawio.findall("diagram")],
+                [
+                    "Topology TD", "Topology LR", "Topology BT", "Topology RL",
+                    "Underlay TD", "Underlay LR", "Underlay BT", "Underlay RL",
+                    "EVPN TD", "EVPN LR", "EVPN BT", "EVPN RL",
+                    "Overlay Service TD", "Overlay Service LR",
+                    "Overlay Service BT", "Overlay Service RL",
+                ],
+            )
+
+    def test_no_overlay_service_keeps_legacy_six_page_drawio(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            clab, roles, raw = self._write_inputs(root)
+            output = root / "output"
+            args = build_parser().parse_args([
+                "generate-network-diagram",
+                "--input", str(clab),
+                "--roles", str(roles),
+                "--underlay-raw", str(raw),
+                "--output-dir", str(output),
+                "--all-graph",
+                "--no-overlay-service",
+                "--log-file", str(root / "generate-network-diagram.log"),
+            ])
+
+            args.func(args)
+
+            drawio = ET.fromstring(
+                (output / "topology-graph-all.drawio").read_text(encoding="utf-8")
+            )
+            self.assertEqual(
+                [item.get("name") for item in drawio.findall("diagram")],
+                [
+                    "Topology TD", "Topology LR",
+                    "Underlay TD", "Underlay LR",
+                    "EVPN TD", "EVPN LR",
+                ],
+            )
+            self.assertFalse((output / "overlay-service-model.yaml").exists())
 
 
 if __name__ == "__main__":

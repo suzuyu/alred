@@ -115,6 +115,7 @@ def build_health_snapshot(
                     "processes_cpu",
                     "system_resources",
                     "environment",
+                    "running_config_diff",
                     "clock",
                     "ntp_status",
                     "ntp_peers",

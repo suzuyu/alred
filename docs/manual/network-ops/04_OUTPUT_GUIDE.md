@@ -20,9 +20,9 @@ Hosts     : 2
 Warnings  : 0
 Result    : WARN
 Checks    : PASS=18 WARN=2 FAIL=0 UNKNOWN=0 N/A=2
-Manifest  : operations/HC-20260802T091500-p1234-a1b2c3/health/before/collection-manifest.yaml
-Snapshot  : operations/HC-20260802T091500-p1234-a1b2c3/health/before/snapshot.json
-Checklist : operations/HC-20260802T091500-p1234-a1b2c3/health/before/checklist.md
+Manifest  : operations/live/2026/08/02/HC-20260802T091500-p1234-a1b2c3/health/before/collection-manifest.yaml
+Snapshot  : operations/live/2026/08/02/HC-20260802T091500-p1234-a1b2c3/health/before/snapshot.json
+Checklist : operations/live/2026/08/02/HC-20260802T091500-p1234-a1b2c3/health/before/checklist.md
 ```
 
 項目:
@@ -125,6 +125,11 @@ logging_healthの例:
 
 ## 6. Collection Manifest
 
+`metadata.started_at` と `metadata.completed_at` は、`--collect` を使用した場合の実際の収集開始と
+収集完了を示します。`checklist.md` と `health-result.json` は、収集開始から解析完了までの時刻を
+示すため、通常は Collection Manifest の範囲を内包します。時刻は秒単位のため、同一秒内で
+完了した処理では開始と完了が同じ表示になる場合があります。
+
 ```yaml
 spec:
   hosts:
@@ -209,6 +214,8 @@ regressionは作業前に正常だった状態が作業後に失われたこと�
 | `overlay-state.yaml` | VNI、VRF、VLAN、SVI、NVE状態とevidenceの正規化正本 |
 | `vni-map.md` | VNI単位の人間向け一覧 |
 | `vni-map.csv` | 機器単位の表計算・既存連携向け一覧 |
+| `vni_gateway_map.md` | 既存 `generate-vni-map` 互換の SVI 中心一覧 |
+| `vni_gateway_map.csv` | `generate-vni-config` 互換の legacy CSV |
 | `vni-map-diff.json` | before / afterのfield単位差分とevidence |
 | `vni-map-diff.md` | 差分の人間向け一覧 |
 | `vni-map-diff.csv` | 差分の表計算・連携向け一覧 |
@@ -218,6 +225,7 @@ regressionは作業前に正常だった状態が作業後に失われたこと�
 属するdiff行は連続して出力されます。Markdownでは同じ結果のdeviceを1行へ集約し、
 VNIを持たないOverlay全体の差分は末尾に並びます。末尾の`Field Source List`と
 `Evidence Files`から、fieldの取得コマンドとbefore / afterの証跡を確認できます。
+作成方法、schema、用途の違いは [VNI Map Guide](09_VNI_MAP_GUIDE.md)を参照してください。
 
 ## 10. CLI終了code
 

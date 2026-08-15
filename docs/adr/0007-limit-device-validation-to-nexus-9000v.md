@@ -28,6 +28,6 @@ Nexus 9336C-FX2、93180YC-FX3、9348GC-FX3、9364C-H1は対応想定機種に維
 ## References
 
 - [ADR-0005](./0005-initial-nxos-support-scope.md)
-- [NX-OS Capability and Fixture Matrix](../design/NXOS_CAPABILITY_AND_FIXTURE_MATRIX.md)
-- [NX-OS Hardware Document Review](../design/NXOS_HARDWARE_DOCUMENT_REVIEW.md)
-- [NX-OS Overlay Config Rendering Design](../design/NXOS_OVERLAY_CONFIG_RENDERING_DESIGN.md)
+- [NX-OS Capability and Fixture Matrix](../design/network-ops/NXOS_CAPABILITY_AND_FIXTURE_MATRIX.md)
+- [NX-OS Hardware Document Review](../design/network-ops/NXOS_HARDWARE_DOCUMENT_REVIEW.md)
+- [NX-OS Overlay Config Rendering Design](../design/network-ops/NXOS_OVERLAY_CONFIG_RENDERING_DESIGN.md)

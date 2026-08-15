@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://alred.local/schemas/v1/operation-location.schema.json",
+  "title": "OperationLocation",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["api_version", "kind", "metadata", "spec"],
+  "properties": {
+    "api_version": {"const": "alred/v1"},
+    "kind": {"const": "OperationLocation"},
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["change_id", "updated_at"],
+      "properties": {
+        "change_id": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"},
+        "updated_at": {"type": "string", "format": "date-time"}
+      }
+    },
+    "spec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["storage_version", "state", "layout", "created_date", "relative_path"],
+      "properties": {
+        "storage_version": {"const": 1},
+        "state": {"enum": ["live", "archived"]},
+        "layout": {"enum": ["dated-v1", "legacy-flat"]},
+        "created_date": {"type": "string", "format": "date"},
+        "relative_path": {"type": "string", "minLength": 1},
+        "archive_sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+      }
+    }
+  }
+}

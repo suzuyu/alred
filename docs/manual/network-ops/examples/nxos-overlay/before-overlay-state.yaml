@@ -1,37 +1,870 @@
 api_version: alred/v1
 kind: OverlayState
 metadata:
-  change_id: HC-20260802T140000-p1234-a1b2c3
+  change_id: CHG-2026-00123
   phase: before
-  generated_at: '2026-08-02T14:00:31+09:00'
+  generated_at: '2026-08-16T10:00:00+09:00'
   timezone: Asia/Tokyo
-  profile_sha256: sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-  parser_versions: {nxos: '1.1'}
-  generator_version: '1.0'
+  profile_sha256: sha256:b86d4e56a28c8897f3bd20a9369866ba820d25219d987595a2b535ce47bdb4bd
+  parser_versions:
+    nxos: '1.1'
+  generator_version: '1.1'
 spec:
-  scope: {included_hosts: [leaf01, leaf02]}
-  summary: {l2vnis: 1, l3vnis: 1, conflicts: 0, unknowns: 0}
+  scope:
+    included_hosts:
+    - adc-bgrt0101
+    - adc-bgrt0102
+    - adc-lfsw0101
+    - adc-lfsw0102
+    - adc-lfsw0103
+    - adc-lfsw0104
+    - adc-spsw0101
+    - adc-spsw0102
+  summary:
+    l2vnis: 5
+    l3vnis: 3
+    conflicts: 0
+    unknowns: 0
   l2vnis:
-    - vni: 10010
-      vrf: TENANT-A
-      vlan_name: TENANT-A-WEB
-      status: DEVICE_VARIANT
-      devices:
-        leaf01: {vlan: 10, vlan_name: TENANT-A-WEB, nve_member: true, operational_state: Up, replication: UnicastBGP, svi: {vrf: TENANT-A, mtu: 9216, ipv4_addresses: [192.0.2.1/24], ipv6_addresses: ['2001:db8:10::1/64'], ipv6_link_local: 'fe80::1', anycast_gateway: true}}
-        leaf02: {vlan: 110, vlan_name: TENANT-A-WEB, nve_member: true, operational_state: Up, replication: UnicastBGP, svi: {vrf: TENANT-A, mtu: 9216, ipv4_addresses: [192.0.2.1/24], ipv6_addresses: ['2001:db8:10::1/64'], ipv6_link_local: 'fe80::1', anycast_gateway: true}}
+  - vni: 100
+    vrf: controller-vpc1
+    vlan_name: controller-vpc1-seg1
+    status: CONSISTENT
+    devices:
+      adc-lfsw0101:
+        vlan: 2001
+        vlan_name: controller-vpc1-seg1
+        nve_member: true
+        operational_state: Up
+        replication: UnicastBGP
+        svi:
+          ipv4_addresses:
+          - 100.64.0.254/24
+          ipv6_addresses:
+          - fd12:0:0:1::1/64
+          ipv6_nd_suppress_ra: true
+          admin_enabled: true
+          vrf: controller-vpc1
+          ipv6_link_local: fe80::1
+          anycast_gateway: true
+      adc-lfsw0102:
+        vlan: 2001
+        vlan_name: controller-vpc1-seg1
+        nve_member: true
+        operational_state: Up
+        replication: UnicastBGP
+        svi:
+          ipv4_addresses:
+          - 100.64.0.254/24
+          ipv6_addresses:
+          - fd12:0:0:1::1/64
+          ipv6_nd_suppress_ra: true
+          admin_enabled: true
+          vrf: controller-vpc1
+          ipv6_link_local: fe80::1
+          anycast_gateway: true
+      adc-lfsw0103:
+        vlan: 2001
+        vlan_name: controller-vpc1-seg1
+        nve_member: true
+        operational_state: Up
+        replication: UnicastBGP
+        svi:
+          ipv4_addresses:
+          - 100.64.0.254/24
+          ipv6_addresses:
+          - fd12:0:0:1::1/64
+          ipv6_nd_suppress_ra: true
+          admin_enabled: true
+          vrf: controller-vpc1
+          ipv6_link_local: fe80::1
+          anycast_gateway: true
+      adc-lfsw0104:
+        vlan: 2001
+        vlan_name: controller-vpc1-seg1
+        nve_member: true
+        operational_state: Up
+        replication: UnicastBGP
+        svi:
+          ipv4_addresses:
+          - 100.64.0.254/24
+          ipv6_addresses:
+          - fd12:0:0:1::1/64
+          ipv6_nd_suppress_ra: true
+          admin_enabled: true
+          vrf: controller-vpc1
+          ipv6_link_local: fe80::1
+          anycast_gateway: true
+  - vni: 10101
+    vrf: tenant1-vpc1
+    vlan_name: tenant1-vpc1-server-seg2
+    status: CONSISTENT
+    devices:
+      adc-lfsw0103:
+        vlan: 11
+        vlan_name: tenant1-vpc1-server-seg2
+        nve_member: true
+        operational_state: Up
+        replication: UnicastBGP
+        svi:
+          ipv4_addresses:
+          - 172.16.1.254/24
+          ipv6_addresses:
+          - fd21:0:0:2::1/64
+          ipv6_nd_suppress_ra: true
+          admin_enabled: true
+          mtu: 9216
+          vrf: tenant1-vpc1
+          ipv6_link_local: fe80::1
+          anycast_gateway: true
+      adc-lfsw0104:
+        vlan: 11
+        vlan_name: tenant1-vpc1-server-seg2
+        nve_member: true
+        operational_state: Up
+        replication: UnicastBGP
+        svi:
+          ipv4_addresses:
+          - 172.16.1.254/24
+          ipv6_addresses:
+          - fd21:0:0:2::1/64
+          ipv6_nd_suppress_ra: true
+          admin_enabled: true
+          mtu: 9216
+          vrf: tenant1-vpc1
+          ipv6_link_local: fe80::1
+          anycast_gateway: true
+  - vni: 10103
+    vrf: tenant1-vpc1
+    vlan_name: tenant1-vpc1-k01-cluster-seg1
+    status: DEVICE_VARIANT
+    devices:
+      adc-lfsw0101:
+        vlan: 103
+        vlan_name: tenant1-vpc1-k01-cluster-seg1
+        nve_member: true
+        operational_state: Up
+        replication: UnicastBGP
+        svi:
+          ipv4_addresses:
+          - 172.16.3.1/24
+          ipv6_addresses:
+          - fd21:0:0:3::1/64
+          ipv6_nd_suppress_ra: true
+          admin_enabled: true
+          mtu: 9216
+          vrf: tenant1-vpc1
+          ipv6_link_local: fe80::1
+          anycast_gateway: true
+      adc-lfsw0102:
+        vlan: 103
+        vlan_name: tenant1-vpc1-k01-cluster-seg1
+        nve_member: true
+        operational_state: Up
+        replication: UnicastBGP
+        svi:
+          ipv4_addresses:
+          - 172.16.3.1/24
+          ipv6_addresses:
+          - fd21:0:0:3::1/64
+          ipv6_nd_suppress_ra: true
+          admin_enabled: true
+          mtu: 9216
+          vrf: tenant1-vpc1
+          ipv6_link_local: fe80::1
+          anycast_gateway: true
+      adc-lfsw0103:
+        vlan: 13
+        vlan_name: tenant1-vpc1-k01-cluster-seg1
+        nve_member: true
+        operational_state: Up
+        replication: UnicastBGP
+        svi:
+          ipv4_addresses:
+          - 172.16.3.1/24
+          ipv6_addresses:
+          - fd21:0:0:3::1/64
+          ipv6_nd_suppress_ra: true
+          admin_enabled: true
+          mtu: 9216
+          vrf: tenant1-vpc1
+          ipv6_link_local: fe80::1
+          anycast_gateway: true
+      adc-lfsw0104:
+        vlan: 13
+        vlan_name: tenant1-vpc1-k01-cluster-seg1
+        nve_member: true
+        operational_state: Up
+        replication: UnicastBGP
+        svi:
+          ipv4_addresses:
+          - 172.16.3.1/24
+          ipv6_addresses:
+          - fd21:0:0:3::1/64
+          ipv6_nd_suppress_ra: true
+          admin_enabled: true
+          mtu: 9216
+          vrf: tenant1-vpc1
+          ipv6_link_local: fe80::1
+          anycast_gateway: true
+  - vni: 10104
+    vrf: tenant1-vpc1
+    vlan_name: tenant1-vpc1-k02-cluster-seg1
+    status: DEVICE_VARIANT
+    devices:
+      adc-lfsw0101:
+        vlan: 104
+        vlan_name: tenant1-vpc1-k02-cluster-seg1
+        nve_member: true
+        operational_state: Up
+        replication: UnicastBGP
+        svi:
+          ipv4_addresses:
+          - 172.16.4.1/24
+          ipv6_addresses:
+          - fd21:0:0:4::1/64
+          ipv6_nd_suppress_ra: true
+          admin_enabled: true
+          mtu: 9216
+          vrf: tenant1-vpc1
+          ipv6_link_local: fe80::1
+          anycast_gateway: true
+      adc-lfsw0102:
+        vlan: 104
+        vlan_name: tenant1-vpc1-k02-cluster-seg1
+        nve_member: true
+        operational_state: Up
+        replication: UnicastBGP
+        svi:
+          ipv4_addresses:
+          - 172.16.4.1/24
+          ipv6_addresses:
+          - fd21:0:0:4::1/64
+          ipv6_nd_suppress_ra: true
+          admin_enabled: true
+          mtu: 9216
+          vrf: tenant1-vpc1
+          ipv6_link_local: fe80::1
+          anycast_gateway: true
+      adc-lfsw0103:
+        vlan: 14
+        vlan_name: tenant1-vpc1-k02-cluster-seg1
+        nve_member: true
+        operational_state: Up
+        replication: UnicastBGP
+        svi:
+          ipv4_addresses:
+          - 172.16.4.1/24
+          ipv6_addresses:
+          - fd21:0:0:4::1/64
+          ipv6_nd_suppress_ra: true
+          admin_enabled: true
+          mtu: 9216
+          vrf: tenant1-vpc1
+          ipv6_link_local: fe80::1
+          anycast_gateway: true
+      adc-lfsw0104:
+        vlan: 14
+        vlan_name: tenant1-vpc1-k02-cluster-seg1
+        nve_member: true
+        operational_state: Up
+        replication: UnicastBGP
+        svi:
+          ipv4_addresses:
+          - 172.16.4.1/24
+          ipv6_addresses:
+          - fd21:0:0:4::1/64
+          ipv6_nd_suppress_ra: true
+          admin_enabled: true
+          mtu: 9216
+          vrf: tenant1-vpc1
+          anycast_gateway: true
+  - vni: 20200
+    vrf: tenant2-vpc1
+    vlan_name: tenant2-vpc1-server-seg1
+    status: DEVICE_VARIANT
+    devices:
+      adc-lfsw0101:
+        vlan: 200
+        vlan_name: tenant2-vpc1-server-seg1
+        nve_member: true
+        operational_state: Up
+        replication: UnicastBGP
+        svi:
+          ipv4_addresses:
+          - 172.17.0.254/24
+          ipv6_addresses:
+          - fd22:0:0:1::1/64
+          ipv6_nd_suppress_ra: true
+          admin_enabled: true
+          vrf: tenant2-vpc1
+          ipv6_link_local: fe80::1
+          anycast_gateway: true
+      adc-lfsw0102:
+        vlan: 200
+        vlan_name: tenant2-vpc1-server-seg1
+        nve_member: true
+        operational_state: Up
+        replication: UnicastBGP
+        svi:
+          ipv4_addresses:
+          - 172.17.0.254/24
+          ipv6_addresses:
+          - fd22:0:0:1::1/64
+          ipv6_nd_suppress_ra: true
+          admin_enabled: true
+          vrf: tenant2-vpc1
+          ipv6_link_local: fe80::1
+          anycast_gateway: true
+      adc-lfsw0103:
+        vlan: 20
+        vlan_name: tenant2-vpc1-server-seg1
+        nve_member: true
+        operational_state: Up
+        replication: UnicastBGP
+        svi:
+          ipv4_addresses:
+          - 172.17.0.254/24
+          ipv6_addresses:
+          - fd22:0:0:1::1/64
+          ipv6_nd_suppress_ra: true
+          admin_enabled: true
+          vrf: tenant2-vpc1
+          ipv6_link_local: fe80::1
+          anycast_gateway: true
+      adc-lfsw0104:
+        vlan: 20
+        vlan_name: tenant2-vpc1-server-seg1
+        nve_member: true
+        operational_state: Up
+        replication: UnicastBGP
+        svi:
+          ipv4_addresses:
+          - 172.17.0.254/24
+          ipv6_addresses:
+          - fd22:0:0:1::1/64
+          ipv6_nd_suppress_ra: true
+          admin_enabled: true
+          vrf: tenant2-vpc1
+          ipv6_link_local: fe80::1
+          anycast_gateway: true
   l3vnis:
-    - vni: 50001
-      vrf: TENANT-A
-      status: CONSISTENT
-      devices:
-        leaf01: {local_as: ['65000'], rd: auto, nve_associate_vrf: true, operational_state: Up}
-        leaf02: {local_as: ['65000'], rd: auto, nve_associate_vrf: true, operational_state: Up}
+  - vni: 9001
+    vrf: controller-vpc1
+    status: CONSISTENT
+    devices:
+      adc-lfsw0101:
+        local_as:
+        - '65001'
+        bgp_processes:
+          '65001':
+            address_families:
+              ipv4:
+                commands:
+                - redistribute direct route-map IPv4_REDISTRIBUTE_ALL
+                - redistribute static route-map IPv4_REDISTRIBUTE_ALL
+                - maximum-paths ibgp 4
+              ipv6:
+                commands:
+                - redistribute direct route-map IPv6_REDISTRIBUTE_ALL
+                - redistribute static route-map IPv6_REDISTRIBUTE_ALL
+                - maximum-paths ibgp 4
+        rd: auto
+        address_families:
+          ipv4:
+            commands:
+            - route-target both auto
+            - route-target both auto evpn
+            - route-target import 65001:19001
+            - route-target import 65001:19001 evpn
+            - route-target import 65001:29001
+            - route-target import 65001:29001 evpn
+            - import map IPv4_IMPORT_MAP_controller-vpc1
+          ipv6:
+            commands:
+            - route-target both auto
+            - route-target both auto evpn
+            - route-target import 65001:19001
+            - route-target import 65001:19001 evpn
+            - route-target import 65001:29001
+            - route-target import 65001:29001 evpn
+            - import map IPv6_IMPORT_MAP_controller-vpc1
+        nve_associate_vrf: true
+        operational_state: Up
+      adc-lfsw0102:
+        local_as:
+        - '65001'
+        bgp_processes:
+          '65001':
+            address_families:
+              ipv4:
+                commands:
+                - redistribute direct route-map IPv4_REDISTRIBUTE_ALL
+                - redistribute static route-map IPv4_REDISTRIBUTE_ALL
+                - maximum-paths ibgp 4
+              ipv6:
+                commands:
+                - redistribute direct route-map IPv6_REDISTRIBUTE_ALL
+                - redistribute static route-map IPv6_REDISTRIBUTE_ALL
+                - maximum-paths ibgp 4
+        rd: auto
+        address_families:
+          ipv4:
+            commands:
+            - route-target both auto
+            - route-target both auto evpn
+            - route-target import 65001:19001
+            - route-target import 65001:19001 evpn
+            - route-target import 65001:29001
+            - route-target import 65001:29001 evpn
+            - import map IPv4_IMPORT_MAP_controller-vpc1
+          ipv6:
+            commands:
+            - route-target both auto
+            - route-target both auto evpn
+            - route-target import 65001:19001
+            - route-target import 65001:19001 evpn
+            - route-target import 65001:29001
+            - route-target import 65001:29001 evpn
+            - import map IPv6_IMPORT_MAP_controller-vpc1
+        nve_associate_vrf: true
+        operational_state: Up
+      adc-lfsw0103:
+        local_as:
+        - '65001'
+        bgp_processes:
+          '65001':
+            address_families:
+              ipv4:
+                commands:
+                - redistribute direct route-map IPv4_REDISTRIBUTE_ALL
+                - redistribute static route-map IPv4_REDISTRIBUTE_ALL
+                - maximum-paths ibgp 4
+              ipv6:
+                commands:
+                - redistribute direct route-map IPv6_REDISTRIBUTE_ALL
+                - redistribute static route-map IPv6_REDISTRIBUTE_ALL
+                - maximum-paths ibgp 4
+        rd: auto
+        address_families:
+          ipv4:
+            commands:
+            - route-target both auto
+            - route-target both auto evpn
+            - route-target import 65001:19001
+            - route-target import 65001:19001 evpn
+            - route-target import 65001:29001
+            - route-target import 65001:29001 evpn
+            - import map IPv4_IMPORT_MAP_controller-vpc1
+          ipv6:
+            commands:
+            - route-target both auto
+            - route-target both auto evpn
+            - route-target import 65001:19001
+            - route-target import 65001:19001 evpn
+            - route-target import 65001:29001
+            - route-target import 65001:29001 evpn
+            - import map IPv6_IMPORT_MAP_controller-vpc1
+        nve_associate_vrf: true
+        operational_state: Up
+      adc-lfsw0104:
+        local_as:
+        - '65001'
+        bgp_processes:
+          '65001':
+            address_families:
+              ipv4:
+                commands:
+                - redistribute direct route-map IPv4_REDISTRIBUTE_ALL
+                - redistribute static route-map IPv4_REDISTRIBUTE_ALL
+                - maximum-paths ibgp 4
+              ipv6:
+                commands:
+                - redistribute direct route-map IPv6_REDISTRIBUTE_ALL
+                - redistribute static route-map IPv6_REDISTRIBUTE_ALL
+                - maximum-paths ibgp 4
+        rd: auto
+        address_families:
+          ipv4:
+            commands:
+            - route-target both auto
+            - route-target both auto evpn
+            - route-target import 65001:19001
+            - route-target import 65001:19001 evpn
+            - route-target import 65001:29001
+            - route-target import 65001:29001 evpn
+            - import map IPv4_IMPORT_MAP_controller-vpc1
+          ipv6:
+            commands:
+            - route-target both auto
+            - route-target both auto evpn
+            - route-target import 65001:19001
+            - route-target import 65001:19001 evpn
+            - route-target import 65001:29001
+            - route-target import 65001:29001 evpn
+            - import map IPv6_IMPORT_MAP_controller-vpc1
+        nve_associate_vrf: true
+        operational_state: Up
+  - vni: 19001
+    vrf: tenant1-vpc1
+    status: CONSISTENT
+    devices:
+      adc-lfsw0101:
+        local_as:
+        - '65001'
+        bgp_processes:
+          '65001':
+            address_families:
+              ipv4:
+                commands:
+                - redistribute direct route-map IPv4_REDISTRIBUTE_ALL
+                - redistribute static route-map IPv4_REDISTRIBUTE_ALL
+                - maximum-paths ibgp 4
+              ipv6:
+                commands:
+                - redistribute direct route-map IPv6_REDISTRIBUTE_ALL
+                - redistribute static route-map IPv6_REDISTRIBUTE_ALL
+                - maximum-paths ibgp 4
+                - remote-as 65535
+                - address-family ipv6 unicast
+                - remote-as 65535
+                - address-family ipv4 unicast
+        rd: auto
+        address_families:
+          ipv4:
+            commands:
+            - route-target both auto
+            - route-target both auto evpn
+          ipv6:
+            commands:
+            - route-target both auto
+            - route-target both auto evpn
+            - route-target import 65001:9001
+            - route-target import 65001:9001 evpn
+        nve_associate_vrf: true
+        operational_state: Up
+      adc-lfsw0102:
+        local_as:
+        - '65001'
+        bgp_processes:
+          '65001':
+            address_families:
+              ipv4:
+                commands:
+                - redistribute direct route-map IPv4_REDISTRIBUTE_ALL
+                - redistribute static route-map IPv4_REDISTRIBUTE_ALL
+                - maximum-paths ibgp 4
+              ipv6:
+                commands:
+                - redistribute direct route-map IPv6_REDISTRIBUTE_ALL
+                - redistribute static route-map IPv6_REDISTRIBUTE_ALL
+                - maximum-paths ibgp 4
+                - remote-as 65535
+                - address-family ipv6 unicast
+                - remote-as 65535
+                - address-family ipv4 unicast
+        rd: auto
+        address_families:
+          ipv4:
+            commands:
+            - route-target both auto
+            - route-target both auto evpn
+          ipv6:
+            commands:
+            - route-target both auto
+            - route-target both auto evpn
+            - route-target import 65001:9001
+            - route-target import 65001:9001 evpn
+        nve_associate_vrf: true
+        operational_state: Up
+      adc-lfsw0103:
+        local_as:
+        - '65001'
+        bgp_processes:
+          '65001':
+            address_families:
+              ipv4:
+                commands:
+                - redistribute direct route-map IPv4_REDISTRIBUTE_ALL
+                - redistribute static route-map IPv4_REDISTRIBUTE_ALL
+                - maximum-paths ibgp 4
+              ipv6:
+                commands:
+                - redistribute direct route-map IPv6_REDISTRIBUTE_ALL
+                - redistribute static route-map IPv6_REDISTRIBUTE_ALL
+                - maximum-paths ibgp 4
+        rd: auto
+        address_families:
+          ipv4:
+            commands:
+            - route-target both auto
+            - route-target both auto evpn
+          ipv6:
+            commands:
+            - route-target both auto
+            - route-target both auto evpn
+            - route-target import 65001:9001
+            - route-target import 65001:9001 evpn
+        nve_associate_vrf: true
+        operational_state: Up
+      adc-lfsw0104:
+        local_as:
+        - '65001'
+        bgp_processes:
+          '65001':
+            address_families:
+              ipv4:
+                commands:
+                - redistribute direct route-map IPv4_REDISTRIBUTE_ALL
+                - redistribute static route-map IPv4_REDISTRIBUTE_ALL
+                - maximum-paths ibgp 4
+              ipv6:
+                commands:
+                - redistribute direct route-map IPv6_REDISTRIBUTE_ALL
+                - redistribute static route-map IPv6_REDISTRIBUTE_ALL
+                - maximum-paths ibgp 4
+        rd: auto
+        address_families:
+          ipv4:
+            commands:
+            - route-target both auto
+            - route-target both auto evpn
+          ipv6:
+            commands:
+            - route-target both auto
+            - route-target both auto evpn
+            - route-target import 65001:9001
+            - route-target import 65001:9001 evpn
+        nve_associate_vrf: true
+        operational_state: Up
+  - vni: 29001
+    vrf: tenant2-vpc1
+    status: CONSISTENT
+    devices:
+      adc-lfsw0101:
+        local_as:
+        - '65001'
+        bgp_processes:
+          '65001':
+            address_families:
+              ipv4:
+                commands:
+                - redistribute direct route-map IPv4_REDISTRIBUTE_ALL
+                - redistribute static route-map IPv4_REDISTRIBUTE_ALL
+                - maximum-paths ibgp 4
+              ipv6:
+                commands:
+                - redistribute direct route-map IPv6_REDISTRIBUTE_ALL
+                - redistribute static route-map IPv6_REDISTRIBUTE_ALL
+                - maximum-paths ibgp 4
+        rd: auto
+        address_families:
+          ipv4:
+            commands:
+            - route-target both auto
+            - route-target both auto evpn
+          ipv6:
+            commands:
+            - route-target both auto
+            - route-target both auto evpn
+            - route-target import 65001:9001
+            - route-target import 65001:9001 evpn
+        nve_associate_vrf: true
+        operational_state: Up
+      adc-lfsw0102:
+        local_as:
+        - '65001'
+        bgp_processes:
+          '65001':
+            address_families:
+              ipv4:
+                commands:
+                - redistribute direct route-map IPv4_REDISTRIBUTE_ALL
+                - redistribute static route-map IPv4_REDISTRIBUTE_ALL
+                - maximum-paths ibgp 4
+              ipv6:
+                commands:
+                - redistribute direct route-map IPv6_REDISTRIBUTE_ALL
+                - redistribute static route-map IPv6_REDISTRIBUTE_ALL
+                - maximum-paths ibgp 4
+        rd: auto
+        address_families:
+          ipv4:
+            commands:
+            - route-target both auto
+            - route-target both auto evpn
+          ipv6:
+            commands:
+            - route-target both auto
+            - route-target both auto evpn
+            - route-target import 65001:9001
+            - route-target import 65001:9001 evpn
+        nve_associate_vrf: true
+        operational_state: Up
+      adc-lfsw0103:
+        local_as:
+        - '65001'
+        bgp_processes:
+          '65001':
+            address_families:
+              ipv4:
+                commands:
+                - redistribute direct route-map IPv4_REDISTRIBUTE_ALL
+                - redistribute static route-map IPv4_REDISTRIBUTE_ALL
+                - maximum-paths ibgp 4
+              ipv6:
+                commands:
+                - redistribute direct route-map IPv6_REDISTRIBUTE_ALL
+                - redistribute static route-map IPv6_REDISTRIBUTE_ALL
+                - maximum-paths ibgp 4
+        rd: auto
+        address_families:
+          ipv4:
+            commands:
+            - route-target both auto
+            - route-target both auto evpn
+          ipv6:
+            commands:
+            - route-target both auto
+            - route-target both auto evpn
+            - route-target import 65001:9001
+            - route-target import 65001:9001 evpn
+        nve_associate_vrf: true
+        operational_state: Up
+      adc-lfsw0104:
+        local_as:
+        - '65001'
+        bgp_processes:
+          '65001':
+            address_families:
+              ipv4:
+                commands:
+                - redistribute direct route-map IPv4_REDISTRIBUTE_ALL
+                - redistribute static route-map IPv4_REDISTRIBUTE_ALL
+                - maximum-paths ibgp 4
+              ipv6:
+                commands:
+                - redistribute direct route-map IPv6_REDISTRIBUTE_ALL
+                - redistribute static route-map IPv6_REDISTRIBUTE_ALL
+                - maximum-paths ibgp 4
+        rd: auto
+        address_families:
+          ipv4:
+            commands:
+            - route-target both auto
+            - route-target both auto evpn
+          ipv6:
+            commands:
+            - route-target both auto
+            - route-target both auto evpn
+            - route-target import 65001:9001
+            - route-target import 65001:9001 evpn
+        nve_associate_vrf: true
+        operational_state: Up
   conflicts: []
   unknowns: []
   evidence:
-    leaf01:
-      - {command: show running-config, file: health/before/raw/leaf01/config.txt, sha256: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa, parse_status: parsed, source_id: running_config}
-      - {command: show nve vni, file: health/before/raw/leaf01/shows.log, sha256: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb, parse_status: parsed, source_id: nve_vni}
-    leaf02:
-      - {command: show running-config, file: health/before/raw/leaf02/config.txt, sha256: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa, parse_status: parsed, source_id: running_config}
-      - {command: show nve vni, file: health/before/raw/leaf02/shows.log, sha256: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb, parse_status: parsed, source_id: nve_vni}
+    adc-bgrt0101:
+    - command: show running-config
+      file: synthetic/before/adc-bgrt0101/running_config.txt
+      sha256: 93e9270234c5e366f84df87f09c2479c3628f7eb3077b0fdfb73df8846fd3eab
+      parse_status: parsed
+      status: success
+      source_id: running_config
+    - command: show nve vni
+      file: synthetic/before/adc-bgrt0101/nve_vni.txt
+      sha256: 49721c74fbfb8b754037ce73ca748ea0f15ebb38b17960938af76ded4beb87c4
+      parse_status: parsed
+      status: success
+      source_id: nve_vni
+    adc-bgrt0102:
+    - command: show running-config
+      file: synthetic/before/adc-bgrt0102/running_config.txt
+      sha256: d5533a642bf39ccb59509d4a0805f9244d581a209e9d2565b0d2319185765256
+      parse_status: parsed
+      status: success
+      source_id: running_config
+    - command: show nve vni
+      file: synthetic/before/adc-bgrt0102/nve_vni.txt
+      sha256: f6af2fed5fd6d4bfc556deffc35b7b9ea764074e26dccad4de4f4772f546e346
+      parse_status: parsed
+      status: success
+      source_id: nve_vni
+    adc-lfsw0101:
+    - command: show running-config
+      file: synthetic/before/adc-lfsw0101/running_config.txt
+      sha256: eb43a542c4b6a1aaed1e82b9e56f3902f959d9acb845494a01593112caf8304f
+      parse_status: parsed
+      status: success
+      source_id: running_config
+    - command: show nve vni
+      file: synthetic/before/adc-lfsw0101/nve_vni.txt
+      sha256: d5153f92df841522d362171565f86198905945f2dbd7804600eb1bef90098d49
+      parse_status: parsed
+      status: success
+      source_id: nve_vni
+    adc-lfsw0102:
+    - command: show running-config
+      file: synthetic/before/adc-lfsw0102/running_config.txt
+      sha256: a4f693cbcf2f4145dd71a90527e6fe10d6d2e1d5c7962b23b7febdbf7b54adc4
+      parse_status: parsed
+      status: success
+      source_id: running_config
+    - command: show nve vni
+      file: synthetic/before/adc-lfsw0102/nve_vni.txt
+      sha256: 0703c6cf05111fe7df1e14afd3dd9b0ee728799040353716353de2e0a6847da0
+      parse_status: parsed
+      status: success
+      source_id: nve_vni
+    adc-lfsw0103:
+    - command: show running-config
+      file: synthetic/before/adc-lfsw0103/running_config.txt
+      sha256: 89ffdedd50c5b99a494ba6a8e9373ec26975752fa82595293d754acc92aaed55
+      parse_status: parsed
+      status: success
+      source_id: running_config
+    - command: show nve vni
+      file: synthetic/before/adc-lfsw0103/nve_vni.txt
+      sha256: 286b2ff763eb44dbe076cd47c4a9901a45ac3fad23ddd9c5687cb491f0eb6bd9
+      parse_status: parsed
+      status: success
+      source_id: nve_vni
+    adc-lfsw0104:
+    - command: show running-config
+      file: synthetic/before/adc-lfsw0104/running_config.txt
+      sha256: b499e4bba6524bda10b4fbdee6c6fb542456b2836ebeb2af2a03a536bc4c5b37
+      parse_status: parsed
+      status: success
+      source_id: running_config
+    - command: show nve vni
+      file: synthetic/before/adc-lfsw0104/nve_vni.txt
+      sha256: b56fd9f01542bb6f96ff3abc19c2a481b11a711f84c9c0e25ea2c3639102ae34
+      parse_status: parsed
+      status: success
+      source_id: nve_vni
+    adc-spsw0101:
+    - command: show running-config
+      file: synthetic/before/adc-spsw0101/running_config.txt
+      sha256: 76640139e96a4b62f124548e3c58fab14336015fadec32a6920805ae50f62da1
+      parse_status: parsed
+      status: success
+      source_id: running_config
+    - command: show nve vni
+      file: synthetic/before/adc-spsw0101/nve_vni.txt
+      sha256: bc580ed3ec5137b2d858fbd21ac435ec93ec0ab36ce540dea5a59c20d69325a1
+      parse_status: parsed
+      status: success
+      source_id: nve_vni
+    adc-spsw0102:
+    - command: show running-config
+      file: synthetic/before/adc-spsw0102/running_config.txt
+      sha256: 3bffff0c7873fa519451464d855384c1cdbbf8b79f67496d245fceca0784f057
+      parse_status: parsed
+      status: success
+      source_id: running_config
+    - command: show nve vni
+      file: synthetic/before/adc-spsw0102/nve_vni.txt
+      sha256: 48fd56450778d2a09e4519c924d540c4a8c73e1ad743e886d191388a3ee79caa
+      parse_status: parsed
+      status: success
+      source_id: nve_vni

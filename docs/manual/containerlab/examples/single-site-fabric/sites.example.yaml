@@ -1,0 +1,18 @@
+site_detection:
+  wan:
+    priority: 10
+    startswith:
+      - p01
+      - pe
+  adc:
+    priority: 100
+    startswith:
+      - adc-
+  bdc:
+    priority: 100
+    startswith:
+      - bdc-
+  cdc:
+    priority: 100
+    startswith:
+      - cdc-

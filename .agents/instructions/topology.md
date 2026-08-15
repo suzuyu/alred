@@ -2,7 +2,7 @@
 
 ## Scope
 
-LLDP、link正規化、candidate／confirmed CSV、Mermaid、Graphviz、draw.io、Terraform、構成資料生成を
+LLDP、link正規化、candidate／confirmed CSV、Mermaid、Graphviz、draw.io、構成資料生成を
 変更または実行するときに適用する。
 
 ## Rules

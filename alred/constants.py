@@ -262,9 +262,18 @@ DEFAULT_LINKS_CONFIRMED_FILENAME = "links_confirmed.csv"
 DEFAULT_LINKS_CANDIDATES_FILENAME = "links_candidates.csv"
 DEFAULT_TOPOLOGY_CLAB_FILENAME = "topology.clab.yaml"
 DEFAULT_TOPOLOGY_MERMAID_FILENAME = "topology-graph.md"
+DEFAULT_TOPOLOGY_UNDERLAY_MERMAID_FILENAME = "topology_underlay.md"
+DEFAULT_TOPOLOGY_EVPN_MERMAID_FILENAME = "topology_evpn.md"
+DEFAULT_EVPN_CONTROL_PLANE_MODEL_FILENAME = "evpn-control-plane-model.yaml"
+DEFAULT_EVPN_SESSION_LINKS_FILENAME = "evpn-session-links.csv"
+DEFAULT_OVERLAY_SERVICE_MODEL_FILENAME = "overlay-service-model.yaml"
+DEFAULT_OVERLAY_SERVICE_LINKS_FILENAME = "overlay-service-links.csv"
+DEFAULT_TOPOLOGY_OVERLAY_SERVICE_MERMAID_FILENAME = "topology_overlay_service.md"
+DEFAULT_OVERLAY_SERVICE_DETAILS_DIRNAME = "overlay-services"
 DEFAULT_TOPOLOGY_GRAPHVIZ_FILENAME = "topology-graph.dot"
 DEFAULT_TOPOLOGY_DRAWIO_FILENAME = "topology-graph.drawio"
 DEFAULT_TOPOLOGY_DRAWIO_ALL_FILENAME = "topology-graph-all.drawio"
+DEFAULT_NETWORK_DIAGRAM_MANIFEST_FILENAME = "network-diagram-manifest.yaml"
 DEFAULT_TOPOLOGY_NO_CANDIDATE_MERMAID_FILENAME = "topology_no_candidates.md"
 DEFAULT_VNI_MAP_CSV_FILENAME = "vni_gateway_map.csv"
 DEFAULT_VNI_MAP_MD_FILENAME = "vni_gateway_map.md"
@@ -435,9 +444,9 @@ DEFAULT_CLAB_SET_CMDS = [
             "roles": "roles.yaml",
             "sites": None,
             "min_confidence": "low",
-            "direction": "LR",
+            "direction": "TD",
             "group_by_role": True,
-            "group_by_site": False,
+            "group_by_site": None,
             "add_comments": False,
             "underlay": False,
             "underlay_config": None,
@@ -460,9 +469,9 @@ DEFAULT_CLAB_SET_CMDS = [
             "roles": "roles.yaml",
             "sites": None,
             "min_confidence": "low",
-            "direction": "LR",
+            "direction": "TD",
             "group_by_role": True,
-            "group_by_site": False,
+            "group_by_site": None,
             "add_comments": False,
             "underlay": False,
             "underlay_config": None,
@@ -485,9 +494,9 @@ DEFAULT_CLAB_SET_CMDS = [
             "roles": "roles.yaml",
             "sites": None,
             "min_confidence": "low",
-            "direction": "LR",
+            "direction": "TD",
             "group_by_role": True,
-            "group_by_site": False,
+            "group_by_site": None,
             "add_comments": False,
             "underlay": True,
             "underlay_config": "underlay_render.yaml",

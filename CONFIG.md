@@ -83,6 +83,7 @@ ALRED_LINKS_DIR=output
 ALRED_TOPOLOGY_DIR=output
 ALRED_LOG_DIR=logs
 ALRED_LOG_ROTATION=20
+ALRED_OPERATION_ARCHIVE_AFTER_DAYS=14
 ```
 
 主な項目:
@@ -100,6 +101,7 @@ ALRED_LOG_ROTATION=20
 - `ALRED_TOPOLOGY_DIR`: `generate-clab` / `generate-mermaid` / `generate-graphviz` / `generate-drawio` / `generate-doc` の既定出力先 (default: `output`)
 - `ALRED_LOG_DIR`: 各コマンドの既定ログディレクトリ (default: `logs`)
 - `ALRED_LOG_ROTATION`: `old/` 配下の保持世代数
+- `ALRED_OPERATION_ARCHIVE_AFTER_DAYS`: `operation archive`の既定経過日数（default: `14`）。自動実行はしない
 - `ALRED_OUTPUT_DIR`: 旧互換変数 (`ALRED_RAW_DIR` が未設定時のみ参照)
 
 補足:
@@ -298,7 +300,7 @@ version を省略した既存形式は `schema_version: 1` として扱い、既
 
 完全な例は [roles.example.yaml](alred/sample_configs/roles.example.yaml) を参照してください。
 
-`vtep` や `vpc` は hostname から推測する配置 role ではありません。function の期待状態は `roles.yaml` で定義し、実在と正常性は running config と show command の証跡で確認します。詳細は [Role Definition and Resolution Design](docs/design/ROLE_DEFINITION_AND_RESOLUTION_DESIGN.md) を参照してください。
+`vtep` や `vpc` は hostname から推測する配置 role ではありません。function の期待状態は `roles.yaml` で定義し、実在と正常性は running config と show command の証跡で確認します。詳細は [Role Definition and Resolution Design](docs/design/common/ROLE_DEFINITION_AND_RESOLUTION_DESIGN.md) を参照してください。
 
 ## 8. サイト定義 (`sites.yaml`)
 
@@ -445,9 +447,10 @@ topology:
 - それ以外の値 (文字列・配列など) は後勝ちで上書き
 - `topology.links` は追加マージ (generated links の後ろに merge 側 links を連結)
 - `clab-transform-config` は `--clab-env` で指定した YAML の `mgmt.ipv4-subnet` を参照して `hosts.lab.yaml` と `raw/labconfig/<hostname><suffix>` の管理 IP を変換します。`--file-suffix` の既定は `_run.txt` です
-- `clab-transform-config` は NX-OS ホストの認証情報を `--user` / `--password` > `clab_credentials.yaml` の host 個別 > device_type 別 > defaults > 環境変数の順で解決し、同名の既存ユーザーを `username <user> password 0 <password> role network-admin` へ置換します
-- 指定したユーザー名以外の `username` 行は変更しません。同名ユーザーが存在しない場合は新規追加し、NX-OS 認証情報がまったく無い場合はユーザー設定を変更しません
-- startup-config に書き込むパスワードには空文字または空白を含む値を指定できません
+- `clab-transform-config`は`--lab-parameters`の`LabTransformParameters`を検証し、未指定時もbuilt-in safety policyでproduction user、AAA、SNMP、NTP、remote logging、DNS、certificate／key、management access classを除去します
+- lab userは`lab_users.users[].authentication.password_ref`と同名の環境変数から解決します。secret本文はparameterやManifestへ記載しません
+- NX-OSでは共通`privilege: admin|read-only`を`network-admin|network-operator`へ変換します。lab user指定時は`primary: true`を1件だけ必要とします
+- bootstrap `admin:admin`は`bootstrap_user.action: preserve`で既定保持し、production source config由来の同名userとは分離します
 - `--delete-username` を指定すると、containerlab イメージのデフォルト認証を維持するため、NX-OS startup-config から全 `username` 行と全 `snmp-server user` 行を削除します。このモードでは認証情報が指定されていてもラボユーザーを追加しません
 - `--delete-access-class` を指定すると、NX-OSの `line vty` セクション内にある `access-class` と `ipv6 access-class` 行を削除します。`line console` や、VTY内のその他の設定は変更しません
 - `--node-map` では `source_hostname,source_mgmt_ip,target_hostname,target_mgmt_ip` のCSVを指定できます。`prd_hostname,prd_mgmt_ip,lab_hostname,lab_mgmt_ip` も互換ヘッダーとして受け付けます
@@ -597,7 +600,6 @@ containerlab topology YAML 入力では、次の値を利用します。
 ```sh
 alred generate-mermaid \
   --input output/topology.clab.yaml \
-  --direction LR \
   --group-by-site \
   --group-by-role \
   --output output/topology.md
@@ -656,7 +658,18 @@ interfaces:
 - `interfaces[].label`: Mermaid 表示ラベル
 - `interfaces[].vrf`: そのインターフェースを評価する VRF (省略時は上位 `vrf`)
 
-## 17. 関連ドキュメント
+## 17. `push-config-dir` 接続保護
+
+NX-OS の `push-config-dir` は、接続中の login user、management VRF、`interface mgmt0`、`line vty` を
+既定で投入対象から除外します。`--force` はこの接続保護 filter だけを解除します。入力 file の section は
+元のインデントまたは `!` 境界を維持してください。
+
+対象 command、投入前表示、`--force` の維持される安全機能は
+[push-config-dir Guide](./docs/manual/network-ops/10_PUSH_CONFIG_DIR.md)を参照してください。正式仕様は
+[Direct Config Push and Save Design](./docs/design/network-ops/DIRECT_CONFIG_PUSH_AND_SAVE_DESIGN.md#33-nx-os-接続保護-filter)
+を正本とします。
+
+## 18. 関連ドキュメント
 
 - 利用手順と主要コマンド: [README.md](./README.md)
 - 設定値や入力ファイルの詳細: この `CONFIG.md`

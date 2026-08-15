@@ -55,6 +55,6 @@
 
 ## Integration
 
-- Design document: [Role Definition and Resolution Design](../design/ROLE_DEFINITION_AND_RESOLUTION_DESIGN.md)
+- Design document: [Role Definition and Resolution Design](../design/common/ROLE_DEFINITION_AND_RESOLUTION_DESIGN.md)
 - ADR: [ADR-0008](../adr/0008-use-canonical-multi-role-resolution.md)
 - Integrated date: 2026-08-08

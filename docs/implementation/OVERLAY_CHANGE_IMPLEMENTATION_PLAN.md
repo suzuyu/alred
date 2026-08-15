@@ -135,7 +135,7 @@ Phase 5完了後に合意されたdevice group拡張はfollow-upとして実装�
 ### 4.8 Role-aware Health Check follow-up
 
 既存 Phase の完了実績を変更せず、次を role-aware Health Check の follow-up として段階的に実施する。各項目の実装状態は [Implementation Status](./IMPLEMENTATION_STATUS.md) を正本とする。
-check ID、command、Snapshot field、判定、実装状態は [NX-OS Overlay Role Health Check Catalog](../design/NXOS_OVERLAY_ROLE_HEALTH_CHECK_CATALOG.md) を正本とする。
+check ID、command、Snapshot field、判定、実装状態は [NX-OS Overlay Role Health Check Catalog](../design/network-ops/NXOS_OVERLAY_ROLE_HEALTH_CHECK_CATALOG.md) を正本とする。
 
 1. `roles.yaml` の hostname 規則から 1 つの topology role を解決し、conflict と `other` を区別する。
 2. topology role 配下の `functions` と `function_expectation_rules` を validation し、required / optional / forbidden を解決する。

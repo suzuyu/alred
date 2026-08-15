@@ -1,0 +1,91 @@
+# LabTransformParameters example for clab-transform-config --lab-parameters.
+api_version: alred/v1
+kind: LabTransformParameters
+
+metadata:
+  name: default-nxos-lab
+
+spec:
+  services:
+    ntp:
+      action: remove
+    logging:
+      action: remove
+    dns:
+      action: remove
+    aaa:
+      action: remove
+    snmp:
+      action: remove
+
+  access_control:
+    management_access_class:
+      action: remove
+
+  credentials:
+    certificates:
+      action: remove
+    private_keys:
+      action: remove
+
+  source_local_users:
+    action: remove
+
+  lab_users:
+    users:
+      - username: lab-admin
+        privilege: admin
+        primary: true
+        authentication:
+          password_ref: LAB_ADMIN_PASSWORD
+
+  bootstrap_user:
+    action: preserve
+
+  management:
+    ipv4_subnet: 172.20.20.0/24
+    gateway: 172.20.20.1
+
+  vpc_keepalive:
+    action: replace
+
+# Complete-set replacement examples (enable only required lab-local services):
+#  services:
+#    logging:
+#      action: replace
+#      servers:
+#        - address: 172.20.20.20
+#          use_vrf: management
+#    dns:
+#      action: replace
+#      name_servers:
+#        - address: 172.20.20.53
+#          use_vrf: management
+#      domain_name: lab.example
+#      lookup_vrf: management
+#    aaa:
+#      action: replace
+#      servers:
+#        - protocol: tacacs
+#          name: LAB-TACACS-1
+#          address: 172.20.20.30
+#          credential_ref: LAB_TACACS_KEY
+#      tacacs_group: LAB_TACACS
+#    snmp:
+#      action: replace
+#      communities:
+#        - credential_ref: LAB_SNMP_COMMUNITY
+#          group: network-operator
+#      trap_hosts:
+#        - address: 172.20.20.40
+#          community_ref: LAB_SNMP_COMMUNITY
+#          version: 2c
+#          use_vrf: management
+#  access_control:
+#    management_access_class:
+#      action: replace
+#      name: LAB-MGMT
+#      rules:
+#        - sequence: 10
+#          action: permit
+#          source: 172.20.20.0/24

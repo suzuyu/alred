@@ -1,0 +1,11 @@
+schema_version: 2
+
+role_detection:
+  spine:
+    priority: 1
+    contains:
+      - spine
+  leaf:
+    priority: 2
+    contains:
+      - leaf
