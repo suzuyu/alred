@@ -2,6 +2,7 @@
 
 - Started at: 2026-08-16T10:15:00+09:00
 - Completed at: 2026-08-16T10:15:31+09:00
+- Duration: 00:00:31 (31 seconds)
 - Change ID: CHG-2026-00123
 - Phase: after
 - Result: PASS
@@ -10,7 +11,7 @@
 
 | Profile | PASS | WARN | FAIL | UNKNOWN | N/A |
 |---|---:|---:|---:|---:|---:|
-| network-baseline-nxos | 120 | 0 | 0 | 0 | 16 |
+| network-baseline-nxos | 136 | 0 | 0 | 0 | 24 |
 | nxos-overlay | 50 | 0 | 0 | 0 | 2 |
 
 ## Checks
@@ -21,6 +22,7 @@
 
 - [x] `collection_complete`: PASS - All required command outputs were parsed
 - [x] `system_identity`: PASS - NX-OS 10.5(4) model Nexus9000 C9300v was identified
+- [x] `hostname_identity`: PASS - Reported hostname matches inventory hostname: adc-bgrt0101
 - [x] `cpu_utilization`: PASS - CPU one_minute_percent is 24% (warning threshold: 80%)
 - [x] `memory_utilization`: PASS - Memory utilization is 44% (warn: 85%, fail: 95%)
 - [-] `environment_health`: NOT_APPLICABLE - Hardware environment sensors are unavailable on this platform
@@ -28,13 +30,15 @@
 - [x] `ntp_health`: PASS - NTP is synchronized to 192.168.129.254
 - [x] `interface_health`: PASS - Admin-up interfaces are operationally up
 - [x] `interface_error_health`: PASS - Interface error counter total is 0
+- [x] `interface_utilization`: PASS - Peak interface utilization is 20.00% on Eth1/1 (output)
 - [-] `port_channel_health`: NOT_APPLICABLE - Port-channel is not configured
 - [x] `reload_pending`: PASS - No reload-pending configuration exists
 - [x] `running_config_diff`: PASS - Running-config matches startup-config
 - [x] `logging_health`: PASS - No abnormal log records were observed in the selected time range
 - [x] `ipv4_route_count`: PASS - IPv4 route counts were collected for 3 VRFs
 - [x] `ospf_neighbor_health`: PASS - All observed OSPF neighbors are FULL
-- [x] `bgp_ipv4_health`: PASS - All observed IPv4 BGP peers are established
+- [x] `bgp_ipv4_health`: PASS - All statically configured IPv4 BGP peers are established
+- [-] `bgp_dynamic_neighbor_health`: NOT_APPLICABLE - No dynamic BGP neighbor range is configured
 - [-] `vpc_health`: NOT_APPLICABLE - vPC is not configured
 
 ### Device: `adc-bgrt0102` (192.168.129.102)
@@ -43,6 +47,7 @@
 
 - [x] `collection_complete`: PASS - All required command outputs were parsed
 - [x] `system_identity`: PASS - NX-OS 10.5(4) model Nexus9000 C9300v was identified
+- [x] `hostname_identity`: PASS - Reported hostname matches inventory hostname: adc-bgrt0102
 - [x] `cpu_utilization`: PASS - CPU one_minute_percent is 24% (warning threshold: 80%)
 - [x] `memory_utilization`: PASS - Memory utilization is 44% (warn: 85%, fail: 95%)
 - [-] `environment_health`: NOT_APPLICABLE - Hardware environment sensors are unavailable on this platform
@@ -50,13 +55,15 @@
 - [x] `ntp_health`: PASS - NTP is synchronized to 192.168.129.254
 - [x] `interface_health`: PASS - Admin-up interfaces are operationally up
 - [x] `interface_error_health`: PASS - Interface error counter total is 0
+- [x] `interface_utilization`: PASS - Peak interface utilization is 20.00% on Eth1/1 (output)
 - [-] `port_channel_health`: NOT_APPLICABLE - Port-channel is not configured
 - [x] `reload_pending`: PASS - No reload-pending configuration exists
 - [x] `running_config_diff`: PASS - Running-config matches startup-config
 - [x] `logging_health`: PASS - No abnormal log records were observed in the selected time range
 - [x] `ipv4_route_count`: PASS - IPv4 route counts were collected for 3 VRFs
 - [x] `ospf_neighbor_health`: PASS - All observed OSPF neighbors are FULL
-- [x] `bgp_ipv4_health`: PASS - All observed IPv4 BGP peers are established
+- [x] `bgp_ipv4_health`: PASS - All statically configured IPv4 BGP peers are established
+- [-] `bgp_dynamic_neighbor_health`: NOT_APPLICABLE - No dynamic BGP neighbor range is configured
 - [-] `vpc_health`: NOT_APPLICABLE - vPC is not configured
 
 ### Device: `adc-lfsw0101` (192.168.129.81)
@@ -65,6 +72,7 @@
 
 - [x] `collection_complete`: PASS - All required command outputs were parsed
 - [x] `system_identity`: PASS - NX-OS 10.5(4) model Nexus9000 C9300v was identified
+- [x] `hostname_identity`: PASS - Reported hostname matches inventory hostname: adc-lfsw0101
 - [x] `cpu_utilization`: PASS - CPU one_minute_percent is 24% (warning threshold: 80%)
 - [x] `memory_utilization`: PASS - Memory utilization is 44% (warn: 85%, fail: 95%)
 - [-] `environment_health`: NOT_APPLICABLE - Hardware environment sensors are unavailable on this platform
@@ -72,13 +80,15 @@
 - [x] `ntp_health`: PASS - NTP is synchronized to 192.168.129.254
 - [x] `interface_health`: PASS - Admin-up interfaces are operationally up
 - [x] `interface_error_health`: PASS - Interface error counter total is 0
+- [x] `interface_utilization`: PASS - Peak interface utilization is 20.00% on Eth1/1 (output)
 - [x] `port_channel_health`: PASS - Port-channels and members are bundled
 - [x] `reload_pending`: PASS - No reload-pending configuration exists
 - [x] `running_config_diff`: PASS - Running-config matches startup-config
 - [x] `logging_health`: PASS - No abnormal log records were observed in the selected time range
 - [x] `ipv4_route_count`: PASS - IPv4 route counts were collected for 3 VRFs
 - [x] `ospf_neighbor_health`: PASS - All observed OSPF neighbors are FULL
-- [x] `bgp_ipv4_health`: PASS - All observed IPv4 BGP peers are established
+- [x] `bgp_ipv4_health`: PASS - All statically configured IPv4 BGP peers are established
+- [-] `bgp_dynamic_neighbor_health`: NOT_APPLICABLE - No dynamic BGP neighbor range is configured
 - [x] `vpc_health`: PASS - vPC peer and consistency are healthy
 
 #### Profile: `nxos-overlay`
@@ -101,6 +111,7 @@
 
 - [x] `collection_complete`: PASS - All required command outputs were parsed
 - [x] `system_identity`: PASS - NX-OS 10.5(4) model Nexus9000 C9300v was identified
+- [x] `hostname_identity`: PASS - Reported hostname matches inventory hostname: adc-lfsw0102
 - [x] `cpu_utilization`: PASS - CPU one_minute_percent is 24% (warning threshold: 80%)
 - [x] `memory_utilization`: PASS - Memory utilization is 44% (warn: 85%, fail: 95%)
 - [-] `environment_health`: NOT_APPLICABLE - Hardware environment sensors are unavailable on this platform
@@ -108,13 +119,15 @@
 - [x] `ntp_health`: PASS - NTP is synchronized to 192.168.129.254
 - [x] `interface_health`: PASS - Admin-up interfaces are operationally up
 - [x] `interface_error_health`: PASS - Interface error counter total is 0
+- [x] `interface_utilization`: PASS - Peak interface utilization is 20.00% on Eth1/1 (output)
 - [x] `port_channel_health`: PASS - Port-channels and members are bundled
 - [x] `reload_pending`: PASS - No reload-pending configuration exists
 - [x] `running_config_diff`: PASS - Running-config matches startup-config
 - [x] `logging_health`: PASS - No abnormal log records were observed in the selected time range
 - [x] `ipv4_route_count`: PASS - IPv4 route counts were collected for 3 VRFs
 - [x] `ospf_neighbor_health`: PASS - All observed OSPF neighbors are FULL
-- [x] `bgp_ipv4_health`: PASS - All observed IPv4 BGP peers are established
+- [x] `bgp_ipv4_health`: PASS - All statically configured IPv4 BGP peers are established
+- [-] `bgp_dynamic_neighbor_health`: NOT_APPLICABLE - No dynamic BGP neighbor range is configured
 - [x] `vpc_health`: PASS - vPC peer and consistency are healthy
 
 #### Profile: `nxos-overlay`
@@ -137,6 +150,7 @@
 
 - [x] `collection_complete`: PASS - All required command outputs were parsed
 - [x] `system_identity`: PASS - NX-OS 10.5(4) model Nexus9000 C9300v was identified
+- [x] `hostname_identity`: PASS - Reported hostname matches inventory hostname: adc-lfsw0103
 - [x] `cpu_utilization`: PASS - CPU one_minute_percent is 24% (warning threshold: 80%)
 - [x] `memory_utilization`: PASS - Memory utilization is 44% (warn: 85%, fail: 95%)
 - [-] `environment_health`: NOT_APPLICABLE - Hardware environment sensors are unavailable on this platform
@@ -144,13 +158,15 @@
 - [x] `ntp_health`: PASS - NTP is synchronized to 192.168.129.254
 - [x] `interface_health`: PASS - Admin-up interfaces are operationally up
 - [x] `interface_error_health`: PASS - Interface error counter total is 0
+- [x] `interface_utilization`: PASS - Peak interface utilization is 20.00% on Eth1/1 (output)
 - [x] `port_channel_health`: PASS - Port-channels and members are bundled
 - [x] `reload_pending`: PASS - No reload-pending configuration exists
 - [x] `running_config_diff`: PASS - Running-config matches startup-config
 - [x] `logging_health`: PASS - No abnormal log records were observed in the selected time range
 - [x] `ipv4_route_count`: PASS - IPv4 route counts were collected for 3 VRFs
 - [x] `ospf_neighbor_health`: PASS - All observed OSPF neighbors are FULL
-- [x] `bgp_ipv4_health`: PASS - All observed IPv4 BGP peers are established
+- [x] `bgp_ipv4_health`: PASS - All statically configured IPv4 BGP peers are established
+- [-] `bgp_dynamic_neighbor_health`: NOT_APPLICABLE - No dynamic BGP neighbor range is configured
 - [x] `vpc_health`: PASS - vPC peer and consistency are healthy
 
 #### Profile: `nxos-overlay`
@@ -173,6 +189,7 @@
 
 - [x] `collection_complete`: PASS - All required command outputs were parsed
 - [x] `system_identity`: PASS - NX-OS 10.5(4) model Nexus9000 C9300v was identified
+- [x] `hostname_identity`: PASS - Reported hostname matches inventory hostname: adc-lfsw0104
 - [x] `cpu_utilization`: PASS - CPU one_minute_percent is 24% (warning threshold: 80%)
 - [x] `memory_utilization`: PASS - Memory utilization is 44% (warn: 85%, fail: 95%)
 - [-] `environment_health`: NOT_APPLICABLE - Hardware environment sensors are unavailable on this platform
@@ -180,13 +197,15 @@
 - [x] `ntp_health`: PASS - NTP is synchronized to 192.168.129.254
 - [x] `interface_health`: PASS - Admin-up interfaces are operationally up
 - [x] `interface_error_health`: PASS - Interface error counter total is 0
+- [x] `interface_utilization`: PASS - Peak interface utilization is 20.00% on Eth1/1 (output)
 - [x] `port_channel_health`: PASS - Port-channels and members are bundled
 - [x] `reload_pending`: PASS - No reload-pending configuration exists
 - [x] `running_config_diff`: PASS - Running-config matches startup-config
 - [x] `logging_health`: PASS - No abnormal log records were observed in the selected time range
 - [x] `ipv4_route_count`: PASS - IPv4 route counts were collected for 3 VRFs
 - [x] `ospf_neighbor_health`: PASS - All observed OSPF neighbors are FULL
-- [x] `bgp_ipv4_health`: PASS - All observed IPv4 BGP peers are established
+- [x] `bgp_ipv4_health`: PASS - All statically configured IPv4 BGP peers are established
+- [-] `bgp_dynamic_neighbor_health`: NOT_APPLICABLE - No dynamic BGP neighbor range is configured
 - [x] `vpc_health`: PASS - vPC peer and consistency are healthy
 
 #### Profile: `nxos-overlay`
@@ -209,6 +228,7 @@
 
 - [x] `collection_complete`: PASS - All required command outputs were parsed
 - [x] `system_identity`: PASS - NX-OS 10.5(4) model Nexus9000 C9300v was identified
+- [x] `hostname_identity`: PASS - Reported hostname matches inventory hostname: adc-spsw0101
 - [x] `cpu_utilization`: PASS - CPU one_minute_percent is 24% (warning threshold: 80%)
 - [x] `memory_utilization`: PASS - Memory utilization is 44% (warn: 85%, fail: 95%)
 - [-] `environment_health`: NOT_APPLICABLE - Hardware environment sensors are unavailable on this platform
@@ -216,13 +236,15 @@
 - [x] `ntp_health`: PASS - NTP is synchronized to 192.168.129.254
 - [x] `interface_health`: PASS - Admin-up interfaces are operationally up
 - [x] `interface_error_health`: PASS - Interface error counter total is 0
+- [x] `interface_utilization`: PASS - Peak interface utilization is 20.00% on Eth1/1 (output)
 - [-] `port_channel_health`: NOT_APPLICABLE - Port-channel is not configured
 - [x] `reload_pending`: PASS - No reload-pending configuration exists
 - [x] `running_config_diff`: PASS - Running-config matches startup-config
 - [x] `logging_health`: PASS - No abnormal log records were observed in the selected time range
 - [x] `ipv4_route_count`: PASS - IPv4 route counts were collected for 3 VRFs
 - [x] `ospf_neighbor_health`: PASS - All observed OSPF neighbors are FULL
-- [x] `bgp_ipv4_health`: PASS - All observed IPv4 BGP peers are established
+- [x] `bgp_ipv4_health`: PASS - All statically configured IPv4 BGP peers are established
+- [-] `bgp_dynamic_neighbor_health`: NOT_APPLICABLE - No dynamic BGP neighbor range is configured
 - [-] `vpc_health`: NOT_APPLICABLE - vPC is not configured
 
 #### Profile: `nxos-overlay`
@@ -238,6 +260,7 @@
 
 - [x] `collection_complete`: PASS - All required command outputs were parsed
 - [x] `system_identity`: PASS - NX-OS 10.5(4) model Nexus9000 C9300v was identified
+- [x] `hostname_identity`: PASS - Reported hostname matches inventory hostname: adc-spsw0102
 - [x] `cpu_utilization`: PASS - CPU one_minute_percent is 24% (warning threshold: 80%)
 - [x] `memory_utilization`: PASS - Memory utilization is 44% (warn: 85%, fail: 95%)
 - [-] `environment_health`: NOT_APPLICABLE - Hardware environment sensors are unavailable on this platform
@@ -245,13 +268,15 @@
 - [x] `ntp_health`: PASS - NTP is synchronized to 192.168.129.254
 - [x] `interface_health`: PASS - Admin-up interfaces are operationally up
 - [x] `interface_error_health`: PASS - Interface error counter total is 0
+- [x] `interface_utilization`: PASS - Peak interface utilization is 20.00% on Eth1/1 (output)
 - [-] `port_channel_health`: NOT_APPLICABLE - Port-channel is not configured
 - [x] `reload_pending`: PASS - No reload-pending configuration exists
 - [x] `running_config_diff`: PASS - Running-config matches startup-config
 - [x] `logging_health`: PASS - No abnormal log records were observed in the selected time range
 - [x] `ipv4_route_count`: PASS - IPv4 route counts were collected for 3 VRFs
 - [x] `ospf_neighbor_health`: PASS - All observed OSPF neighbors are FULL
-- [x] `bgp_ipv4_health`: PASS - All observed IPv4 BGP peers are established
+- [x] `bgp_ipv4_health`: PASS - All statically configured IPv4 BGP peers are established
+- [-] `bgp_dynamic_neighbor_health`: NOT_APPLICABLE - No dynamic BGP neighbor range is configured
 - [-] `vpc_health`: NOT_APPLICABLE - vPC is not configured
 
 #### Profile: `nxos-overlay`

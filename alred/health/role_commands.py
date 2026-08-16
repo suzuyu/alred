@@ -55,7 +55,7 @@ def build_role_command_groups(
             selected.update(VTEP_COMMAND_IDS)
         if "evpn-route-reflector" in functions:
             selected.update(EVPN_RR_COMMAND_IDS)
-        groups[str(role)] = [
+        groups[f"device_type:nxos:role:{role}"] = [
             by_id[key] for key in sorted(selected) if key in by_id
         ]
     return groups

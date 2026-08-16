@@ -103,6 +103,7 @@
         "result": {
           "enum": ["PASS", "WARN", "FAIL", "UNKNOWN", "NOT_APPLICABLE", "PLAN_ERROR"]
         },
+        "display_severity": {"enum": ["INFO"]},
         "classification": {
           "enum": [
             "normal",

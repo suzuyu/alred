@@ -105,6 +105,7 @@ from .collect import (
     ConnectCheckResult,
     TransportType,
     build_collector,
+    evaluate_prompt_hostname,
     is_nxos_host,
     probe_transport_connectivity,
 )
@@ -607,6 +608,37 @@ def connect_to_host(
                 f"{hostname}: failed to enter privileged exec for device_type={device_type}. "
                 "Use --enable-secret, -K/--ask-become-pass, or define ALRED_ENABLE_SECRET if this device requires one."
             ) from exc
+
+    prompt = str(conn.find_prompt())
+    identity_status, reported_hostname, identity_message = evaluate_prompt_hostname(
+        str(hostname),
+        prompt,
+        str(device_type),
+    )
+    mismatch_allowed = bool(host.get("_allow_hostname_mismatch", False))
+    default_confirmed = bool(host.get("_default_hostname_confirmed", False))
+    if identity_status == "mismatch" and not mismatch_allowed:
+        conn.disconnect()
+        raise ValueError(
+            f"{hostname}: {identity_message}; use --allow-hostname-mismatch to override"
+        )
+    if identity_status == "unresolved":
+        conn.disconnect()
+        raise ValueError(f"{hostname}: {identity_message}")
+    if identity_status == "default_hostname" and not default_confirmed:
+        conn.disconnect()
+        raise ValueError(
+            f"{hostname}: {identity_message}; confirm the default-hostname warning before mutation"
+        )
+    if identity_status != "match":
+        logger.warning(
+            "HOSTNAME IDENTITY OVERRIDE %s ip=%s expected=%s reported=%s status=%s",
+            hostname,
+            ip,
+            hostname,
+            reported_hostname or "unknown",
+            identity_status,
+        )
 
     return conn
 
@@ -1501,6 +1533,19 @@ def save_config_on_host(
         )
         if result_callback is not None:
             result_callback(hostname, dict(result))
+        started_at = datetime.fromisoformat(result["started_at"])
+        completed_at = datetime.fromisoformat(result["completed_at"])
+        logger.info(
+            "SAVE RESULT host=%s ip=%s started_at=%s completed_at=%s "
+            "status=%s elapsed=%.3fs error=%s",
+            hostname,
+            host.get("ip", ""),
+            result["started_at"],
+            result["completed_at"],
+            result["status"],
+            (completed_at - started_at).total_seconds(),
+            result["error"] or "none",
+        )
         logger.debug("SAVE RESULT %s:\n%s", hostname, result["response"])
         if result["status"] != "SUCCESS":
             raise RuntimeError(
@@ -1511,7 +1556,14 @@ def save_config_on_host(
         logger.info("DISCONNECT %s", hostname)
 
 
-def print_operation_result_summary(label: str, attempted_count: int, failed_hosts: List[str]) -> None:
+def print_operation_result_summary(
+    label: str,
+    attempted_count: int,
+    failed_hosts: List[str],
+    *,
+    host_addresses: Mapping[str, str] | None = None,
+    log_file: str | None = None,
+) -> None:
     """
     Print a concise operation summary with failed hosts when present.
     """
@@ -1523,7 +1575,10 @@ def print_operation_result_summary(label: str, attempted_count: int, failed_host
     else:
         print(f"Failed hosts ({len(failed_hosts)}):")
         for hostname in sorted(failed_hosts):
-            print(f"- {hostname}")
+            address = str((host_addresses or {}).get(hostname, "")).strip()
+            print(f"- {hostname} ({address})" if address else f"- {hostname}")
+    if log_file:
+        print(f"Log file: {Path(log_file).resolve()}")
     print("====================")
 
 
@@ -1606,6 +1661,16 @@ def filter_hosts_by_connect_check(
 
     for host in hosts:
         result = cached_results[str(host.get("hostname", ""))]
+        allow_hostname_mismatch = bool(
+            getattr(args, "allow_hostname_mismatch", False)
+        )
+        if result.identity_status == "mismatch" and allow_hostname_mismatch:
+            result.ok = True
+            result.warning = (
+                f"{result.error}; continuing because --allow-hostname-mismatch was specified"
+            )
+            result.error = None
+            host["_allow_hostname_mismatch"] = True
         if result.ok:
             reachable_hosts.append(host)
             fallback = f" fallback_from={result.fallback_from}" if result.fallback_from else ""
@@ -1619,6 +1684,21 @@ def filter_hosts_by_connect_check(
                 result.elapsed_seconds,
                 fallback,
             )
+            if result.warning:
+                logger.warning(
+                    "CONNECT CHECK HOSTNAME WARNING %s ip=%s expected=%s reported=%s: %s",
+                    result.hostname,
+                    result.ip,
+                    result.hostname,
+                    result.reported_hostname or "unknown",
+                    result.warning,
+                )
+            if result.identity_status == "default_hostname":
+                warnings = getattr(
+                    args, "_connect_check_default_hostname_warnings", []
+                )
+                warnings.append(result)
+                setattr(args, "_connect_check_default_hostname_warnings", warnings)
         else:
             failures.append(result)
             logger.warning(
@@ -1667,6 +1747,39 @@ def filter_hosts_by_connect_check(
                 result.error or "unknown error",
             )
     return reachable_hosts, failures
+
+
+def confirm_default_hostname_mutation(
+    targets: Sequence[Dict[str, Any]],
+    args: argparse.Namespace,
+    logger: Logger,
+) -> bool:
+    """Require a separate confirmation before mutating default-hostname devices."""
+    warning_by_host = {
+        result.hostname: result
+        for result in getattr(args, "_connect_check_default_hostname_warnings", [])
+    }
+    affected = [
+        host
+        for host in targets
+        if str(host.get("hostname", "")) in warning_by_host
+    ]
+    if not affected:
+        return True
+    print("\nWARNING: default device hostname detected; the device may be uninitialized.")
+    for host in sorted(affected, key=lambda value: str(value.get("hostname", ""))):
+        result = warning_by_host[str(host["hostname"])]
+        print(
+            f"- {result.hostname} ({result.ip}): "
+            f"prompt={result.reported_hostname or 'unknown'}"
+        )
+    answer = input("Proceed with mutation on these devices? [yes/no]: ").strip().lower()
+    if answer != "yes":
+        logger.info("Aborted default-hostname mutation confirmation: %s", answer)
+        return False
+    for host in affected:
+        host["_default_hostname_confirmed"] = True
+    return True
 
 
 def print_connect_check_failures(label: str, failures: List[ConnectCheckResult]) -> None:
@@ -1767,7 +1880,12 @@ def resolve_show_commands_for_host(
     device_type = str(host.get("device_type", "unknown"))
     role_keys = detect_node_roles(hostname, roles) if roles else ["other"]
 
-    group_keys = [f"device_type:{device_type}", *role_keys, hostname]
+    group_keys = [
+        f"device_type:{device_type}",
+        *(f"device_type:{device_type}:role:{role}" for role in role_keys),
+        *role_keys,
+        hostname,
+    ]
     for group_key in group_keys:
         for cmd in grouped_commands.get(group_key, []):
             if cmd not in seen:
@@ -7272,6 +7390,8 @@ def cmd_push_config(args: argparse.Namespace) -> None:
     if not targets:
         logger.info("No targets to push")
         return
+    if not confirm_default_hostname_mutation(targets, args, logger):
+        return
 
     print("\n=== PUSH TARGETS ===")
     for host in sorted(targets, key=lambda x: str(x.get("hostname", ""))):
@@ -7372,7 +7492,13 @@ def cmd_push_config(args: argparse.Namespace) -> None:
             logger.warning("SAVE RESULT failed_hosts=%s", ",".join(sorted(failed_save_hosts)))
         else:
             logger.info("SAVE RESULT all hosts succeeded")
-        print_operation_result_summary("SAVE", len(pushed_hosts), failed_save_hosts)
+        print_operation_result_summary(
+            "SAVE",
+            len(pushed_hosts),
+            failed_save_hosts,
+            host_addresses={str(host["hostname"]): str(host.get("ip", "")) for host in pushed_hosts},
+            log_file=args.log_file,
+        )
 
 
 def cmd_push_config_dir(args: argparse.Namespace) -> Dict[str, Any]:
@@ -7579,6 +7705,16 @@ def cmd_push_config_dir(args: argparse.Namespace) -> Dict[str, Any]:
             "command_results": command_results,
         }
 
+    prepared_hosts = [host for host, _config_lines, _credentials in prepared_targets]
+    if not confirm_default_hostname_mutation(prepared_hosts, args, logger):
+        return {
+            "aborted": True,
+            "pushed_hosts": [],
+            "failed_hosts": sorted(command_results),
+            "not_started_hosts": sorted(str(host["hostname"]) for host in prepared_hosts),
+            "command_results": command_results,
+        }
+
     print("\n=== PUSH TARGETS ===")
     for host, _config_lines, _credentials in sorted(
         prepared_targets,
@@ -7712,7 +7848,13 @@ def cmd_push_config_dir(args: argparse.Namespace) -> Dict[str, Any]:
             logger.warning("SAVE RESULT failed_hosts=%s", ",".join(sorted(failed_save_hosts)))
         else:
             logger.info("SAVE RESULT all hosts succeeded")
-        print_operation_result_summary("SAVE", len(pushed_hosts), failed_save_hosts)
+        print_operation_result_summary(
+            "SAVE",
+            len(pushed_hosts),
+            failed_save_hosts,
+            host_addresses={str(host["hostname"]): str(host.get("ip", "")) for host in pushed_hosts},
+            log_file=args.log_file,
+        )
     return {
         "aborted": False,
         "pushed_hosts": [str(host["hostname"]) for host in pushed_hosts],
@@ -7742,12 +7884,26 @@ def cmd_write_memory(args: argparse.Namespace) -> None:
 
     logger.info("Loaded %d hosts from %s", len(hosts), hosts_path)
     logger.info("Write-memory targets=%d skipped=%d workers=%d", len(targets), skipped, max(1, args.workers))
+    selected_targets = list(targets)
+    selected_addresses = {
+        str(host["hostname"]): str(host.get("ip", ""))
+        for host in selected_targets
+    }
     targets, connect_failures = filter_hosts_by_connect_check(targets, args, logger)
     skipped += len(connect_failures)
     print_connect_check_failures("WRITE MEMORY", connect_failures)
 
     if not targets:
         logger.info("No targets to save")
+        print_operation_result_summary(
+            "WRITE MEMORY",
+            len(selected_targets),
+            [failure.hostname for failure in connect_failures],
+            host_addresses=selected_addresses,
+            log_file=args.log_file,
+        )
+        return
+    if not confirm_default_hostname_mutation(targets, args, logger):
         return
 
     print("\n=== WRITE MEMORY TARGETS ===")
@@ -7786,7 +7942,13 @@ def cmd_write_memory(args: argparse.Namespace) -> None:
         logger.warning("WRITE MEMORY RESULT failed_hosts=%s", ",".join(sorted(failed_hosts)))
     else:
         logger.info("WRITE MEMORY RESULT all hosts succeeded")
-    print_operation_result_summary("WRITE MEMORY", len(targets), failed_hosts)
+    print_operation_result_summary(
+        "WRITE MEMORY",
+        len(selected_targets),
+        [*failed_hosts, *(failure.hostname for failure in connect_failures)],
+        host_addresses=selected_addresses,
+        log_file=args.log_file,
+    )
 
 
 def cmd_normalize_links(args: argparse.Namespace) -> None:
@@ -13432,9 +13594,13 @@ def cmd_health_check_snapshot(args: argparse.Namespace) -> int:
                 )
                 import_manifest = None
                 host_addresses: dict[str, str] = {}
+                host_platforms: dict[str, str] = {}
                 if args.hosts:
                     inventory = load_inventory_data(load_yaml(str(args.hosts)))
                     for inventory_host in inventory:
+                        host_platforms[str(inventory_host["hostname"])] = str(
+                            inventory_host.get("device_type") or "unknown"
+                        ).strip().lower()
                         raw_address = inventory_host.get("ip")
                         if raw_address is None:
                             continue
@@ -13454,6 +13620,7 @@ def cmd_health_check_snapshot(args: argparse.Namespace) -> int:
                         completed_at=manifest_completed_at,
                         timezone=workspace.timezone,
                         host_addresses=host_addresses,
+                        host_platforms=host_platforms,
                     )
                 else:
                     import_manifest, manifest = import_nxos_transcripts(
@@ -13469,6 +13636,8 @@ def cmd_health_check_snapshot(args: argparse.Namespace) -> int:
                     for hostname, host_record in manifest["spec"]["hosts"].items():
                         if hostname in host_addresses:
                             host_record["address"] = host_addresses[hostname]
+                        if hostname in host_platforms:
+                            host_record["platform"] = host_platforms[hostname]
                     validate_document(manifest, kind="CollectionManifest")
                 snapshot = build_health_snapshot(
                     manifest,
@@ -13774,6 +13943,9 @@ def _write_health_execution_context(
             "show_read_timeout": args.show_read_timeout,
             "skip_connect_check": args.skip_connect_check,
             "connect_check_timeout": args.connect_check_timeout,
+            "allow_hostname_mismatch": bool(
+                getattr(args, "allow_hostname_mismatch", False)
+            ),
         }
     else:
         if args.hosts is not None:
@@ -13915,9 +14087,16 @@ def _apply_health_followup_execution_context(
         "show_read_timeout",
         "skip_connect_check",
         "connect_check_timeout",
+        "allow_hostname_mismatch",
     ):
         if getattr(args, name) is None:
-            setattr(args, name, collection[name])
+            setattr(
+                args,
+                name,
+                collection.get(name, False)
+                if name == "allow_hostname_mismatch"
+                else collection[name],
+            )
 
     authentication = spec["authentication"]
     if args.username is None:
@@ -13955,6 +14134,7 @@ def _set_health_followup_collect_defaults(args: argparse.Namespace) -> None:
         "show_read_timeout": 120,
         "skip_connect_check": False,
         "connect_check_timeout": DEFAULT_CONNECT_CHECK_TIMEOUT,
+        "allow_hostname_mismatch": False,
     }
     for name, value in defaults.items():
         if getattr(args, name) is None:
@@ -14021,6 +14201,9 @@ def _direct_health_collect(
         show_read_timeout=args.show_read_timeout,
         skip_connect_check=args.skip_connect_check,
         connect_check_timeout=args.connect_check_timeout,
+        allow_hostname_mismatch=bool(
+            getattr(args, "allow_hostname_mismatch", False)
+        ),
         log_file=str(phase_root / "collect.log"),
         verbose=args.verbose,
         show_run_diff=False,
@@ -16848,6 +17031,12 @@ def build_parser() -> argparse.ArgumentParser:
                 else DEFAULT_CONNECT_CHECK_TIMEOUT
             ),
         )
+        phase_parser.add_argument(
+            "--allow-hostname-mismatch",
+            action="store_true",
+            default=None if phase_name in {"after", "rollback"} else False,
+            help="Allow an SSH prompt hostname that differs from the inventory hostname",
+        )
         phase_parser.add_argument("--verbose", action="store_true")
         phase_parser.add_argument(
             "--operations-root",
@@ -17507,6 +17696,11 @@ def build_parser() -> argparse.ArgumentParser:
             default=DEFAULT_CONNECT_CHECK_TIMEOUT,
             help="Timeout in seconds for pre-flight TCP/authentication checks",
         )
+        p.add_argument(
+            "--allow-hostname-mismatch",
+            action="store_true",
+            help="Allow an SSH prompt hostname that differs from the inventory hostname",
+        )
         p.add_argument("--log-file", default=f"{default_log_dir}/collect.log", help="Log file path")
         p.add_argument("--verbose", action="store_true", help="Verbose logging")
 
@@ -17763,6 +17957,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Timeout in seconds for pre-flight TCP/authentication checks",
     )
     p_check_logging.add_argument(
+        "--allow-hostname-mismatch",
+        action="store_true",
+        help="Allow an SSH prompt hostname that differs from the inventory hostname",
+    )
+    p_check_logging.add_argument(
         "--log-file",
         default=f"{default_log_dir}/check-logging.log",
         help="Log file path",
@@ -17826,6 +18025,11 @@ def build_parser() -> argparse.ArgumentParser:
         type=float,
         default=DEFAULT_CONNECT_CHECK_TIMEOUT,
         help="Timeout in seconds for pre-flight TCP/authentication checks",
+    )
+    p_check_clab_startup.add_argument(
+        "--allow-hostname-mismatch",
+        action="store_true",
+        help="Allow an SSH prompt hostname that differs from the inventory hostname",
     )
     p_check_clab_startup.add_argument(
         "--log-file",
@@ -17996,6 +18200,11 @@ def build_parser() -> argparse.ArgumentParser:
             type=float,
             default=DEFAULT_CONNECT_CHECK_TIMEOUT,
             help="Timeout in seconds for pre-flight TCP/authentication checks",
+        )
+        p.add_argument(
+            "--allow-hostname-mismatch",
+            action="store_true",
+            help="Allow an SSH prompt hostname that differs from the inventory hostname",
         )
 
     p_clab_apply = subparsers.add_parser(

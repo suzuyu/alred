@@ -7,6 +7,7 @@ from copy import deepcopy
 import pytest
 import yaml
 
+from alred.cli import resolve_show_commands_for_host
 from alred.health.report import render_health_checklist
 from alred.health.evaluator import (
     _build_type5_route_indexes,
@@ -217,16 +218,36 @@ def test_role_command_groups_collect_only_role_relevant_overlay_commands(
         resolved_profiles["spec"]["resolved"]["effective"], config
     )
 
-    assert "show nve interface" in groups["leaf"]
-    assert "show vlan brief" in groups["leaf"]
-    assert "show vrf" in groups["leaf"]
-    assert "show interface brief" in groups["leaf"]
-    assert "show nve peers" in groups["border-gateway"]
-    assert "show nve interface" not in groups["spine"]
-    assert "show vlan brief" not in groups["spine"]
-    assert "show bgp l2vpn evpn summary" in groups["spine"]
-    assert "show bgp l2vpn evpn" in groups["super-spine"]
-    assert groups["network-functions"] == []
+    leaf = groups["device_type:nxos:role:leaf"]
+    spine = groups["device_type:nxos:role:spine"]
+    assert "show nve interface" in leaf
+    assert "show vlan brief" in leaf
+    assert "show vrf" in leaf
+    assert "show interface brief" in leaf
+    assert "show nve peers" in groups["device_type:nxos:role:border-gateway"]
+    assert "show nve interface" not in spine
+    assert "show vlan brief" not in spine
+    assert "show bgp l2vpn evpn summary" in spine
+    assert "show bgp l2vpn evpn" in groups[
+        "device_type:nxos:role:super-spine"
+    ]
+    assert groups["device_type:nxos:role:network-functions"] == []
+
+
+def test_nxos_role_command_group_does_not_apply_to_eos_host() -> None:
+    commands = {
+        "device_type:nxos": ["show version"],
+        "device_type:nxos:role:leaf": ["show nve interface"],
+    }
+    roles = {
+        "role_detection": {
+            "leaf": {"contains": ["leaf"]},
+        }
+    }
+
+    assert resolve_show_commands_for_host(
+        {"hostname": "leaf01", "device_type": "eos"}, commands, roles
+    ) == []
 
 
 def test_running_config_parser_structures_vpc_and_rr_functions() -> None:

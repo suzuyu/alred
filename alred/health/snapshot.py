@@ -121,6 +121,7 @@ def build_health_snapshot(
                     "ntp_peers",
                     "ntp_peer_status",
                     "interface_status",
+                    "interface_counters_table",
                     "interface_brief",
                     "interface_errors",
                     "port_channel_summary",
@@ -129,6 +130,7 @@ def build_health_snapshot(
                     "route_summary_ipv4",
                     "ospf_neighbors",
                     "bgp_ipv4_summary",
+                    "bgp_ipv6_summary",
                     "vpc_brief",
                     "nve_interface",
                     "nve_peers",
@@ -191,6 +193,12 @@ def build_health_snapshot(
         }
         if "address" in host_record:
             hosts[hostname]["address"] = host_record["address"]
+        platform = str(
+            host_record.get("platform")
+            or common.get("system", {}).get("platform")
+            or "unknown"
+        ).strip().lower()
+        hosts[hostname]["platform"] = platform or "unknown"
 
     snapshot = {
         "schema_version": SCHEMA_VERSION,

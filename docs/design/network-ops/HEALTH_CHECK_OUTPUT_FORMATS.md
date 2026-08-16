@@ -25,6 +25,8 @@
 - `Snapshot.created_at` は、解析対象とする収集世代を固定した時点を表す
 - `HealthResult.started_at` と `completed_at`、および `checklist.md` の `Started at` と
   `Completed at` は、直接収集では収集開始から解析完了までを表す
+- `checklist.md`の`Duration`は`Completed at - Started at`を秒単位で計算し、`HH:MM:SS`
+  と総秒数を併記する。時刻が欠落、不正、または完了が開始より前の場合は推測表示しない
 - 既存 file を `--input` で解析する場合は、元収集時刻を推測せず、入力解析の開始から完了までを
   `HealthResult` へ記録する
 
@@ -226,6 +228,7 @@ Manifest: operations/CHG-2026-00123/health/before/transcript-import-manifest.yam
 - Phase: after
 - Started at: 2026-07-21T10:30:00+09:00
 - Completed at: 2026-07-21T10:31:45+09:00
+- Duration: 00:01:45 (105 seconds)
 - Profiles: network-baseline-nxos, nxos-overlay
 - Result: FAIL
 
@@ -272,6 +275,7 @@ No collection errors.
 
 - Started at: 2026-07-21T10:30:00+09:00
 - Completed at: 2026-07-21T10:31:45+09:00
+- Duration: 00:01:45 (105 seconds)
 - Change ID: CHG-2026-00123
 - Phase: after
 - Result: FAIL

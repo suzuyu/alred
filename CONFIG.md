@@ -59,6 +59,22 @@ credentials:
 
 `password_env` / `username_env` / `enable_secret_env` を指定すると、値を環境変数から読み込みます。
 
+## 1.2. 接続確認と hostname 保護
+
+機器へ接続する command は、既定で本処理の前に TCP、認証、enable、SSH prompt hostname を確認します。
+
+- `--connect-check-timeout <seconds>`: 事前接続確認の timeout。既定は 3 秒
+- `--skip-connect-check`: 事前接続確認を省略する。接続先 identity も事前確認できないため通常運用では使用しない
+- `--allow-hostname-mismatch`: inventory hostname と SSH prompt hostname の意図した不一致を警告として許容する
+
+prompt hostname は inventory key と大文字・小文字を含めて完全一致比較します。NX-OS の既定 hostname
+`switch` は初期設定候補として警告し、read-only command は継続します。config 投入または `write-memory` では、
+通常の実行確認とは別に hostname／management IP を表示して `yes` の確認を要求します。
+
+`switch` 以外の不一致は既定で対象から除外します。`--allow-hostname-mismatch` は接続先を別手段で確認でき、
+不一致が意図したものである場合だけ使用してください。`push-config-dir --force` は投入時の接続保護 filter を
+解除する option であり、hostname 不一致は許容しません。
+
 ## 2. 環境変数 (`.env`)
 
 `.env.example` をコピーして利用します。

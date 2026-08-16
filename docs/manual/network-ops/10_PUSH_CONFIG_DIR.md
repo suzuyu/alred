@@ -116,6 +116,14 @@ alred write-memory \
   --target-hosts leaf01,leaf02
 ```
 
+NX-OS の保存 command は `copy running-config startup-config` で、応答を最大 180 秒待機します。timeout や
+接続断では、command が機器へ到達した可能性があるため自動 retry しません。log と startup-config の状態を確認してから、
+必要な host だけを再実行してください。
+
+結果の失敗 host は `leaf01 (192.0.2.11)` のように inventory の management IP を併記し、最後に使用した
+log file の absolute path を `Log file: ...` として表示します。既定は `logs/write-memory.log` です。log には
+host ごとの開始・完了時刻、経過秒、status、error が記録されます。
+
 投入と同時に保存する `--write-memory` も利用できますが、management／AAA を含む config では、再接続確認後に
 `write-memory` を分けて実行することを推奨します。
 

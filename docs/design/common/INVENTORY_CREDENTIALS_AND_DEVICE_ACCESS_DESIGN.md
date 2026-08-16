@@ -189,8 +189,18 @@ APIへの統合は未実装である。
 ## 6. 接続確認
 
 - device接続前確認はTCP reachabilityとauthentication／enableを区別する。
-- 結果はhost、IP、requested／resolved transport、`tcp`／`auth`／`enable`／`command` stage、
+- 結果はhost、IP、requested／resolved transport、`tcp`／`auth`／`enable`／`hostname`／`command` stage、
   経過秒、errorを含む。
+- SSH接続ではenable後のpromptからconfig mode suffixと末尾`#`／`>`を除いたhostnameを取得し、inventoryの
+  canonical hostnameと大文字・小文字を含めて完全一致比較する。promptを解析できない場合はidentity確認失敗とする。
+- NX-OSのdefault hostname `switch`は初期設定の可能性を示すidentity warningとし、read-only処理は継続できる。
+  config投入またはsave対象に含む場合は、通常のmutation確認とは別に対象hostname／IPを表示して`yes`確認を要求する。
+- default以外のhostname不一致はidentity errorとして対象から除外する。明示的な
+  `--allow-hostname-mismatch`を指定した場合だけwarningとして継続でき、端末とlogへexpected／reported hostnameを残す。
+  既存の`push-config-dir --force`は接続保護filter解除専用であり、identity overrideへ流用しない。
+- mutationは事前接続確認だけに依存せず、実際にcommandを送信する同一SSH sessionでもprompt hostnameを再検証する。
+- platform別default hostnameは検証済みregistryで管理する。初期実装はNX-OSの`switch`だけを登録し、未検証platformの
+  default値を推測しない。
 - 複数hostの確認は並列化できるが、結果表示は決定的なhostname順とする。
 - 接続確認成功を、後続の全command成功または設定投入許可とみなさない。
 - deviceへ接続するtestには`device` markerを付け、通常testから除外する。

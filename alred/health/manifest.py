@@ -236,6 +236,7 @@ def build_collection_manifest(
     completed_at: datetime,
     timezone: str,
     host_addresses: Mapping[str, str] | None = None,
+    host_platforms: Mapping[str, str] | None = None,
 ) -> dict[str, Any]:
     """Build a strict manifest and reject duplicate host/command generations."""
     grouped: dict[str, dict[str, list[dict[str, Any]]]] = {}
@@ -302,6 +303,8 @@ def build_collection_manifest(
         host_record: dict[str, Any] = {"status": status, "commands": commands}
         if host_addresses and host in host_addresses:
             host_record["address"] = host_addresses[host]
+        if host_platforms and host in host_platforms:
+            host_record["platform"] = host_platforms[host]
         hosts[host] = host_record
 
     document = {
@@ -335,6 +338,7 @@ def build_collect_manifest(
     completed_at: datetime,
     timezone: str,
     host_addresses: Mapping[str, str] | None = None,
+    host_platforms: Mapping[str, str] | None = None,
 ) -> dict[str, Any]:
     """Adapt current alred collect files into one fixed collection generation."""
     files = discover_input_files(inputs, suffixes={".log", ".txt", ".json"})
@@ -400,4 +404,5 @@ def build_collect_manifest(
         completed_at=completed_at,
         timezone=timezone,
         host_addresses=host_addresses,
+        host_platforms=host_platforms,
     )

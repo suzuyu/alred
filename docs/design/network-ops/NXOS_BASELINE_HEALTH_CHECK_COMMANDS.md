@@ -45,6 +45,7 @@ fixtureにより検証してから実装する。
 | `license_usage` | `show license usage` | license利用状態 | license状態の変化 | Yes |
 | `license_all` | `show license all` | license詳細 | 作業証跡。重要状態変化をWARN | Yes |
 | `interface_status` | `show interface status` | port state、VLAN、speed | 対象外portのconnectedからnotconnect等への悪化 | Yes |
+| `interface_counters_table` | `show interface counters table` | load interval、input／output Mbps・利用率 | 50%以上をINFO、70%以上をWARN、90%以上をFAIL | Yes |
 | `interface_brief` | `show interface brief` | interface、protocol、状態 | up/upからdownへの遷移 | Yes |
 | `interface_errors` | `show interface counters errors non-zero` | error counter | 新規error、増加量・増加率 | Yes |
 | `lldp_neighbors_detail` | `show lldp neighbors detail` | local／remote hostname・interface、管理address | managed network機器間のLLDP相互関係とdescriptionの不整合 | Yes |
@@ -166,6 +167,15 @@ BGP設定が存在する場合に取得する。Overlay EVPN neighborは`nxos-ov
 | `bgp_ipv6_summary` | `show bgp ipv6 unicast summary vrf all` | IPv6 BGP neighbor、prefix数 | Established neighborの悪化・消失 |
 
 NX-OS releaseや構成によってsummary構文が異なる場合は、対応profileで実行コマンドを上書きする。未対応構文を別コマンドへ推測置換せず`UNKNOWN`とする。
+
+dynamic neighborの期待値は`show running-config`の`router bgp` sectionから取得する。globalまたはVRF内の
+`neighbor <address-or-prefix>`と、その配下または継承済みtemplateの`address-family ipv4 unicast`／
+`address-family ipv6 unicast`を同じBGP process、VRF、address familyへ正規化する。`/`を含む値は
+`ipaddress.ip_network(..., strict=False)`でcanonical prefixにし、含まれるoperational peerを対応付ける。
+
+summary parserは`BGP summary information for VRF <vrf>, address family <AF>`をsection anchorとし、
+`Neighbor ... State/PfxRcd` heading以降のrowからneighbor address、remote AS、uptime、state／prefix数を抽出する。
+`config peers`／`capable peers`は診断値として保持するが、dynamic rangeの期待peer数には使用しない。
 
 ### 4.8 Spanning Tree
 
@@ -679,6 +689,97 @@ member 欠落を異常とせず channel の Up 状態を確認する。LACP な�
 期待member数をprofileで宣言した場合はその値を優先し、未宣言時はbeforeのbundled member集合を
 baselineとする。意図したmember追加・削除は7.4のexpected changeとして宣言し、計画外のmember
 変化を隠さない。
+
+### 7.13 hostname identity
+
+`show version`のHardware sectionにある`Device name: <hostname>`を識別anchorとし、値の前後空白だけを除いて
+`common.system.reported_hostname`へ保存する。inventory keyをexpected hostnameとし、大文字・小文字を含めて
+完全一致比較する。
+
+| 状態 | 判定 |
+|---|---|
+| `Device name`がinventory hostnameと一致 | `PASS` |
+| `Device name`が不一致 | `FAIL` |
+| `show version`取得失敗、anchor欠落、値が空 | `UNKNOWN` |
+
+before／afterでも各Snapshotをinventory hostnameと個別に比較する。接続確認でdefault hostname `switch`を
+初期設定候補としてwarning扱いする規則はmutation前の安全gateであり、正常性確認ではinventory不一致のため
+`FAIL`とする。
+
+### 7.14 interface利用率
+
+`show interface counters table`は、次の2種類のtext table headingを識別anchorとする。
+
+- `Port`、`Description`、`Interval`、`InRate(Mbps)`、`InRate(%)`、`OutRate(Mbps)`、`OutRate(%)`
+- C9300v 10.5(4)で観測した`Port`、`Description`、`Intvl`、`Rx Mbps`、`Rx %%`、`Tx Mbps`、`Tx %%`
+
+`InRate`／`Rx`をinput、`OutRate`／`Tx`をoutputへ正規化する。headingの各column開始位置をanchorにして
+続くrowをsliceし、固定幅いっぱいのdescriptionと`Intvl`の間に空白がない場合もdescription末尾の数字を
+intervalへ誤結合しない。単一の`Interval`値はinput／output共通秒数、`Intvl`の`<rx>/<tx>`はそれぞれ
+`input_load_interval_seconds`／`output_load_interval_seconds`として整数化する。両方向が同じ場合は後方互換field
+`load_interval_seconds`にも同じ値を保持する。
+
+interface、description、interval、input rate Mbps、input rate %、output rate Mbps、output rate %の必須column、
+または数値を識別できない場合は空集合や0へ補完せずparser errorとする。descriptionの`N/A`および`--`は
+未設定として`null`へ正規化する。JSON sidecarは初期実装の対象外とする。
+
+初期対象はoperational-upのEthernetとport-channelとし、management、loopback、SVI、NVE、admin-downまたは
+operational-down interfaceは利用率判定から除外する。`show interface counters table`の`Ethernet`／`port-channel`と
+`show interface status`の`Eth`／`Po`は、数字部分を維持した同一identityとして照合する。evidenceには各commandで
+観測したinterface表記を保持する。inputとoutputを合算せず`max(input_percent, output_percent)`を判定値とする。
+各方向はfull-duplex capacityに対する独立した利用率である。
+
+```yaml
+interface_utilization:
+  info_percent: 50
+  warn_percent: 70
+  fail_percent: 90
+```
+
+閾値は`0 <= info < warn < fail <= 100`を必須とし、境界値を含めて次のように判定する。
+
+| 最大利用率 | check result | Checklist表示 |
+|---:|---|---|
+| 50%未満 | `PASS` | `PASS` |
+| 50%以上70%未満 | `PASS` | overallを悪化させない`INFO` |
+| 70%以上90%未満 | `WARN` | `WARN` |
+| 90%以上 | `FAIL` | `FAIL` |
+
+result evidenceにはinterface、input／output rate、input／output percent、判定に使用した最大値、方向別load interval、
+command、raw fileを残す。利用率fieldが欠落または数値変換不能ならそのinterfaceを0%とせず`UNKNOWN`とする。before／afterでは
+afterの閾値判定に加え、beforeの判定値とlevelを`before`へ残し、悪化を`regression`、継続を`pre_existing`とする。
+
+device計算rateはload interval内の平均でありmicroburstを示さない。queue drop／buffer congestionは
+`show interface counters errors non-zero`などのerror／discard evidenceを併用し、model依存queue commandは
+本checkへ推測統合しない。
+
+field名と単位の根拠は[Cisco Nexus 9000 Series NX-OS Command Reference - `show interface counters table`](https://www.cisco.com/c/en/us/td/docs/dcn/nx-os/nexus9000/101x/command-reference/show/b_n9k_show_commands_101x/m_i_showcmds.html)とする。
+将来の補完checkではqueue drop historyとmicro-burst monitoringを別resourceとして扱う。micro-burstは対応model／release、
+queueごとの設定、rise／fall thresholdに依存するため、本checkの平均利用率から推測しない。仕様根拠は
+[Cisco Nexus 9000 Series NX-OS Quality of Service Configuration Guide - Micro-Burst Monitoring](https://www.cisco.com/c/en/us/td/docs/dcn/nx-os/nexus9000/102x/configuration/qos/cisco-nexus-9000-nx-os-quality-of-service-configuration-guide-102x/m-configuring-microburst-monitoring.html)とする。
+
+### 7.15 dynamic BGP neighbor range
+
+running configではindent 0の`router bgp <local-as>`をprocess anchorとする。process直下のindent 2にある
+`template peer <name>`、`neighbor <address-or-prefix>`、`vrf <name>`を識別し、VRF配下ではindentを2つ戻した
+`neighbor`を同じfieldへ正規化する。`inherit peer <name>`を多段展開し、`address-family ipv4 unicast`／
+`address-family ipv6 unicast`、`remote-as`、resolution statusをprocess／VRF／neighbor単位で保存する。
+`neighbor`の値に`/`があるIPv4／IPv6 prefixをdynamic range、host addressをstatic peerとして区別する。
+
+operational outputでは`BGP summary information for VRF <vrf>, address family IPv4 Unicast`または
+`IPv6 Unicast`をVRF／address family anchorとし、同blockの`Neighbor V AS ... State/PfxRcd` rowからaddress、
+remote AS、uptime、state、Established時の受信prefix数を取得する。dynamic prefixごとに同じVRF／address familyの
+summary neighbor addressを包含判定し、range単位で`matched_neighbors`と`established_neighbors`を保存する。
+template未解決、address／prefix不正、summary headingまたはrowの未認識を正常な0件へ変換しない。
+
+| 状態 | 単体判定 | before／after |
+|---|---|---|
+| range内にEstablished peerが1件以上、非Establishedなし | `PASS` | 維持なら`PASS` |
+| range内のpeerが0件 | `WARN` | beforeも0件なら`pre_existing`、beforeに存在した場合は`FAIL` regression |
+| range内に非Established peerあり | `FAIL` | 新規または悪化は`FAIL` regression |
+| configまたはsummary evidence不足 | `UNKNOWN` | `UNKNOWN` |
+
+IPv4とIPv6を同じ規則で処理する。overlapするrangeは各rangeへ対応関係を残し、総peer数だけで一方を正常と推測しない。
 
 ## 8. 閾値の初期案
 

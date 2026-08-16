@@ -39,6 +39,15 @@ alred health-check before \
 既存collect runnerを利用し、profileが要求するshowコマンドを収集します。rawログ、
 Collection Manifest、Snapshot、判定結果を同じoperationへ保存します。
 transportは既定で`ssh`です。`show logging`を含む標準profileでは通常`--transport`指定は不要です。
+
+SSH の事前接続確認では、enable 後の prompt hostname と inventory hostname を大文字・小文字を含めて
+完全一致で照合します。NX-OS の既定 hostname `switch` は初期設定候補として警告しますが、Health Check の
+ような read-only 処理は継続します。既定 hostname 以外の不一致、または prompt を解析できない場合は対象を
+除外します。正当な alias などを意図して接続する場合だけ `--allow-hostname-mismatch` を指定してください。
+`--skip-connect-check` はこの事前確認を省略するため、通常運用では使用しません。
+
+接続確認とは別に、`network-baseline-nxos` は `show version` の `Device name` と inventory hostname を
+`hostname_identity` で照合します。この正常性判定では `switch` も特例にせず、不一致を `FAIL` とします。
 直接収集の端末出力例:
 
 ```text
@@ -57,6 +66,10 @@ Checklist : operations/live/2026/08/02/HC-20260802T091500-p1234-a1b2c3/health/be
 ```
 
 `Input: alred-collect`は、既存collect runnerで機器へ接続して収集したことを示します。
+
+生成される `checklist.md` の先頭には `Started at`、`Completed at` に続けて、両時刻の差分を
+`Duration: HH:MM:SS (<seconds> seconds)` 形式で記録します。直接収集では収集開始から解析完了までの
+所要時間です。
 
 ### 2.1.1 変更作業を伴わないinspection
 

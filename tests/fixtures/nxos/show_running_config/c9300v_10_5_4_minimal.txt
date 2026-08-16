@@ -1,0 +1,3 @@
+!Command: show running-config
+!Running configuration last done at: Sun Aug 16 10:00:00 2026
+hostname leaf01

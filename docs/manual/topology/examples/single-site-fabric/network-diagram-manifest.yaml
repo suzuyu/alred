@@ -40,7 +40,7 @@ spec:
   - path: docs/manual/containerlab/examples/single-site-fabric/topology.clab.example.yaml
     sha256: sha256:34047c951059ce98a38d5acf7235440e9dca24a109f81e3ce9e6637b351206ab
   - path: docs/manual/containerlab/examples/single-site-fabric/roles.example.yaml
-    sha256: sha256:4cfd6d19d420f43e6340b5a09822922cc5196bb13d8bfa0df7f95c660210aca5
+    sha256: sha256:509030714ccbf8cac501938a19f2b50d62148d1a0cb72c0554c2e331c629fa36
   - path: docs/manual/containerlab/examples/single-site-fabric/sites.example.yaml
     sha256: sha256:5b6a59a46872dac78e6950b508ebf57269f8c293adfe940598a36ef920247f2b
   - path: docs/manual/containerlab/examples/single-site-fabric/labconfig/adc-bgrt0101_run.txt
@@ -73,7 +73,7 @@ spec:
   - path: docs/manual/topology/examples/single-site-fabric/topology_overlay_service.md
     sha256: sha256:f0eafdd9aceb81bf66633bdf24a167bdaf918be768f89090f5fc372cea05d9f7
   - path: docs/manual/topology/examples/single-site-fabric/overlay-service-model.yaml
-    sha256: sha256:ca963765e6e61496456baef9b4a38df705bd8ed03332c8b3fff627ebbda0a8c6
+    sha256: sha256:134bde6d0458c16c030801b8e497a2b84280170ecae935a6aba2ff78ceb12fdf
   - path: docs/manual/topology/examples/single-site-fabric/overlay-service-links.csv
     sha256: sha256:c1bdd789f498058b8494202e95d5674993117332107e5fc7c19e235f54d6e391
   - path: docs/manual/topology/examples/single-site-fabric/topology-graph-all.drawio

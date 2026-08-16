@@ -26,11 +26,13 @@ alredの設計、実装、テスト、文書更新を行う前に本書を確認
 | operation、Health Check、Overlay、VNI、apply、rollback、support bundle | [.agents/instructions/network-ops.md](.agents/instructions/network-ops.md) |
 | containerlab、lab config変換、lab起動確認 | [.agents/instructions/containerlab.md](.agents/instructions/containerlab.md) |
 | LLDP、link正規化、Mermaid、Graphviz、draw.io | [.agents/instructions/topology.md](.agents/instructions/topology.md) |
+| config／show output parser、Snapshot 正規化、evaluator、判定根拠 | [.agents/instructions/parser-and-evaluator.md](.agents/instructions/parser-and-evaluator.md) |
 | 設計書、manual、sample、ADR、実装状況 | [.agents/instructions/documentation.md](.agents/instructions/documentation.md) |
 
 `collect-clab`はdevice accessとcontainerlab、`clab-set-cmds`はdevice access、containerlab、
 topologyを読む。VNI処理も変更する場合はnetwork-opsも読む。`generate-doc`はcontainerlabと
-topologyを読む。
+topologyを読む。parser または evaluator を変更する作業は、対象領域の instruction に加えて
+`parser-and-evaluator` を読む。
 
 リポジトリ固有Skill:
 

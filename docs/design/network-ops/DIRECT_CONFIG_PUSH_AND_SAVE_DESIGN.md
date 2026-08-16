@@ -125,6 +125,9 @@ allowlist YAML は top-level の `rules` を持ち、各 rule に一意な `id`�
 - save commandはdevice type別mappingから取得する。
 - NX-OSは`copy running-config startup-config`を使い、応答に`Copy complete.`が必要である。
 - save timeoutは180秒とし、自動retryしない。
+- host単位でhostname、management IP、開始・完了時刻、経過秒、status、errorを共通logへ記録する。
+- 端末の失敗host一覧は`<hostname> (<management-IP>)`形式とし、最後に使用したlog fileのabsolute pathを
+  表示する。成功応答本文は通常の端末summaryへ展開せず、既存のdebug logへ保持する。
 - markerが定義されていないdevice typeでは、transport例外がないことだけでsuccessとなる現行動作を
   維持する。対象deviceでの正確な成功判定は未検証事項とする。
 - save失敗はpush済み状態を元に戻さない。失敗hostをsummaryへ表示する。

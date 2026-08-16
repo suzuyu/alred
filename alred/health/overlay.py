@@ -236,6 +236,44 @@ def _parse_bgp_rr_config(body: list[str]) -> dict[str, Any]:
     return families
 
 
+def _parse_bgp_neighbor_scopes(body: list[str]) -> dict[str, Any]:
+    """Resolve global and per-VRF BGP neighbor definitions."""
+    global_body: list[str] = []
+    global_template_body: list[str] = []
+    vrf_bodies: dict[str, list[str]] = {}
+    current_vrf: str | None = None
+    current_global_template = False
+    for line in body:
+        indent = len(line) - len(line.lstrip())
+        stripped = line.strip()
+        if indent == 2 and (match := re.match(r"vrf\s+(\S+)$", stripped)):
+            current_vrf = match.group(1)
+            current_global_template = False
+            vrf_bodies.setdefault(current_vrf, [])
+            continue
+        if indent == 2:
+            current_vrf = None
+            current_global_template = bool(
+                re.match(r"template peer\s+\S+$", stripped)
+            )
+        if current_vrf is not None:
+            if indent >= 4:
+                vrf_bodies[current_vrf].append(line[2:])
+            continue
+        global_body.append(line)
+        if current_global_template:
+            global_template_body.append(line)
+
+    scopes: dict[str, Any] = {
+        "default": parse_bgp_peer_config(global_body),
+    }
+    for vrf, vrf_body in sorted(vrf_bodies.items()):
+        scopes[vrf] = parse_bgp_peer_config(
+            [*global_template_body, *vrf_body]
+        )
+    return scopes
+
+
 def parse_evpn_control_plane_running_config(text: str) -> dict[str, Any]:
     """Parse NX-OS EVPN peer and address evidence from running config."""
     lines = text.splitlines()
@@ -449,6 +487,7 @@ def parse_overlay_running_config(text: str) -> dict[str, Any]:
                     nve["l2vnis"][current_vni]["mcast_group"] = match.group(1)
 
     bgp_processes: dict[str, Any] = {}
+    bgp_neighbor_config: dict[str, Any] = {"processes": {}}
     evpn_bgp_configured = False
     rr_config: dict[str, Any] = {
         "evpn": {"configured": False, "cluster_id": None, "resolution_status": "resolved", "resolution_errors": [], "peer_templates": {}, "neighbors": {}, "processes": {}},
@@ -456,6 +495,9 @@ def parse_overlay_running_config(text: str) -> dict[str, Any]:
     }
     for local_as, body in _blocks(lines, r"^router bgp\s+(\S+)\s*$"):
         bgp_processes[local_as] = {"vrfs": {}}
+        bgp_neighbor_config["processes"][local_as] = {
+            "vrfs": _parse_bgp_neighbor_scopes(body)
+        }
         process_rr = _parse_bgp_rr_config(body)
         for family in ("evpn", "underlay"):
             rr_config[family]["processes"][local_as] = process_rr[family]
@@ -577,6 +619,7 @@ def parse_overlay_running_config(text: str) -> dict[str, Any]:
         "interfaces": interfaces,
         "nve": nve,
         "bgp_processes": bgp_processes,
+        "bgp_neighbor_config": bgp_neighbor_config,
         "evpn_bgp_configured": evpn_bgp_configured,
         "vpc": {
             "configured": bool(

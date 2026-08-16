@@ -2,7 +2,7 @@ api_version: alred/v1
 kind: HealthCheckProfile
 metadata:
   name: network-baseline-nxos
-  version: "1.0"
+  version: "1.2"
   description: Initial common NX-OS offline baseline
 spec:
   platforms:
@@ -10,6 +10,9 @@ spec:
   collectors:
     nxos:
       commands:
+        - id: running_config
+          command: show running-config
+          required: false
         - id: clock
           command: show clock
           required: false
@@ -37,6 +40,9 @@ spec:
         - id: interface_status
           command: show interface status
           required: false
+        - id: interface_counters_table
+          command: show interface counters table
+          required: false
         - id: interface_errors
           command: show interface counters errors non-zero
           required: false
@@ -61,6 +67,9 @@ spec:
         - id: bgp_ipv4_summary
           command: show bgp ipv4 unicast summary vrf all
           required: false
+        - id: bgp_ipv6_summary
+          command: show bgp ipv6 unicast summary vrf all
+          required: false
         - id: vpc_brief
           command: show vpc brief
           required: false
@@ -70,6 +79,9 @@ spec:
       severity: fail
     - id: system_identity
       evaluator: system_identity
+      severity: fail
+    - id: hostname_identity
+      evaluator: hostname_identity
       severity: fail
     - id: cpu_utilization
       evaluator: cpu_utilization
@@ -92,6 +104,9 @@ spec:
     - id: interface_error_health
       evaluator: interface_error_health
       severity: warn
+    - id: interface_utilization
+      evaluator: interface_utilization
+      severity: fail
     - id: port_channel_health
       evaluator: port_channel_health
       severity: fail
@@ -112,6 +127,9 @@ spec:
       severity: fail
     - id: bgp_ipv4_health
       evaluator: bgp_ipv4_health
+      severity: fail
+    - id: bgp_dynamic_neighbor_health
+      evaluator: bgp_dynamic_neighbor_health
       severity: fail
     - id: vpc_health
       evaluator: vpc_health
@@ -138,6 +156,10 @@ spec:
     interface_errors:
       warn_delta: 1
       fail_delta: 100
+    interface_utilization:
+      info_percent: 50
+      warn_percent: 70
+      fail_percent: 90
     route_count:
       warn_decrease_percent: 10
       fail_decrease_percent: 30
