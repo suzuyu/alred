@@ -46,6 +46,24 @@ def _patch_connection(monkeypatch, connection):
     monkeypatch.setattr(cli, "connect_to_host", lambda *args, **kwargs: connection)
 
 
+def test_operation_result_summary_includes_failed_host_ip_and_log_path(
+    tmp_path, capsys
+):
+    log_file = tmp_path / "write-memory.log"
+    cli.print_operation_result_summary(
+        "WRITE MEMORY",
+        2,
+        ["leaf02", "leaf01"],
+        host_addresses={"leaf01": "192.0.2.11", "leaf02": "192.0.2.12"},
+        log_file=str(log_file),
+    )
+
+    output = capsys.readouterr().out
+    assert "- leaf01 (192.0.2.11)" in output
+    assert "- leaf02 (192.0.2.12)" in output
+    assert f"Log file: {log_file.resolve()}" in output
+
+
 def test_push_config_dir_connection_filter_is_scoped_and_value_safe(tmp_path):
     config_path = tmp_path / "leaf01"
     config_path.write_text(

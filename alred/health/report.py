@@ -2,7 +2,20 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any, Mapping
+
+
+def _duration_line(result: Mapping[str, Any]) -> str:
+    """Render a deterministic elapsed duration from Health Result timestamps."""
+    started = datetime.fromisoformat(str(result["started_at"]))
+    completed = datetime.fromisoformat(str(result["completed_at"]))
+    elapsed = int((completed - started).total_seconds())
+    if elapsed < 0:
+        raise ValueError("Health Result completed_at is before started_at")
+    hours, remainder = divmod(elapsed, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    return f"- Duration: {hours:02d}:{minutes:02d}:{seconds:02d} ({elapsed} seconds)"
 
 
 def render_health_summary(result: Mapping[str, Any]) -> str:
@@ -14,6 +27,7 @@ def render_health_summary(result: Mapping[str, Any]) -> str:
         f"- Phase: {result['phase']}",
         f"- Started at: {result['started_at']}",
         f"- Completed at: {result['completed_at']}",
+        _duration_line(result),
         f"- Profiles: {', '.join(result['profiles'])}",
         f"- Result: {result['result']}",
         "",
@@ -60,6 +74,7 @@ def render_health_checklist(result: Mapping[str, Any]) -> str:
         "",
         f"- Started at: {result['started_at']}",
         f"- Completed at: {result['completed_at']}",
+        _duration_line(result),
         f"- Change ID: {result['change_id']}",
         f"- Phase: {result['phase']}",
         f"- Result: {result['result']}",
@@ -130,8 +145,9 @@ def render_health_checklist(result: Mapping[str, Any]) -> str:
             for check in profile_checks:
                 marker = markers[check["result"]]
                 message = " ".join(str(check["message"]).splitlines())
+                display_result = check.get("display_severity", check["result"])
                 lines.append(
-                    f"- [{marker}] `{check['check_id']}`: {check['result']} - {message}"
+                    f"- [{marker}] `{check['check_id']}`: {display_result} - {message}"
                 )
             lines.append("")
     lines.extend(["## Unexecuted Hosts", ""])

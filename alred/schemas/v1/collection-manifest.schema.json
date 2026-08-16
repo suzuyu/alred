@@ -52,6 +52,7 @@
       "properties": {
         "status": {"enum": ["success", "partial", "failed", "skipped"]},
         "address": {"type": "string", "format": "ip-address"},
+        "platform": {"type": "string", "minLength": 1},
         "commands": {
           "type": "object",
           "additionalProperties": {"$ref": "#/$defs/command"}

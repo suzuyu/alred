@@ -161,6 +161,7 @@ def resolve_profiles(
             check_ids.add(identifier)
             copied = deepcopy(check)
             copied["profile"] = metadata["name"]
+            copied["platforms"] = list(spec["platforms"])
             checks.append(copied)
         _merge_thresholds(
             thresholds,
@@ -187,6 +188,16 @@ def resolve_profiles(
         raise ProfileResolutionError(
             "resolved profiles must define at least one health check"
         )
+    interface_utilization = thresholds.get("interface_utilization")
+    if isinstance(interface_utilization, Mapping):
+        info_percent = float(interface_utilization.get("info_percent", 50))
+        warn_percent = float(interface_utilization.get("warn_percent", 70))
+        fail_percent = float(interface_utilization.get("fail_percent", 90))
+        if not 0 <= info_percent < warn_percent < fail_percent <= 100:
+            raise ProfileResolutionError(
+                "interface utilization thresholds must satisfy "
+                "0 <= info_percent < warn_percent < fail_percent <= 100"
+            )
     collectors = {
         platform: {"commands": [command_map[key] for key in sorted(command_map)]}
         for platform, command_map in sorted(commands.items())

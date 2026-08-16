@@ -76,6 +76,7 @@ def test_health_checklist_groups_checks_by_device_then_profile():
 
     assert lines[2] == "- Started at: 2026-08-02T10:00:00+09:00"
     assert lines[3] == "- Completed at: 2026-08-02T10:02:03+09:00"
+    assert lines[4] == "- Duration: 00:02:03 (123 seconds)"
     assert "| network-baseline-nxos | 1 | 1 | 0 | 0 | 0 |" in checklist
     assert "| nxos-overlay | 1 | 0 | 0 | 0 | 0 |" in checklist
     assert "| logging-excludes-example |" not in checklist
@@ -113,6 +114,11 @@ BASELINE_COMMAND_FIXTURES = {
     "show interface status": (
         NXOS_FIXTURES / "show_interface_status" / "c9300v_10_5_4.txt"
     ),
+    "show interface counters table": (
+        NXOS_FIXTURES
+        / "show_interface_counters_table"
+        / "c9300v_10_5_4.txt"
+    ),
     "show interface counters errors non-zero": (
         NXOS_FIXTURES / "show_interface_errors" / "c9300v_10_5_4_zero.txt"
     ),
@@ -140,6 +146,9 @@ BASELINE_COMMAND_FIXTURES = {
     "show logging": (NXOS_FIXTURES / "show_logging" / "c9300v_10_5_4_healthy.txt"),
     "show ip route summary vrf all": (
         NXOS_FIXTURES / "show_route_summary_ipv4" / "c9300v_10_5_4.txt"
+    ),
+    "show running-config": (
+        NXOS_FIXTURES / "show_running_config" / "c9300v_10_5_4_minimal.txt"
     ),
 }
 
@@ -195,6 +204,7 @@ def _snapshot(resolved, *, phase="before"):
                         "platform": "nxos",
                         "version": "10.5(4)",
                         "model": "Nexus9000 C9300v",
+                        "reported_hostname": "leaf01",
                         "uptime_seconds": 100000,
                     },
                     "cpu": {
@@ -223,6 +233,18 @@ def _snapshot(resolved, *, phase="before"):
                         "Eth1/1": {"admin_state": "up", "operational_state": "up", "status": "connected"}
                     },
                     "interface_errors": {},
+                    "interface_utilization": {
+                        "interfaces": {
+                            "Eth1/1": {
+                                "input_mbps": 1000.0,
+                                "input_percent": 10.0,
+                                "output_mbps": 2000.0,
+                                "output_percent": 20.0,
+                                "load_interval_seconds": 30,
+                            }
+                        }
+                    },
+                    "routing_neighbor_config": {"processes": {}},
                     "port_channels": {"applicable": False, "channels": {}},
                     "reload_pending": {
                         "required": False,
@@ -257,6 +279,7 @@ def _snapshot(resolved, *, phase="before"):
                     "ntp_status",
                     "ntp_peers",
                     "interface_status",
+                    "interface_counters_table",
                     "interface_errors",
                     "port_channel_summary",
                     "reload_pending",
@@ -264,6 +287,7 @@ def _snapshot(resolved, *, phase="before"):
                     "show_logging",
                     "route_summary_ipv4",
                     "vpc_brief",
+                    "running_config",
                 ),
                 "parse_warnings": [],
             }
@@ -283,6 +307,8 @@ def _write_collect(path, *, cpu_fixture=None, reload_output=None):
             output = reload_output
         else:
             output = fixture.read_text(encoding="utf-8")
+        if command == "show version":
+            output = output.replace("Device name: leaf-fixture-01", "Device name: leaf01")
         sections.extend(
             [
                 f"### COMMAND: {command}",
@@ -323,7 +349,8 @@ def test_builtin_profiles_resolve_deterministically():
         "environment",
         "route_summary_ipv4",
         "ospf_neighbors",
-        "bgp_ipv4_summary",
+            "bgp_ipv4_summary",
+            "bgp_ipv6_summary",
             "nve_interface",
             "nve_peers",
             "nve_vni",
@@ -339,6 +366,7 @@ def test_builtin_profiles_resolve_deterministically():
             "ntp_peers",
             "ntp_peer_status",
             "interface_status",
+                "interface_counters_table",
                 "interface_errors",
                 "port_channel_summary",
                 "vlan_brief",
@@ -445,6 +473,33 @@ def test_profile_rejects_duplicate_check_ids(tmp_path):
         _resolved(["network-baseline-nxos", str(duplicate)])
 
 
+def test_interface_utilization_threshold_order_is_validated(tmp_path):
+    override = tmp_path / "invalid-interface-utilization.yaml"
+    override.write_text(
+        yaml.safe_dump(
+            {
+                "api_version": "alred/v1",
+                "kind": "HealthCheckProfile",
+                "metadata": {"name": "invalid-utilization", "version": "1"},
+                "spec": {
+                    "platforms": ["nxos"],
+                    "thresholds": {
+                        "interface_utilization": {
+                            "info_percent": 70,
+                            "warn_percent": 60,
+                            "fail_percent": 90,
+                        }
+                    },
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ProfileResolutionError, match="info_percent"):
+        _resolved(["network-baseline-nxos", str(override)])
+
+
 def test_phase3_nxos_parsers_normalize_environment_routes_and_neighbors():
     environment, _profiles = parse_nxos_command(
         "environment",
@@ -481,6 +536,195 @@ def test_phase3_nxos_parsers_normalize_environment_routes_and_neighbors():
     bgp_default = bgp["routing_neighbors"]["bgp_ipv4"]["vrfs"]["default"]
     assert bgp_default["configured_peers"] == 1
     assert bgp_default["neighbors"]["192.0.2.254"]["state"] == "Idle"
+
+
+def test_interface_utilization_parser_and_threshold_boundaries():
+    parsed, _profiles = parse_nxos_command(
+        "interface_counters_table",
+        (
+            NXOS_FIXTURES
+            / "show_interface_counters_table"
+            / "c9300v_10_5_4.txt"
+        ).read_text(encoding="utf-8"),
+    )
+    eth11 = parsed["interface_utilization"]["interfaces"]["Ethernet1/1"]
+    assert eth11 == {
+        "description": "uplink",
+        "input_mbps": 5000.0,
+        "input_percent": 50.0,
+        "output_mbps": 2500.0,
+        "output_percent": 25.0,
+        "input_load_interval_seconds": 30,
+        "output_load_interval_seconds": 30,
+        "load_interval_seconds": 30,
+    }
+    assert parsed["interface_utilization"]["interfaces"]["Ethernet1/2"][
+        "description"
+    ] is None
+    assert parsed["interface_utilization"]["interfaces"]["Ethernet1/3"] == {
+        "description": "edge-node-001",
+        "input_mbps": 1.0,
+        "input_percent": 0.1,
+        "output_mbps": 2.0,
+        "output_percent": 0.2,
+        "input_load_interval_seconds": 30,
+        "output_load_interval_seconds": 30,
+        "load_interval_seconds": 30,
+    }
+
+    legacy, _profiles = parse_nxos_command(
+        "interface_counters_table",
+        (
+            NXOS_FIXTURES
+            / "show_interface_counters_table"
+            / "legacy_inrate_columns.txt"
+        ).read_text(encoding="utf-8"),
+    )
+    assert legacy["interface_utilization"]["interfaces"]["Eth1/1"][
+        "input_percent"
+    ] == 50.0
+
+    resolved = _resolved()
+    snapshot = _snapshot(resolved)
+    snapshot["hosts"]["leaf01"]["common"]["interface_utilization"] = parsed[
+        "interface_utilization"
+    ]
+    evaluated = evaluate_snapshot(
+        snapshot,
+        resolved,
+        started_at=JST_NOW,
+        completed_at=JST_NOW,
+    )
+    finding = next(
+        check
+        for check in evaluated["checks"]
+        if check["check_id"] == "interface_utilization"
+    )
+    assert finding["result"] == "PASS"
+    assert finding["display_severity"] == "INFO"
+    assert finding["after"]["peak_interface"] == "Ethernet1/1"
+
+    snapshot = _snapshot(resolved)
+    rates = snapshot["hosts"]["leaf01"]["common"]["interface_utilization"][
+        "interfaces"
+    ]["Eth1/1"]
+    for percent, expected, display in (
+        (49.99, "PASS", None),
+        (50, "PASS", "INFO"),
+        (69.99, "PASS", "INFO"),
+        (70, "WARN", None),
+        (89.99, "WARN", None),
+        (90, "FAIL", None),
+    ):
+        rates["input_percent"] = percent
+        result = evaluate_snapshot(
+            snapshot,
+            resolved,
+            started_at=JST_NOW,
+            completed_at=JST_NOW,
+        )
+        finding = next(
+            check
+            for check in result["checks"]
+            if check["check_id"] == "interface_utilization"
+        )
+        assert finding["result"] == expected
+        assert finding.get("display_severity") == display
+
+    with pytest.raises(ParserError, match="non-numeric"):
+        parse_nxos_command(
+            "interface_counters_table",
+            "Port      Description  Interval  InRate(Mbps)  InRate(%)  "
+            "OutRate(Mbps)  OutRate(%)\n"
+            "Eth1/1    uplink       30        unavailable   10.0       "
+            "20.0           30.0\n",
+        )
+
+
+def test_dynamic_bgp_ranges_warn_when_empty_and_fail_on_regression():
+    config_text = """\
+router bgp 65001
+  neighbor 172.16.3.0/24
+    remote-as 65002
+    address-family ipv4 unicast
+  neighbor fd21:0:0:3::/64
+    remote-as 65002
+    address-family ipv6 unicast
+"""
+    config, _profiles = parse_nxos_command("running_config", config_text)
+    assert {
+        address
+        for address in config["routing_neighbor_config"]["processes"]["65001"][
+            "vrfs"
+        ]["default"]["neighbors"]
+    } == {"172.16.3.0/24", "fd21:0:0:3::/64"}
+
+    resolved = _resolved()
+    after = _snapshot(resolved, phase="after")
+    common = after["hosts"]["leaf01"]["common"]
+    common.update(config)
+    common["routing_neighbors"] = {
+        "bgp_ipv4": {
+            "applicable": True,
+            "vrfs": {
+                "default": {
+                    "configured_peers": 1,
+                    "capable_peers": 0,
+                    "neighbors": {},
+                }
+            },
+        },
+        "bgp_ipv6": {
+            "applicable": True,
+            "vrfs": {
+                "default": {
+                    "configured_peers": 1,
+                    "capable_peers": 1,
+                    "neighbors": {
+                        "fd21:0:0:3::10": {"state": "Established"}
+                    },
+                }
+            },
+        },
+    }
+    after["hosts"]["leaf01"]["sources"].update(
+        _sources("running_config", "bgp_ipv4_summary", "bgp_ipv6_summary")
+    )
+    evaluated = evaluate_snapshot(
+        after,
+        resolved,
+        started_at=JST_NOW,
+        completed_at=JST_NOW,
+    )
+    finding = next(
+        check
+        for check in evaluated["checks"]
+        if check["check_id"] == "bgp_dynamic_neighbor_health"
+    )
+    assert finding["result"] == "WARN"
+    assert finding["after"]["ranges"][0]["matched_neighbors"] == []
+
+    before = deepcopy(after)
+    before["phase"] = "before"
+    before["hosts"]["leaf01"]["common"]["routing_neighbors"]["bgp_ipv4"][
+        "vrfs"
+    ]["default"]["neighbors"] = {
+        "172.16.3.10": {"state": "Established"}
+    }
+    compared = compare_snapshots(
+        before,
+        after,
+        resolved,
+        started_at=JST_NOW,
+        completed_at=JST_NOW,
+    )
+    finding = next(
+        check
+        for check in compared["checks"]
+        if check["check_id"] == "bgp_dynamic_neighbor_health"
+    )
+    assert finding["result"] == "FAIL"
+    assert finding["classification"] == "regression"
 
 
 def test_running_config_diff_parser_and_health_check_warn_on_unsaved_config():
@@ -529,11 +773,64 @@ def test_single_snapshot_evaluates_baseline_and_cpu_threshold_inclusively():
     )
     assert healthy["result"] == "PASS"
     assert healthy["counts"] == {
-        "pass": 12,
+        "pass": 14,
         "warn": 0,
         "fail": 0,
         "unknown": 0,
-        "not_applicable": 5,
+        "not_applicable": 6,
+    }
+
+
+def test_nxos_profile_is_not_executed_for_eos_host():
+    resolved = _resolved()
+    snapshot = _snapshot(resolved)
+    snapshot["hosts"]["leaf01"]["platform"] = "eos"
+    snapshot["hosts"]["leaf01"]["common"]["system"]["platform"] = "eos"
+
+    result = evaluate_snapshot(
+        snapshot,
+        resolved,
+        started_at=JST_NOW,
+        completed_at=JST_NOW,
+    )
+
+    assert result["checks"] == []
+    assert result["result"] == "NOT_APPLICABLE"
+    assert result["unexecuted_hosts"] == [
+        {
+            "host": "leaf01",
+            "platform": "eos",
+            "topology_role": None,
+            "profile": "network-baseline-nxos",
+            "profile_result": "NOT_APPLICABLE",
+            "reason_code": "PROFILE_PLATFORM_EXCLUDED",
+            "message": "Host platform is outside the profile scope.",
+        }
+    ]
+
+
+def test_health_hostname_identity_requires_exact_inventory_match():
+    resolved = _resolved()
+    snapshot = _snapshot(resolved)
+    snapshot["hosts"]["leaf01"]["common"]["system"][
+        "reported_hostname"
+    ] = "leaf02"
+
+    result = evaluate_snapshot(
+        snapshot,
+        resolved,
+        started_at=JST_NOW,
+        completed_at=JST_NOW,
+    )
+    finding = next(
+        check
+        for check in result["checks"]
+        if check["check_id"] == "hostname_identity"
+    )
+    assert finding["result"] == "FAIL"
+    assert finding["after"] == {
+        "expected_hostname": "leaf01",
+        "reported_hostname": "leaf02",
     }
 
     snapshot["hosts"]["leaf01"]["common"]["cpu"]["one_minute_percent"] = 80
@@ -1241,6 +1538,22 @@ def test_bgp_capable_count_is_metadata_when_observed_peers_are_established():
             },
         }
     }
+    snapshot["hosts"]["leaf01"]["common"]["routing_neighbor_config"] = {
+        "processes": {
+            "65001": {
+                "vrfs": {
+                    "TENANT-A": {
+                        "neighbors": {
+                            "192.0.2.1": {
+                                "address_families": {"ipv4-unicast": {}},
+                                "resolution_status": "resolved",
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
     snapshot["hosts"]["leaf01"]["sources"].update(_sources("bgp_ipv4_summary"))
 
     result = evaluate_snapshot(
@@ -1254,7 +1567,8 @@ def test_bgp_capable_count_is_metadata_when_observed_peers_are_established():
         check for check in result["checks"] if check["check_id"] == "bgp_ipv4_health"
     )
     assert finding["result"] == "PASS"
-    assert "observed IPv4 BGP peers" in finding["message"]
+    assert "statically configured IPv4 BGP peers" in finding["message"]
+    assert json.loads(json.dumps(result))["result"] == result["result"]
 
 
 def test_compare_classifies_cpu_and_reload_regressions():

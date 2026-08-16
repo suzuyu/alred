@@ -88,6 +88,7 @@ def _check(
     resource: str | None = None,
     before: Any = None,
     after: Any = None,
+    display_severity: str | None = None,
 ) -> dict[str, Any]:
     document = {
         "check_id": check_id,
@@ -103,6 +104,8 @@ def _check(
         document["before"] = before
     if after is not None:
         document["after"] = after
+    if display_severity is not None:
+        document["display_severity"] = display_severity
     return document
 
 
@@ -397,6 +400,41 @@ def _evaluate_system(
         evidence=evidence,
         resource="system",
         after=system,
+    )
+
+
+def _evaluate_hostname_identity(
+    snapshot: Mapping[str, Any],
+    host: str,
+    definition: Mapping[str, Any],
+    _effective_profile: Mapping[str, Any],
+) -> dict[str, Any]:
+    system = snapshot["hosts"][host]["common"].get("system")
+    evidence = _source_evidence(snapshot, host, "show_version")
+    reported = str((system or {}).get("reported_hostname") or "").strip()
+    if not reported:
+        return _unknown(
+            definition,
+            host,
+            "NX-OS reported hostname is unavailable",
+            evidence,
+            resource="system/hostname",
+        )
+    result = "PASS" if reported == host else "FAIL"
+    return _check(
+        check_id=definition["id"],
+        profile=definition["profile"],
+        host=host,
+        result=result,
+        classification="normal" if result == "PASS" else "target_not_ready",
+        message=(
+            f"Reported hostname matches inventory hostname: {host}"
+            if result == "PASS"
+            else f"Reported hostname {reported!r} does not match inventory hostname {host!r}"
+        ),
+        evidence=evidence,
+        resource="system/hostname",
+        after={"expected_hostname": host, "reported_hostname": reported},
     )
 
 
@@ -717,6 +755,142 @@ def _evaluate_interface_errors(snapshot, host, definition, effective):
     return _check(check_id=definition["id"], profile=definition["profile"], host=host, result=result, classification="pre_existing" if total else "normal", message=f"Interface error counter total is {total}", evidence=evidence, resource="interfaces/errors", after=value)
 
 
+def _interface_identity(name: str) -> str:
+    compact = re.sub(r"\s+", "", str(name)).casefold()
+    ethernet = re.fullmatch(r"(?:ethernet|eth)(.+)", compact)
+    if ethernet:
+        return f"ethernet{ethernet.group(1)}"
+    port_channel = re.fullmatch(r"(?:po|port-channel)(\d+)", compact)
+    if port_channel:
+        return f"port-channel{port_channel.group(1)}"
+    return compact
+
+
+def _evaluate_interface_utilization(snapshot, host, definition, effective):
+    host_record = snapshot["hosts"][host]
+    utilization = host_record["common"].get("interface_utilization")
+    evidence = _source_evidence(snapshot, host, "interface_counters_table")
+    if utilization is None:
+        if _optional_uncollected(
+            snapshot, host, ("interface_counters_table",)
+        ):
+            return _unknown(
+                definition,
+                host,
+                "Interface utilization was not collected",
+                evidence,
+                resource="interfaces/utilization",
+            )
+        return _unknown(
+            definition,
+            host,
+            "Interface utilization could not be parsed",
+            evidence,
+            resource="interfaces/utilization",
+        )
+    status_source = host_record["sources"].get("interface_status")
+    interface_status = host_record["common"].get("interfaces")
+    if (
+        status_source is None
+        or status_source.get("parse_status") != "parsed"
+        or not isinstance(interface_status, Mapping)
+    ):
+        return _unknown(
+            definition,
+            host,
+            "Interface operational state is unavailable for utilization filtering",
+            [*evidence, *_source_evidence(snapshot, host, "interface_status")],
+            resource="interfaces/utilization",
+        )
+    thresholds = effective.get("spec", {}).get("thresholds", {}).get(
+        "interface_utilization", {}
+    )
+    info_percent = float(thresholds.get("info_percent", 50))
+    warn_percent = float(thresholds.get("warn_percent", 70))
+    fail_percent = float(thresholds.get("fail_percent", 90))
+    if not 0 <= info_percent < warn_percent < fail_percent <= 100:
+        return _unknown(
+            definition,
+            host,
+            "Interface utilization thresholds must satisfy "
+            "0 <= info < warn < fail <= 100",
+            evidence,
+            resource="interfaces/utilization",
+        )
+    status_by_identity = {
+        _interface_identity(name): value for name, value in interface_status.items()
+    }
+    eligible: dict[str, Any] = {}
+    for name, rates in utilization.get("interfaces", {}).items():
+        status = status_by_identity.get(_interface_identity(name))
+        normalized_name = str(name).casefold()
+        if not (
+            normalized_name.startswith(("eth", "ethernet", "po", "port-channel"))
+            and isinstance(status, Mapping)
+            and status.get("operational_state") == "up"
+        ):
+            continue
+        peak = max(
+            float(rates.get("input_percent", 0)),
+            float(rates.get("output_percent", 0)),
+        )
+        eligible[name] = {**rates, "peak_percent": peak}
+    if not eligible:
+        return _check(
+            check_id=definition["id"],
+            profile=definition["profile"],
+            host=host,
+            result="NOT_APPLICABLE",
+            classification="normal",
+            message="No operational Ethernet or port-channel interface has utilization data",
+            evidence=evidence,
+            resource="interfaces/utilization",
+        )
+    peak_name, peak_value = max(
+        eligible.items(), key=lambda item: item[1]["peak_percent"]
+    )
+    peak_percent = float(peak_value["peak_percent"])
+    if peak_percent >= fail_percent:
+        result, display_severity = "FAIL", None
+    elif peak_percent >= warn_percent:
+        result, display_severity = "WARN", None
+    elif peak_percent >= info_percent:
+        result, display_severity = "PASS", "INFO"
+    else:
+        result, display_severity = "PASS", None
+    direction = (
+        "input"
+        if float(peak_value["input_percent"])
+        >= float(peak_value["output_percent"])
+        else "output"
+    )
+    return _check(
+        check_id=definition["id"],
+        profile=definition["profile"],
+        host=host,
+        result=result,
+        classification="normal" if result == "PASS" else "target_not_ready",
+        message=(
+            f"Peak interface utilization is {peak_percent:.2f}% "
+            f"on {peak_name} ({direction})"
+        ),
+        evidence=[*evidence, *_source_evidence(snapshot, host, "interface_status")],
+        resource="interfaces/utilization",
+        after={
+            "thresholds": {
+                "info_percent": info_percent,
+                "warn_percent": warn_percent,
+                "fail_percent": fail_percent,
+            },
+            "peak_interface": peak_name,
+            "peak_direction": direction,
+            "peak_percent": peak_percent,
+            "interfaces": eligible,
+        },
+        display_severity=display_severity,
+    )
+
+
 def _evaluate_port_channels(snapshot, host, definition, _effective):
     value = snapshot["hosts"][host]["common"].get("port_channels")
     evidence = _source_evidence(snapshot, host, "port_channel_summary")
@@ -913,6 +1087,49 @@ def _bgp_ipv4_unhealthy(value: Mapping[str, Any]) -> list[str]:
     ]
 
 
+def _configured_bgp_neighbors(
+    snapshot: Mapping[str, Any], host: str, afi: str
+) -> tuple[list[dict[str, Any]], bool, bool]:
+    config = snapshot["hosts"][host]["common"].get(
+        "routing_neighbor_config"
+    )
+    if not isinstance(config, Mapping):
+        return [], False, False
+    expected_af = f"{afi}-unicast"
+    neighbors: list[dict[str, Any]] = []
+    unresolved = False
+    for local_as, process in config.get("processes", {}).items():
+        for vrf, scope in process.get("vrfs", {}).items():
+            if scope.get("resolution_status") == "unresolved":
+                unresolved = True
+            for address, values in scope.get("neighbors", {}).items():
+                try:
+                    network = ipaddress.ip_network(str(address), strict=False)
+                except ValueError:
+                    unresolved = True
+                    continue
+                if (afi == "ipv4" and network.version != 4) or (
+                    afi == "ipv6" and network.version != 6
+                ):
+                    continue
+                address_families = values.get("address_families", {})
+                if address_families and expected_af not in address_families:
+                    continue
+                neighbors.append(
+                    {
+                        "local_as": str(local_as),
+                        "vrf": str(vrf),
+                        "address": str(address),
+                        "network": str(network),
+                        "dynamic": "/" in str(address),
+                        "resolution_status": values.get(
+                            "resolution_status", "resolved"
+                        ),
+                    }
+                )
+    return neighbors, True, unresolved
+
+
 def _evaluate_bgp_ipv4(
     snapshot: Mapping[str, Any],
     host: str,
@@ -921,7 +1138,18 @@ def _evaluate_bgp_ipv4(
 ) -> dict[str, Any]:
     bgp = snapshot["hosts"][host]["common"].get("routing_neighbors", {}).get("bgp_ipv4")
     evidence = _source_evidence(snapshot, host, "bgp_ipv4_summary")
+    configured_neighbors, config_available, config_unresolved = _configured_bgp_neighbors(
+        snapshot, host, "ipv4"
+    )
     if bgp is None:
+        if config_available and (configured_neighbors or config_unresolved):
+            return _unknown(
+                definition,
+                host,
+                "IPv4 BGP summary is unavailable for configured neighbors",
+                [*evidence, *_source_evidence(snapshot, host, "running_config")],
+                resource="routing/bgp-ipv4",
+            )
         return _check(
             check_id=definition["id"],
             profile=definition["profile"],
@@ -931,6 +1159,58 @@ def _evaluate_bgp_ipv4(
             message="IPv4 BGP was not observed",
             evidence=evidence,
             resource="routing/bgp-ipv4",
+        )
+    if config_available:
+        if config_unresolved:
+            return _unknown(
+                definition,
+                host,
+                "IPv4 BGP neighbor configuration could not be resolved",
+                [*evidence, *_source_evidence(snapshot, host, "running_config")],
+                resource="routing/bgp-ipv4",
+            )
+        static_neighbors = [
+            item for item in configured_neighbors if not item["dynamic"]
+        ]
+        if not static_neighbors:
+            return _check(
+                check_id=definition["id"],
+                profile=definition["profile"],
+                host=host,
+                result="NOT_APPLICABLE",
+                classification="normal",
+                message="IPv4 BGP has no statically configured peers",
+                evidence=[
+                    *evidence,
+                    *_source_evidence(snapshot, host, "running_config"),
+                ],
+                resource="routing/bgp-ipv4",
+            )
+        unhealthy_static: list[str] = []
+        for item in static_neighbors:
+            summary = bgp.get("vrfs", {}).get(item["vrf"], {})
+            observed = summary.get("neighbors", {}).get(item["address"])
+            if observed is None or observed.get("state") != "Established":
+                unhealthy_static.append(f"{item['vrf']}/{item['address']}")
+        result = "FAIL" if unhealthy_static else "PASS"
+        return _check(
+            check_id=definition["id"],
+            profile=definition["profile"],
+            host=host,
+            result=result,
+            classification="normal" if result == "PASS" else "target_not_ready",
+            message=(
+                "All statically configured IPv4 BGP peers are established"
+                if not unhealthy_static
+                else "Missing or unhealthy static IPv4 BGP peers: "
+                + ", ".join(unhealthy_static)
+            ),
+            evidence=[
+                *evidence,
+                *_source_evidence(snapshot, host, "running_config"),
+            ],
+            resource="routing/bgp-ipv4",
+            after={"configured_neighbors": static_neighbors, "summary": bgp},
         )
     configured = sum(summary["configured_peers"] for summary in bgp["vrfs"].values())
     if not bgp.get("applicable", True) or configured == 0:
@@ -965,6 +1245,129 @@ def _evaluate_bgp_ipv4(
         evidence=evidence,
         resource="routing/bgp-ipv4",
         after=bgp,
+    )
+
+
+def _evaluate_bgp_dynamic_neighbors(snapshot, host, definition, _effective):
+    configured: list[dict[str, Any]] = []
+    config_available = False
+    config_unresolved = False
+    for afi in ("ipv4", "ipv6"):
+        neighbors, available, unresolved = _configured_bgp_neighbors(
+            snapshot, host, afi
+        )
+        configured.extend(item for item in neighbors if item["dynamic"])
+        config_available = config_available or available
+        config_unresolved = config_unresolved or unresolved
+    evidence = _source_evidence(snapshot, host, "running_config")
+    if not config_available:
+        return _unknown(
+            definition,
+            host,
+            "BGP neighbor range configuration is unavailable",
+            evidence,
+            resource="routing/bgp-dynamic-neighbors",
+        )
+    if config_unresolved:
+        return _unknown(
+            definition,
+            host,
+            "BGP neighbor range configuration could not be resolved",
+            evidence,
+            resource="routing/bgp-dynamic-neighbors",
+        )
+    if not configured:
+        return _check(
+            check_id=definition["id"],
+            profile=definition["profile"],
+            host=host,
+            result="NOT_APPLICABLE",
+            classification="normal",
+            message="No dynamic BGP neighbor range is configured",
+            evidence=evidence,
+            resource="routing/bgp-dynamic-neighbors",
+        )
+    ranges: list[dict[str, Any]] = []
+    results: list[str] = []
+    for item in configured:
+        network = ipaddress.ip_network(item["network"], strict=False)
+        afi = "ipv4" if network.version == 4 else "ipv6"
+        source_id = f"bgp_{afi}_summary"
+        summary_source = snapshot["hosts"][host]["sources"].get(source_id)
+        summary = snapshot["hosts"][host]["common"].get(
+            "routing_neighbors", {}
+        ).get(f"bgp_{afi}")
+        range_result = "PASS"
+        matched: list[str] = []
+        established: list[str] = []
+        if item["resolution_status"] != "resolved":
+            range_result = "UNKNOWN"
+        elif (
+            summary_source is None
+            or summary_source.get("parse_status") != "parsed"
+            or not isinstance(summary, Mapping)
+        ):
+            range_result = "UNKNOWN"
+        else:
+            vrf_summary = summary.get("vrfs", {}).get(item["vrf"], {})
+            for address, values in vrf_summary.get("neighbors", {}).items():
+                try:
+                    peer_address = ipaddress.ip_address(str(address))
+                except ValueError:
+                    continue
+                if peer_address in network:
+                    matched.append(str(address))
+                    if values.get("state") == "Established":
+                        established.append(str(address))
+            if not matched:
+                range_result = "WARN"
+            elif len(established) != len(matched):
+                range_result = "FAIL"
+        results.append(range_result)
+        ranges.append(
+            {
+                "local_as": item["local_as"],
+                "vrf": item["vrf"],
+                "range": str(network),
+                "address_family": afi,
+                "matched_neighbors": sorted(matched),
+                "established_neighbors": sorted(established),
+                "result": range_result,
+            }
+        )
+        evidence.extend(_source_evidence(snapshot, host, source_id))
+    result = max(results, key=lambda value: RESULT_ORDER[value])
+    empty_ranges = [item["range"] for item in ranges if item["result"] == "WARN"]
+    unhealthy_ranges = [
+        item["range"] for item in ranges if item["result"] == "FAIL"
+    ]
+    unknown_ranges = [
+        item["range"] for item in ranges if item["result"] == "UNKNOWN"
+    ]
+    if unhealthy_ranges:
+        message = "Dynamic BGP ranges have non-established neighbors: " + ", ".join(
+            unhealthy_ranges
+        )
+    elif unknown_ranges:
+        message = "Dynamic BGP ranges could not be evaluated: " + ", ".join(
+            unknown_ranges
+        )
+    elif empty_ranges:
+        message = "Dynamic BGP ranges have no observed neighbors: " + ", ".join(
+            empty_ranges
+        )
+    else:
+        message = "All dynamic BGP ranges have established neighbors"
+    return _check(
+        check_id=definition["id"],
+        profile=definition["profile"],
+        host=host,
+        result=result,
+        classification="normal" if result == "PASS" else "target_not_ready",
+        message=message,
+        evidence=evidence,
+        resource="routing/bgp-dynamic-neighbors",
+        after={"ranges": ranges},
     )
 
 
@@ -1941,6 +2344,7 @@ SINGLE_EVALUATORS: dict[
 ] = {
     "collection_complete": _evaluate_collection,
     "system_identity": _evaluate_system,
+    "hostname_identity": _evaluate_hostname_identity,
     "cpu_utilization": _evaluate_cpu,
     "memory_utilization": _evaluate_memory,
     "environment_health": _evaluate_environment,
@@ -1948,6 +2352,7 @@ SINGLE_EVALUATORS: dict[
     "ntp_health": _evaluate_ntp,
     "interface_health": _evaluate_interfaces,
     "interface_error_health": _evaluate_interface_errors,
+    "interface_utilization": _evaluate_interface_utilization,
     "port_channel_health": _evaluate_port_channels,
     "logging_health": _evaluate_logging,
     "running_config_diff": _evaluate_running_config_diff,
@@ -1955,6 +2360,7 @@ SINGLE_EVALUATORS: dict[
     "ipv4_route_count": _evaluate_route_count,
     "ospf_neighbor_health": _evaluate_ospf,
     "bgp_ipv4_health": _evaluate_bgp_ipv4,
+    "bgp_dynamic_neighbor_health": _evaluate_bgp_dynamic_neighbors,
     "vpc_health": _evaluate_vpc,
     "nve_interface_health": _evaluate_nve,
     "evpn_bgp_health": _evaluate_evpn_bgp,
@@ -2035,6 +2441,60 @@ def _overlay_check_applies(
     return True
 
 
+def _profile_platform_scope(
+    snapshot: Mapping[str, Any],
+    host: str,
+    definition: Mapping[str, Any],
+    effective: Mapping[str, Any],
+) -> tuple[bool, str, str, str]:
+    """Resolve one check's platform scope without using driver names."""
+    allowed = {
+        str(item).lower()
+        for item in definition.get("platforms", effective["spec"].get("platforms", []))
+    }
+    raw_platform = snapshot["hosts"][host].get("platform")
+    if raw_platform is None and allowed == {"nxos"}:
+        # v1 Snapshots created before platform provenance was added were
+        # produced only by the NX-OS Health adapters.
+        platform = "nxos"
+    else:
+        platform = str(raw_platform or "unknown").lower()
+    if platform in {"", "unknown"}:
+        return False, "UNKNOWN", "PROFILE_PLATFORM_UNRESOLVED", "unknown"
+    if platform not in allowed:
+        return False, "NOT_APPLICABLE", "PROFILE_PLATFORM_EXCLUDED", platform
+    return True, "PASS", "PROFILE_PLATFORM_INCLUDED", platform
+
+
+def _append_unexecuted_profile(
+    target: list[dict[str, Any]],
+    *,
+    host: str,
+    platform: str,
+    topology_role: str | None,
+    profile: str,
+    profile_result: str,
+    reason_code: str,
+) -> None:
+    if any(item["host"] == host and item["profile"] == profile for item in target):
+        return
+    target.append(
+        {
+            "host": host,
+            "platform": platform,
+            "topology_role": topology_role,
+            "profile": profile,
+            "profile_result": profile_result,
+            "reason_code": reason_code,
+            "message": (
+                "Host platform is outside the profile scope."
+                if reason_code == "PROFILE_PLATFORM_EXCLUDED"
+                else "Host platform could not be resolved safely."
+            ),
+        }
+    )
+
+
 def evaluate_snapshot(
     snapshot: Mapping[str, Any],
     resolved_profiles: Mapping[str, Any],
@@ -2058,6 +2518,25 @@ def evaluate_snapshot(
     for host in sorted(snapshot["hosts"]):
         for definition in effective["spec"]["checks"]:
             profile_name = str(definition.get("profile", ""))
+            execute_platform, platform_result, platform_reason, platform = (
+                _profile_platform_scope(snapshot, host, definition, effective)
+            )
+            if not execute_platform:
+                topology_role = None
+                if resolved_roles is not None:
+                    topology_role = resolved_roles["spec"]["devices"][host][
+                        "topology_role"
+                    ]
+                _append_unexecuted_profile(
+                    unexecuted_hosts,
+                    host=host,
+                    platform=platform,
+                    topology_role=topology_role,
+                    profile=profile_name,
+                    profile_result=platform_result,
+                    reason_code=platform_reason,
+                )
+                continue
             if resolved_roles is not None:
                 role_data = resolved_roles["spec"]["devices"][host]
                 if profile_name == "nxos-overlay":
@@ -3094,6 +3573,25 @@ def compare_snapshots(
     for host in sorted(before["hosts"]):
         for definition in effective["spec"]["checks"]:
             profile_name = str(definition.get("profile", ""))
+            execute_platform, platform_result, platform_reason, platform = (
+                _profile_platform_scope(after, host, definition, effective)
+            )
+            if not execute_platform:
+                topology_role = None
+                if resolved_roles is not None:
+                    topology_role = resolved_roles["spec"]["devices"][host][
+                        "topology_role"
+                    ]
+                _append_unexecuted_profile(
+                    unexecuted_hosts,
+                    host=host,
+                    platform=platform,
+                    topology_role=topology_role,
+                    profile=profile_name,
+                    profile_result=platform_result,
+                    reason_code=platform_reason,
+                )
+                continue
             if resolved_roles is not None:
                 role_data = resolved_roles["spec"]["devices"][host]
                 if profile_name == "nxos-overlay":
@@ -3162,6 +3660,23 @@ def compare_snapshots(
                     definition["id"] = "border_evpn_bgp_health"
             if evaluator_name == "system_identity":
                 check = _compare_system(before, after, host, definition)
+            elif evaluator_name == "hostname_identity":
+                before_check = _evaluate_hostname_identity(
+                    before, host, definition, effective
+                )
+                check = _evaluate_hostname_identity(
+                    after, host, definition, effective
+                )
+                check["before"] = before_check.get("after", {
+                    "result": before_check["result"],
+                    "message": before_check["message"],
+                })
+                if before_check["result"] == "PASS" and check["result"] != "PASS":
+                    check["classification"] = "regression"
+                elif before_check["result"] != "PASS" and check["result"] == "PASS":
+                    check["classification"] = "improvement"
+                elif before_check["result"] == check["result"] == "FAIL":
+                    check["classification"] = "pre_existing"
             elif evaluator_name == "logging_health":
                 check = _compare_logging(before, after, host, definition, effective)
             elif evaluator_name == "reload_pending":
@@ -3296,6 +3811,8 @@ def compare_snapshots(
                     elif evaluator_name in {
                         "cpu_utilization",
                         "memory_utilization",
+                        "interface_utilization",
+                        "bgp_dynamic_neighbor_health",
                     }:
                         before_check = evaluator(
                             before,
@@ -3305,14 +3822,50 @@ def compare_snapshots(
                         )
                         check = deepcopy(check)
                         check["before"] = before_check.get("after")
-                        if check["result"] in {"WARN", "FAIL"}:
-                            check["classification"] = (
-                                "pre_existing"
-                                if before_check["result"] in {"WARN", "FAIL"}
-                                else "regression"
-                            )
-                        elif before_check["result"] in {"WARN", "FAIL"}:
+                        if RESULT_ORDER[check["result"]] > RESULT_ORDER[
+                            before_check["result"]
+                        ]:
+                            check["classification"] = "regression"
+                        elif RESULT_ORDER[check["result"]] < RESULT_ORDER[
+                            before_check["result"]
+                        ]:
                             check["classification"] = "improvement"
+                        elif check["result"] in {"WARN", "FAIL", "UNKNOWN"}:
+                            check["classification"] = "pre_existing"
+                        if evaluator_name == "bgp_dynamic_neighbor_health":
+                            before_ranges = {
+                                (
+                                    item.get("local_as"),
+                                    item.get("vrf"),
+                                    item.get("range"),
+                                ): item
+                                for item in (before_check.get("after") or {}).get(
+                                    "ranges", []
+                                )
+                            }
+                            lost_ranges = []
+                            for item in (check.get("after") or {}).get("ranges", []):
+                                key = (
+                                    item.get("local_as"),
+                                    item.get("vrf"),
+                                    item.get("range"),
+                                )
+                                before_item = before_ranges.get(key, {})
+                                if (
+                                    before_item.get("established_neighbors")
+                                    and not item.get("matched_neighbors")
+                                ):
+                                    lost_ranges.append(str(item.get("range")))
+                            if lost_ranges:
+                                check.update(
+                                    result="FAIL",
+                                    classification="regression",
+                                    message=(
+                                        "Dynamic BGP range regression; all observed "
+                                        "neighbors disappeared: "
+                                        + ", ".join(sorted(lost_ranges))
+                                    ),
+                                )
             checks.append(check)
         if (
             resolved_roles is not None
@@ -3343,6 +3896,10 @@ def compare_snapshots(
                         )
                     checks.append(check)
 
+    overall = _overall(checks)
+    if any(item["profile_result"] == "UNKNOWN" for item in unexecuted_hosts):
+        if overall in {"PASS", "WARN", "NOT_APPLICABLE"}:
+            overall = "UNKNOWN"
     result = {
         "schema_version": SCHEMA_VERSION,
         "change_id": before["change_id"],
@@ -3357,7 +3914,7 @@ def compare_snapshots(
             for host, host_data in sorted(after["hosts"].items())
             if host_data.get("address")
         },
-        "result": _overall(checks),
+        "result": overall,
         "counts": _counts(checks),
         "checks": checks,
         "unexecuted_hosts": unexecuted_hosts,

@@ -178,6 +178,7 @@ def _common(host: str, created_at: datetime) -> dict[str, Any]:
             "platform": "nxos",
             "version": "10.5(4)",
             "model": "Nexus9000 C9300v",
+            "reported_hostname": host,
             "uptime_seconds": 864000,
         },
         "cpu": {
@@ -214,6 +215,17 @@ def _common(host: str, created_at: datetime) -> dict[str, Any]:
             },
         },
         "interface_errors": {},
+        "interface_utilization": {
+            "interfaces": {
+                "Eth1/1": {
+                    "input_mbps": 1000.0,
+                    "input_percent": 10.0,
+                    "output_mbps": 2000.0,
+                    "output_percent": 20.0,
+                    "load_interval_seconds": 30,
+                }
+            }
+        },
         "port_channels": (
             {
                 "applicable": True,
@@ -266,6 +278,24 @@ def _common(host: str, created_at: datetime) -> dict[str, Any]:
                     }
                 },
             },
+        },
+        "routing_neighbor_config": {
+            "processes": {
+                "65000": {
+                    "vrfs": {
+                        "default": {
+                            "neighbors": {
+                                "10.0.0.1": {
+                                    "address_families": {
+                                        "ipv4-unicast": {}
+                                    },
+                                    "resolution_status": "resolved",
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         },
         "vpc": (
             {"applicable": True, "healthy": True}

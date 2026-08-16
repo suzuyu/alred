@@ -63,7 +63,10 @@
         "thresholds": {
           "type": "object",
           "properties": {
-            "logging": {"$ref": "#/$defs/loggingThresholds"}
+            "logging": {"$ref": "#/$defs/loggingThresholds"},
+            "interface_utilization": {
+              "$ref": "#/$defs/interfaceUtilizationThresholds"
+            }
           }
         },
         "convergence": {
@@ -164,6 +167,15 @@
         }
       }
     },
+    "interfaceUtilizationThresholds": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "info_percent": {"type": "number", "minimum": 0, "maximum": 100},
+        "warn_percent": {"type": "number", "minimum": 0, "maximum": 100},
+        "fail_percent": {"type": "number", "minimum": 0, "maximum": 100}
+      }
+    },
     "check": {
       "type": "object",
       "additionalProperties": false,
@@ -172,6 +184,12 @@
         "id": {"type": "string", "minLength": 1},
         "evaluator": {"type": "string", "minLength": 1},
         "severity": {"enum": ["info", "warn", "fail"]},
+        "platforms": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
         "applicable_when": {"type": ["string", "object"]},
         "comparison": {"type": ["string", "object"]},
         "retryable": {"type": "boolean"}

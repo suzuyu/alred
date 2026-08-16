@@ -509,6 +509,23 @@ afterまたはcompareで`--profile`を明示した場合は、beforeで固定し
 
 診断用の追加コマンドは比較profileへ追加せず、別の`--diagnostic-profile`として実行・記録する。Overlay変更の発見後に必要となるVNI単位のコマンドは、`nxos-overlay`内の条件付きコマンドを具体化したものとして扱い、profile自体のhashは変更しない。
 
+### 4.6 Platform scopeの固定
+
+Collection ManifestとSnapshotのhost recordへinventoryのcanonical `device_type`を`platform`として固定し、
+Profile Resolverは各checkに元profileのplatform集合を保持する。
+
+- host platformがcheckのplatform集合に含まれる場合だけevaluatorを実行する。
+- platform scope外は`NOT_APPLICABLE`とし、`PROFILE_PLATFORM_EXCLUDED`を未実行理由へ記録する。
+- inventoryなしのoffline入力などでplatformを安全に解決できない場合は`UNKNOWN`とし、
+  `PROFILE_PLATFORM_UNRESOLVED`を記録する。
+- 複数profileを合成した全体platform集合を個々のcheckへ適用しない。
+- `network-baseline-nxos`を`eos` hostへ実行するなど、別platformのoutputをNX-OS parserへ渡さない。
+- NX-OSのrole別収集commandは`device_type:nxos:role:<role>` groupへ所属させ、platform非依存の
+  `<role>` groupとしてEOS hostへ適用しない。
+
+alredのcanonical Arista platform名は`eos`であり、Netmiko driver名`arista_eos`をprofile platformとして
+使用しない。
+
 ## 5. 共通正常性確認項目
 
 NX-OSで使用する具体的なコマンド、必須・条件付き分類、判定対象、初期閾値は[NX-OS Baseline Health Check Commands](./NXOS_BASELINE_HEALTH_CHECK_COMMANDS.md)を正本とする。
@@ -545,10 +562,17 @@ EVPN BGPが未設定の場合、`show bgp l2vpn evpn summary`の欠落やunsuppo
 
 NX-OS BGP summaryの`config peers`と`capable peers`は、dynamic neighbor prefixや
 複数address-familyを含む構成では一致しないことがあるため、その件数差だけを
-peer downと判定しない。neighbor tableに現れた各peerのstateを判定し、1つでも
-非Establishedなら`FAIL`、BGPが設定済みなのにpeer rowを1件も観測できなければ`FAIL`とする。
-before/after比較ではbeforeでEstablishedだったpeerの消失または非Established化を
-regressionとする。件数は診断用metadataとしてSnapshotへ保持する。
+peer downと判定しない。running configのexact neighborとdynamic neighbor prefixをaddress familyごとに
+正規化し、neighbor tableに現れたoperational peerをaddress包含で対応付ける。
+
+- exact neighborが非Establishedまたは未観測なら`FAIL`とする。
+- dynamic neighbor prefix内のpeerが0件なら、単体判定では`WARN`とする。
+- prefix内にpeerがあり、1つでも非Establishedなら`FAIL`、すべてEstablishedなら`PASS`とする。
+- beforeでprefix内に存在したEstablished peerがafterで消失または非Established化した場合は`FAIL`の
+  regressionとする。before／afterとも0件ならpre-existing `WARN`を維持する。
+- running configまたは該当address familyのsummaryが欠落・解析不能なら`UNKNOWN`とする。
+
+件数は診断用metadataとして保持するが、range単位の対応関係を保存し、総件数だけで正常性を推測しない。
 
 route summaryのVRF単位比較では、beforeに存在したVRFの消失またはroute数減少を
 regressionとして評価する。Overlay変更によってafterで新規VRFが追加されたこと自体は
@@ -572,6 +596,7 @@ regressionとして評価する。Overlay変更によってafterで新規VRFが�
 - module状態
 - core dump、重大障害
 - clock / NTP
+- inventory hostnameと同一SnapshotのNX-OS `show version`にある`Device name`の完全一致
 
 ### 5.3 Interface
 
@@ -580,6 +605,7 @@ regressionとして評価する。Overlay変更によってafterで新規VRFが�
 - port-channel memberの減少
 - error counterの急増
 - interface flap
+- operational-upのEthernet／port-channelにおけるinput／output利用率
 
 ### 5.4 Routing/control plane
 

@@ -89,7 +89,8 @@
                 "connect_check_timeout": {
                   "type": "number",
                   "exclusiveMinimum": 0
-                }
+                },
+                "allow_hostname_mismatch": {"type": "boolean"}
               }
             }
           ]

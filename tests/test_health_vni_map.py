@@ -322,7 +322,7 @@ def test_documented_overlay_state_and_diff_samples_match_schemas(tmp_path):
         assert f"- Phase: {phase}" in checklist
         assert "- Result: PASS" in checklist
         assert "## Result by Profile" in checklist
-        assert "| network-baseline-nxos | 120 | 0 | 0 | 0 | 16 |" in checklist
+        assert "| network-baseline-nxos | 136 | 0 | 0 | 0 | 24 |" in checklist
         assert "| nxos-overlay | 50 | 0 | 0 | 0 | 2 |" in checklist
         assert "`vlan_operational_health`: PASS" in checklist
         assert "`vrf_operational_health`: PASS" in checklist
@@ -334,7 +334,7 @@ def test_documented_overlay_state_and_diff_samples_match_schemas(tmp_path):
         ) < checklist.index("### Device: `adc-spsw0101`")
         assert checklist.count("#### Profile: `network-baseline-nxos`") == 8
         assert checklist.count("#### Profile: `nxos-overlay`") == 6
-        assert sum(line.startswith("- [") for line in checklist.splitlines()) == 188
+        assert sum(line.startswith("- [") for line in checklist.splitlines()) == 212
         assert "## Unexecuted Hosts" in checklist
         assert "adc-bgrt0101" in checklist
         assert "adc-bgrt0102" in checklist

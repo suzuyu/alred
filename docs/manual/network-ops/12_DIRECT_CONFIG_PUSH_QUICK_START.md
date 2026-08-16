@@ -85,7 +85,12 @@ alred write-memory \
 ```
 
 `write-memory` は config を追加投入せず、NX-OS では `copy running-config startup-config` の成功応答を
-確認します。一部 host が失敗した場合は全対象が保存済みとみなしません。
+最大 180 秒待って確認します。一部 host が失敗した場合は全対象が保存済みとみなしません。timeout や接続断では
+command が到達した可能性があるため自動 retry せず、log と startup-config を確認してから対象 host を再実行します。
+
+実行 summary の失敗 host には inventory の management IP が併記されます。末尾の `Log file` には実行ログの
+absolute path が表示され、既定は `logs/write-memory.log` です。log では host ごとの開始・完了時刻、経過秒、
+status、error を確認できます。
 
 ## 6. 単一 config と例外 option
 

@@ -15,12 +15,26 @@ alred自身でVNI設定を生成・投入する場合は
 
 | profile | 主な確認対象 |
 |---|---|
-| `network-baseline-nxos` | CPU、memory、environment、logging、reload-pending、route、OSPF、BGP、vPC |
+| `network-baseline-nxos` | hostname、CPU、memory、environment、interface 利用率、logging、reload-pending、route、OSPF、static／dynamic BGP、vPC |
 | `nxos-overlay` | running config、NVE interface、NVE VNI、ingress replication、EVPN BGP |
 
 `nxos-overlay`だけでも実行できますが、Overlay追加によるUnderlayや装置全体への影響を確認する
 ため、通常作業ではbaselineとの併用を推奨します。profileは自動合成されないため、beforeで2つ
 とも明示します。
+
+`network-baseline-nxos` と `nxos-overlay` は profile の `spec.platforms` により NX-OS device だけへ
+適用されます。同じ inventory に Arista EOS などが含まれていても、NX-OS 用 command と check は実行しません。
+
+baseline では、inventory hostname と `show version` の `Device name` を照合します。また、
+`show interface counters table` の input／output 利用率を独立して評価し、最大値が 50% 以上で `INFO`、
+70% 以上で `WARN`、90% 以上で `FAIL` になります。閾値は custom profile の
+`thresholds.interface_utilization` で調整できます。device が表示する rate は load interval 内の平均であり、
+microburst や queue congestion は `show interface counters errors non-zero` などの evidence も併せて確認してください。
+
+running config に `neighbor 172.16.3.0/24` や `neighbor fd21:0:0:3::/64` のような dynamic BGP
+neighbor range がある場合、IPv4／IPv6 summary 内の peer を range ごとに照合します。Established peer が 0 件なら
+`WARN`、before に存在した peer が after で消失した場合は regression として `FAIL`、config または summary を
+解析できない場合は `UNKNOWN` です。
 
 ## 2. 収集されるOverlayコマンド
 
@@ -130,8 +144,11 @@ ChecklistではbaselineとOverlayの両方を確認します。
 #### Profile: `network-baseline-nxos`
 
 - [x] `collection_complete`: PASS - All required command outputs were parsed
+- [x] `hostname_identity`: PASS - Reported hostname matches inventory hostname: leaf01
+- [x] `interface_utilization`: PASS - Peak interface utilization is 20.00% on Eth1/1 (output)
 - [x] `reload_pending`: PASS - No reload-pending configuration exists
 - [x] `ospf_neighbor_health`: PASS - All observed OSPF neighbors are FULL
+- [-] `bgp_dynamic_neighbor_health`: NOT_APPLICABLE - No dynamic BGP neighbor range is configured
 - [x] `vpc_health`: PASS - vPC peer and consistency are healthy
 
 #### Profile: `nxos-overlay`

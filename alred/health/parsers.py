@@ -12,7 +12,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from .overlay import parse_overlay_running_config
 from ..logging_check import parse_nxos_log_records
 
-NXOS_PARSER_VERSION = "1.13"
+NXOS_PARSER_VERSION = "1.15"
 
 _INTERFACE_STATUS_NAME_RE = re.compile(
     r"^(?:Eth|Ethernet|Po|port-channel|mgmt|Vlan|Lo|loopback)\S+",
@@ -54,7 +54,10 @@ def _parse_running_config(
     output: str,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     text = _require_output(output)
-    return {}, {"nxos-overlay": {"config": parse_overlay_running_config(text)}}
+    config = parse_overlay_running_config(text)
+    return {
+        "routing_neighbor_config": config.get("bgp_neighbor_config", {})
+    }, {"nxos-overlay": {"config": config}}
 
 
 def _parse_show_version(output: str) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -448,6 +451,72 @@ def _parse_interface_status(output: str) -> tuple[dict[str, Any], dict[str, Any]
     return {"interfaces": interfaces}, {}
 
 
+def _parse_interface_counters_table(
+    output: str,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    text = _require_output(output)
+    column_starts: list[int] | None = None
+    interfaces: dict[str, Any] = {}
+    for line in text.splitlines():
+        header_matches = [
+            re.search(r"\bPort\b", line, re.IGNORECASE),
+            re.search(r"\bDescription\b", line, re.IGNORECASE),
+            re.search(r"\b(?:Interval|Intvl)\b", line, re.IGNORECASE),
+            re.search(r"(?:InRate\s*\(Mbps\)|\bRx\s+Mbps\b)", line, re.IGNORECASE),
+            re.search(r"(?:InRate\s*\(%\)|\bRx\s+%+)", line, re.IGNORECASE),
+            re.search(r"(?:OutRate\s*\(Mbps\)|\bTx\s+Mbps\b)", line, re.IGNORECASE),
+            re.search(r"(?:OutRate\s*\(%\)|\bTx\s+%+)", line, re.IGNORECASE),
+        ]
+        if all(match is not None for match in header_matches):
+            starts = [match.start() for match in header_matches if match is not None]
+            if starts == sorted(starts):
+                column_starts = starts
+            continue
+        if column_starts is None:
+            continue
+        fields = [
+            line[start:end].strip()
+            for start, end in zip(column_starts, column_starts[1:])
+        ]
+        fields.append(line[column_starts[-1] :].strip())
+        interface = fields[0]
+        if not _INTERFACE_STATUS_NAME_RE.match(interface):
+            continue
+        interval_parts = fields[2].split("/")
+        if len(interval_parts) == 1:
+            interval_parts *= 2
+        if len(interval_parts) != 2:
+            raise ParserError(f"invalid interface counter interval: {interface}")
+        try:
+            input_interval_seconds, output_interval_seconds = (
+                int(float(value)) for value in interval_parts
+            )
+            input_mbps, input_percent, output_mbps, output_percent = (
+                float(value.rstrip("%")) for value in fields[3:]
+            )
+        except ValueError as exc:
+            raise ParserError(
+                f"interface counter rate row contains a non-numeric value: {interface}"
+            ) from exc
+        entry = {
+            "description": fields[1] if fields[1] not in {"--", "N/A"} else None,
+            "input_mbps": input_mbps,
+            "input_percent": input_percent,
+            "output_mbps": output_mbps,
+            "output_percent": output_percent,
+            "input_load_interval_seconds": input_interval_seconds,
+            "output_load_interval_seconds": output_interval_seconds,
+        }
+        if input_interval_seconds == output_interval_seconds:
+            entry["load_interval_seconds"] = input_interval_seconds
+        interfaces[interface] = entry
+    if column_starts is None:
+        raise ParserError("interface counter rate table header was not recognized")
+    if not interfaces:
+        raise ParserError("interface counter rate rows were not recognized")
+    return {"interface_utilization": {"interfaces": interfaces}}, {}
+
+
 def _parse_interface_brief(output: str) -> tuple[dict[str, Any], dict[str, Any]]:
     """Parse the SVI Status and Reason columns in ``show interface brief``."""
     text = _require_output(output)
@@ -664,7 +733,7 @@ def _parse_bgp_table(block: str) -> dict[str, Any]:
     neighbors: dict[str, Any] = {}
     in_table = False
     for line in block.splitlines():
-        if re.match(r"^Neighbor\s+V\s+AS\b", line):
+        if re.match(r"^\s*Neighbor\s+V\s+AS\b", line):
             in_table = True
             continue
         if not in_table or not line.strip():
@@ -686,14 +755,17 @@ def _parse_bgp_table(block: str) -> dict[str, Any]:
     return neighbors
 
 
-def _parse_bgp_ipv4_summary(
+def _parse_bgp_unicast_summary(
     output: str,
+    *,
+    afi: str,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     text = _require_output(output)
+    family_label = "IPv4" if afi == "ipv4" else "IPv6"
     headings = list(
         re.finditer(
             r"^BGP summary information for VRF (.+?), "
-            r"address family IPv4 Unicast\s*$",
+            rf"address family {family_label} Unicast\s*$",
             text,
             re.MULTILINE,
         )
@@ -701,15 +773,17 @@ def _parse_bgp_ipv4_summary(
     if not headings:
         if "bgp" in text.lower() and "not configured" in text.lower():
             return {
-                "routing_neighbors": {"bgp_ipv4": {"applicable": False, "vrfs": {}}}
+                "routing_neighbors": {
+                    f"bgp_{afi}": {"applicable": False, "vrfs": {}}
+                }
             }, {}
-        raise ParserError("IPv4 BGP VRF headings were not recognized")
+        raise ParserError(f"{family_label} BGP VRF headings were not recognized")
     vrfs: dict[str, Any] = {}
     for index, heading in enumerate(headings):
         end = headings[index + 1].start() if index + 1 < len(headings) else len(text)
         block = text[heading.end() : end]
         peer_summary = re.search(
-            r"IPv4 Unicast config peers\s+(\d+),\s+capable peers\s+(\d+)",
+            rf"{family_label} Unicast config peers\s+(\d+),\s+capable peers\s+(\d+)",
             block,
             re.IGNORECASE,
         )
@@ -721,7 +795,23 @@ def _parse_bgp_ipv4_summary(
             "capable_peers": capable,
             "neighbors": _parse_bgp_table(block),
         }
-    return {"routing_neighbors": {"bgp_ipv4": {"applicable": True, "vrfs": vrfs}}}, {}
+    return {
+        "routing_neighbors": {
+            f"bgp_{afi}": {"applicable": True, "vrfs": vrfs}
+        }
+    }, {}
+
+
+def _parse_bgp_ipv4_summary(
+    output: str,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    return _parse_bgp_unicast_summary(output, afi="ipv4")
+
+
+def _parse_bgp_ipv6_summary(
+    output: str,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    return _parse_bgp_unicast_summary(output, afi="ipv6")
 
 
 def _field(text: str, label: str) -> str | None:
@@ -1124,12 +1214,14 @@ PARSERS = {
     "ntp_peers": _parse_ntp_peers,
     "ntp_peer_status": _parse_ntp_peer_status,
     "interface_status": _parse_interface_status,
+    "interface_counters_table": _parse_interface_counters_table,
     "interface_brief": _parse_interface_brief,
     "interface_errors": _parse_interface_errors,
     "port_channel_summary": _parse_port_channel_summary,
     "route_summary_ipv4": _parse_route_summary_ipv4,
     "ospf_neighbors": _parse_ospf_neighbors,
     "bgp_ipv4_summary": _parse_bgp_ipv4_summary,
+    "bgp_ipv6_summary": _parse_bgp_ipv6_summary,
     "vpc_brief": _parse_vpc_brief,
     "nve_interface": _parse_nve_interface,
     "nve_peers": _parse_nve_peers,

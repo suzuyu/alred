@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import re
 import socket
 import ssl
 import time
@@ -62,6 +63,50 @@ class ConnectCheckResult:
     elapsed_seconds: float
     error: Optional[str] = None
     fallback_from: Optional[str] = None
+    reported_hostname: Optional[str] = None
+    identity_status: Optional[str] = None
+    warning: Optional[str] = None
+
+
+DEFAULT_PROMPT_HOSTNAMES = {
+    "nxos": {"switch"},
+}
+
+
+def normalize_prompt_hostname(prompt: str) -> str | None:
+    """Extract the hostname portion from a network-device exec/config prompt."""
+    normalized = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", prompt).strip()
+    if "\n" in normalized:
+        normalized = normalized.splitlines()[-1].strip()
+    match = re.fullmatch(r"(.+?)(?:\([^\r\n]*\))?[#>]", normalized)
+    if not match:
+        return None
+    hostname = match.group(1).strip()
+    return hostname or None
+
+
+def evaluate_prompt_hostname(
+    expected_hostname: str,
+    prompt: str,
+    device_type: str,
+) -> tuple[str, str | None, str | None]:
+    """Return identity status, reported hostname, and a user-facing message."""
+    reported = normalize_prompt_hostname(prompt)
+    if reported is None:
+        return "unresolved", None, f"could not parse hostname from prompt: {prompt!r}"
+    if reported == expected_hostname:
+        return "match", reported, None
+    if reported in DEFAULT_PROMPT_HOSTNAMES.get(device_type, set()):
+        return (
+            "default_hostname",
+            reported,
+            f"device uses the default {device_type} hostname {reported!r}; expected {expected_hostname!r}",
+        )
+    return (
+        "mismatch",
+        reported,
+        f"prompt hostname {reported!r} does not match inventory hostname {expected_hostname!r}",
+    )
 
 
 class BaseCollector(ABC):
@@ -546,8 +591,40 @@ def probe_ssh_connectivity(
 
     collector = SshCollector(host, username, password, enable_secret, logger)
     try:
-        collector._connect()
+        conn = collector._connect()
+        try:
+            prompt = str(conn.find_prompt())
+        except Exception as exc:
+            return ConnectCheckResult(
+                hostname=hostname,
+                ip=ip,
+                requested_transport="ssh",
+                resolved_transport="ssh",
+                ok=False,
+                stage="hostname",
+                elapsed_seconds=time.perf_counter() - started_at,
+                error=f"failed to read SSH prompt hostname: {exc}",
+                identity_status="unresolved",
+            )
+        identity_status, reported_hostname, identity_message = evaluate_prompt_hostname(
+            hostname,
+            prompt,
+            collector.device_type,
+        )
         stage = "enable" if collector.device_type in PRIVILEGED_EXEC_DEVICE_TYPES else "auth"
+        if identity_status in {"mismatch", "unresolved"}:
+            return ConnectCheckResult(
+                hostname=hostname,
+                ip=ip,
+                requested_transport="ssh",
+                resolved_transport="ssh",
+                ok=False,
+                stage="hostname",
+                elapsed_seconds=time.perf_counter() - started_at,
+                error=identity_message,
+                reported_hostname=reported_hostname,
+                identity_status=identity_status,
+            )
         return ConnectCheckResult(
             hostname=hostname,
             ip=ip,
@@ -556,6 +633,9 @@ def probe_ssh_connectivity(
             ok=True,
             stage=stage,
             elapsed_seconds=time.perf_counter() - started_at,
+            reported_hostname=reported_hostname,
+            identity_status=identity_status,
+            warning=identity_message if identity_status == "default_hostname" else None,
         )
     except Exception as exc:
         error_text = str(exc)
