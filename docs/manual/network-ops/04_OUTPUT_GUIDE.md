@@ -3,11 +3,12 @@
 ## 1. 最初に見る順番
 
 1. 端末summaryでchange ID、phase、host数、総合Resultを確認
-2. checklist.mdで機器ごとのFAIL、UNKNOWN、WARNを確認
-3. health-result.jsonで判定値、閾値、時間範囲、evidenceを確認
-4. collection-manifest.yamlからrawログのファイルと行範囲を確認
-5. snapshot.jsonでparserが正規化した状態を確認
-6. execution.jsonでphase状態とerror履歴を確認
+2. `device-summary.md`で対象機器の識別情報、role、Health結果を一覧確認
+3. `checklist.md`で機器ごとのFAIL、UNKNOWN、WARNを確認
+4. `health-result.json`で判定値、閾値、時間範囲、evidenceを確認
+5. `collection-manifest.yaml`からrawログのファイルと行範囲を確認
+6. `snapshot.json`でparserが正規化した状態を確認
+7. `execution.json`でphase状態とerror履歴を確認
 
 ## 2. 端末summary
 
@@ -23,6 +24,8 @@ Checks    : PASS=18 WARN=2 FAIL=0 UNKNOWN=0 N/A=2
 Manifest  : operations/live/2026/08/02/HC-20260802T091500-p1234-a1b2c3/health/before/collection-manifest.yaml
 Snapshot  : operations/live/2026/08/02/HC-20260802T091500-p1234-a1b2c3/health/before/snapshot.json
 Checklist : operations/live/2026/08/02/HC-20260802T091500-p1234-a1b2c3/health/before/checklist.md
+Devices   : operations/live/2026/08/02/HC-20260802T091500-p1234-a1b2c3/health/before/device-summary.md
+Device CSV: operations/live/2026/08/02/HC-20260802T091500-p1234-a1b2c3/health/before/device-summary.csv
 ```
 
 項目:
@@ -37,6 +40,7 @@ Checklist : operations/live/2026/08/02/HC-20260802T091500-p1234-a1b2c3/health/be
 | Result | operation全体の代表判定 |
 | Checks | check判定数 |
 | Manifest / Snapshot / Checklist | 詳細確認先 |
+| Devices / Device CSV | 機器一覧の Markdown／CSV |
 
 ## 3. 判定
 
@@ -165,8 +169,10 @@ Snapshotは、rawコマンド出力を共通schemaへ正規化した成果物で
   "created_at": "2026-08-02T09:15:00+09:00",
   "timezone": "Asia/Tokyo",
   "parser_versions": {
-    "nxos": "1.3",
-    "snapshot_builder": "1.1"
+    "nxos": "1.16",
+    "snapshot_builder": "1.2",
+    "ntc_templates": "9.0.0",
+    "textfsm": "2.1.0"
   },
   "hosts": {
     "leaf01": {
@@ -204,7 +210,27 @@ Checks    : PASS=18 WARN=1 FAIL=1 UNKNOWN=0 N/A=2
 regressionは作業前に正常だった状態が作業後に失われたことを示します。作業内容との関連、影響範囲、
 切り戻し条件を確認します。
 
-## 9. nxos-overlayのVNI map
+## 9. Device Summary
+
+`device-summary.md` と `device-summary.csv` は同じ列順と 1 device 1 row で生成されます。
+Markdown はレビュー、CSV は表計算や後続処理に使用します。
+
+| 列 | 確認内容 |
+|---|---|
+| `hostname` / `management_ip` | 収集対象と管理 IP |
+| `manufacturer` / `model` / `serial_number` | メーカー、機種、primary chassis の serial number |
+| `os_type` / `os_version` | OS 種別と version |
+| `license_usage` / `license_parse_status` | 観測した license usage と解析状態 |
+| `topology_role` / `functions` | 解決済み role policy から得た role と function |
+| `health_result` / `collection_status` | host ごとの代表 Health 判定と収集状態 |
+| `collected_at` | Snapshot 作成時刻 |
+
+`license_usage` は情報表示であり、契約、entitlement、registration、compliance の
+正常性判定ではありません。`not_collected` や `unknown` を正常とみなさず、
+Collection Manifest、Snapshot source、raw output を確認します。詳細は
+[Device Summary Design](../../design/network-ops/DEVICE_SUMMARY_DESIGN.md)を参照してください。
+
+## 10. nxos-overlayのVNI map
 
 `nxos-overlay`が実効profileに含まれる場合、phaseごとのOverlay状態とbefore / after差分が
 追加で生成されます。
@@ -227,7 +253,7 @@ VNIを持たないOverlay全体の差分は末尾に並びます。末尾の`Fie
 `Evidence Files`から、fieldの取得コマンドとbefore / afterの証跡を確認できます。
 作成方法、schema、用途の違いは [VNI Map Guide](09_VNI_MAP_GUIDE.md)を参照してください。
 
-## 10. CLI終了code
+## 11. CLI終了code
 
 | Code | 意味 |
 |---:|---|

@@ -25,6 +25,7 @@ def test_binary_build_lock_contains_runtime_and_pyinstaller_dependencies():
         "jinja2",
         "jsonschema",
         "netmiko",
+        "ntc-templates",
         "pyinstaller",
         "python-dotenv",
         "pyyaml",
@@ -44,7 +45,21 @@ def test_all_glibc_builds_install_the_shared_locked_requirements():
 def test_pyinstaller_spec_collects_alred_package_resources():
     content = (REPO_ROOT / "alred.spec").read_text(encoding="utf-8")
     assert 'collect_data_files("alred")' in content
+    assert 'collect_data_files("ntc_templates")' in content
     assert 'collect_submodules("netmiko")' in content
+    assert '("THIRD_PARTY_LICENSES.txt", ".")' in content
+
+
+def test_ntc_templates_are_a_direct_dependency_with_third_party_notice():
+    project = (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    notices = (REPO_ROOT / "THIRD_PARTY_LICENSES.txt").read_text(
+        encoding="utf-8"
+    )
+
+    assert '"ntc-templates>=9.0,<10"' in project
+    assert "ntc-templates" in notices
+    assert "TextFSM" in notices
+    assert "Apache License 2.0" in notices
 
 
 def test_release_artifact_helper_defaults_to_glibc217_and_keeps_options():

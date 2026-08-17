@@ -61,6 +61,7 @@ wheelには実行に必要なPython moduleと次のpackage dataを必ず含め�
 - Jinja2 template
 - sample config
 - 利用時に参照するREADME／CONFIG
+- NTC Templatesを直接利用する場合のTextFSM templateと第三者ライセンス表示
 
 resourceを追加・移動した場合はsource treeだけでなく、wheel installとPyInstaller binaryからも解決できるtestを
 追加する。Hatchのinclude設定とPyInstaller specを同じ変更で更新する。
@@ -74,9 +75,13 @@ PyInstallerはPython 3.11でone-file console binaryを作る。netmikoのdynamic
 - `--help`
 - package dataを使うsample config生成
 - schema、health profile、capability、templateのresource解決
+- NTC Templatesを利用するparserのtemplate data解決
 
 Python code、dependency、package data、schema、profile、template、spec、packagingを変更した場合はnative binary
 testを行う。Docker buildが必要な変更では対象variantも確認する。
+
+外部parser packageを直接importする場合は推移依存に依存せずruntime dependencyへ明示する。PyInstallerへ
+package dataを同梱する場合は、対応する著作権表示とlicenseを第三者ライセンス一覧へ記録する。
 
 ## 7. Linux compatibility variants
 

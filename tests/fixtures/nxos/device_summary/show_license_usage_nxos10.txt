@@ -1,0 +1,5 @@
+Feature                      Ins  Lic   Status Expiry Date Comments
+                                 Count
+--------------------------------------------------------------------------------
+LAN_ENTERPRISE_SERVICES_PKG      Yes  -     In use             -
+VPN_FABRIC                       No   0     Unused             -

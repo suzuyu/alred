@@ -10,6 +10,8 @@ COMMAND_IDS = {
     "show running-config diff": "running_config_diff",
     "show running-config diff unified": "running_config_diff",
     "show version": "show_version",
+    "show inventory": "inventory",
+    "show license usage": "license_usage",
     "show processes cpu": "processes_cpu",
     "show system resources": "system_resources",
     "show environment": "environment",

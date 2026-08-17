@@ -63,6 +63,8 @@ Attempt   : operations/live/2026/08/02/HC-20260802T091500-p1234-a1b2c3/health/be
 Manifest  : operations/live/2026/08/02/HC-20260802T091500-p1234-a1b2c3/health/before/collection-manifest.yaml
 Snapshot  : operations/live/2026/08/02/HC-20260802T091500-p1234-a1b2c3/health/before/snapshot.json
 Checklist : operations/live/2026/08/02/HC-20260802T091500-p1234-a1b2c3/health/before/checklist.md
+Devices   : operations/live/2026/08/02/HC-20260802T091500-p1234-a1b2c3/health/before/device-summary.md
+Device CSV: operations/live/2026/08/02/HC-20260802T091500-p1234-a1b2c3/health/before/device-summary.csv
 ```
 
 `Input: alred-collect`は、既存collect runnerで機器へ接続して収集したことを示します。
@@ -117,6 +119,8 @@ Attempt   : operations/live/2026/08/02/HC-20260802T100000-p1234-b2c3d4/health/be
 Manifest  : operations/live/2026/08/02/HC-20260802T100000-p1234-b2c3d4/health/before/collection-manifest.yaml
 Snapshot  : operations/live/2026/08/02/HC-20260802T100000-p1234-b2c3d4/health/before/snapshot.json
 Checklist : operations/live/2026/08/02/HC-20260802T100000-p1234-b2c3d4/health/before/checklist.md
+Devices   : operations/live/2026/08/02/HC-20260802T100000-p1234-b2c3d4/health/before/device-summary.md
+Device CSV: operations/live/2026/08/02/HC-20260802T100000-p1234-b2c3d4/health/before/device-summary.csv
 ```
 
 この例では機器アクセスは発生していません。`UNKNOWN`の場合は、Manifestで不足コマンド、
@@ -150,6 +154,8 @@ Attempt   : operations/live/2026/08/02/HC-20260802T103000-p1234-c3d4e5/health/be
 Manifest  : operations/live/2026/08/02/HC-20260802T103000-p1234-c3d4e5/health/before/collection-manifest.yaml
 Snapshot  : operations/live/2026/08/02/HC-20260802T103000-p1234-c3d4e5/health/before/snapshot.json
 Checklist : operations/live/2026/08/02/HC-20260802T103000-p1234-c3d4e5/health/before/checklist.md
+Devices   : operations/live/2026/08/02/HC-20260802T103000-p1234-c3d4e5/health/before/device-summary.md
+Device CSV: operations/live/2026/08/02/HC-20260802T103000-p1234-c3d4e5/health/before/device-summary.csv
 ```
 
 `Warnings`はimport時の曖昧区間や重複候補の件数です。判定の`WARN`とは別にManifestの
@@ -297,6 +303,8 @@ Checks    : PASS=20 WARN=0 FAIL=0 UNKNOWN=0 N/A=2
 Manifest  : operations/live/2026/08/02/HC-20260802T091500-p1234-a1b2c3/health/after/collection-manifest.yaml
 Snapshot  : operations/live/2026/08/02/HC-20260802T091500-p1234-a1b2c3/health/after/snapshot.json
 Checklist : operations/live/2026/08/02/HC-20260802T091500-p1234-a1b2c3/health/after/checklist.md
+Devices   : operations/live/2026/08/02/HC-20260802T091500-p1234-a1b2c3/health/after/device-summary.md
+Device CSV: operations/live/2026/08/02/HC-20260802T091500-p1234-a1b2c3/health/after/device-summary.csv
 ```
 
 before / after比較が完了すると、次の成果物も生成されます。
@@ -343,6 +351,8 @@ Checks    : PASS=20 WARN=0 FAIL=0 UNKNOWN=0 N/A=2
 Manifest  : operations/live/2026/08/02/HC-20260802T091500-p1234-a1b2c3/health/rollback/collection-manifest.yaml
 Snapshot  : operations/live/2026/08/02/HC-20260802T091500-p1234-a1b2c3/health/rollback/snapshot.json
 Checklist : operations/live/2026/08/02/HC-20260802T091500-p1234-a1b2c3/health/rollback/checklist.md
+Devices   : operations/live/2026/08/02/HC-20260802T091500-p1234-a1b2c3/health/rollback/device-summary.md
+Device CSV: operations/live/2026/08/02/HC-20260802T091500-p1234-a1b2c3/health/rollback/device-summary.csv
 ```
 
 比較結果は`health/rollback-report/`へ保存され、既存のafter成果物を上書きしません。
@@ -389,6 +399,8 @@ Checks    : PASS=20 WARN=0 FAIL=0 UNKNOWN=0 N/A=2
 Manifest  : operations/live/2026/08/02/HC-20260802T091500-p1234-a1b2c3/health/before-recheck/collection-manifest.yaml
 Snapshot  : operations/live/2026/08/02/HC-20260802T091500-p1234-a1b2c3/health/before-recheck/snapshot.json
 Checklist : operations/live/2026/08/02/HC-20260802T091500-p1234-a1b2c3/health/before-recheck/checklist.md
+Devices   : operations/live/2026/08/02/HC-20260802T091500-p1234-a1b2c3/health/before-recheck/device-summary.md
+Device CSV: operations/live/2026/08/02/HC-20260802T091500-p1234-a1b2c3/health/before-recheck/device-summary.csv
 ```
 
 recheckは元のbeforeを置換しません。元成果物とparser version、判定差分を比較できます。
@@ -407,12 +419,16 @@ operations/live/YYYY/MM/DD/<change-id>/
     │   │   ├── result.json
     │   │   ├── raw/
     │   │   ├── snapshot.json
-    │   │   └── health-result.json
+    │   │   ├── health-result.json
+    │   │   ├── device-summary.md
+    │   │   └── device-summary.csv
     │   ├── raw/
     │   ├── collection-manifest.yaml
     │   ├── snapshot.json
     │   ├── health-result.json
-    │   └── checklist.md
+    │   ├── checklist.md
+    │   ├── device-summary.md
+    │   └── device-summary.csv
     ├── after/
     │   └── ...
     ├── before-recheck/

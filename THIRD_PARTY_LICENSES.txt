@@ -1,0 +1,25 @@
+Third-Party Software Notices
+============================
+
+This project and its binary distribution include the following third-party
+software used by the Device Summary parser.
+
+ntc-templates
+-------------
+
+Version: 9.x (the exact resolved version is recorded in uv.lock)
+Copyright 2015 Jason Edelman <jason@networktocode.com>
+Copyright Network to Code, LLC
+License: Apache License 2.0
+Source: https://github.com/networktocode/ntc-templates
+
+TextFSM
+-------
+
+Version: 2.x (the exact resolved version is recorded in uv.lock)
+Copyright 2010 Google Inc. All Rights Reserved.
+License: Apache License 2.0
+Source: https://github.com/google/textfsm
+
+The complete Apache License 2.0 text is provided in the repository LICENSE
+file. The notices above do not alter the respective license terms.

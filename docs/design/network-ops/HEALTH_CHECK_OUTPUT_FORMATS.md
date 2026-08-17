@@ -14,6 +14,7 @@
 - 詳細はMarkdownへ保存する
 - 外部連携と再評価用にJSONを保存する
 - rawログ、コマンド、取得時刻まで根拠を追跡できるようにする
+- phase ごとに同じ canonical row から `device-summary.md` と `device-summary.csv` を生成する
 - `PASS`、`WARN`、`FAIL`、`UNKNOWN`、`NOT_APPLICABLE`を区別する
 - beforeから存在する問題とafterで発生したregressionを区別する
 - secret、password、認証情報は出力しない
@@ -32,6 +33,10 @@
 
 時刻は秒単位で記録するため、実際に同一秒内で完了した処理では開始と完了が同じ値になり得る。
 ただし、直接収集で判明している収集時間を捨て、収集後の解析時刻だけを記録してはならない。
+
+機器一覧の列、取得元、ライセンス値の意味、欠損時の表示、NTC Templates の provenance は
+[Device Summary Design](./DEVICE_SUMMARY_DESIGN.md)を正本とする。`collected_at` は同じ phase の
+`Snapshot.created_at` を表示し、command ごとの取得時刻を代表する値とはみなさない。
 
 ### 2.1 metadata.yaml
 
@@ -125,6 +130,8 @@ Checks:
 
 Snapshot : operations/CHG-2026-00123/health/before/snapshot.json
 Report   : operations/CHG-2026-00123/health/before/checklist.md
+Devices  : operations/CHG-2026-00123/health/before/device-summary.md
+CSV      : operations/CHG-2026-00123/health/before/device-summary.csv
 ===================================
 ```
 
@@ -937,10 +944,14 @@ health/before/
 │       ├── collection-manifest.yaml
 │       ├── snapshot.json
 │       ├── health-result.json
-│       └── checklist.md
+│       ├── checklist.md
+│       ├── device-summary.md
+│       └── device-summary.csv
 ├── snapshot.json
 ├── health-result.json
-└── checklist.md
+├── checklist.md
+├── device-summary.md
+└── device-summary.csv
 ```
 
 `result.json`は attempt ID、`RUNNING`／`COMPLETED`／`FAILED`／`CANCELLED`、health result、開始・完了時刻、

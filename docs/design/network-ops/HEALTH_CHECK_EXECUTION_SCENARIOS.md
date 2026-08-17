@@ -254,6 +254,8 @@ Checks:
 
 Snapshot : operations/CHG-2026-00123/health/before/snapshot.json
 Report   : operations/CHG-2026-00123/health/before/checklist.md
+Devices  : operations/CHG-2026-00123/health/before/device-summary.md
+CSV      : operations/CHG-2026-00123/health/before/device-summary.csv
 ===================================
 ```
 

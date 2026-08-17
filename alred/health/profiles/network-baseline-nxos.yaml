@@ -2,7 +2,7 @@ api_version: alred/v1
 kind: HealthCheckProfile
 metadata:
   name: network-baseline-nxos
-  version: "1.2"
+  version: "1.3"
   description: Initial common NX-OS offline baseline
 spec:
   platforms:
@@ -19,6 +19,12 @@ spec:
         - id: show_version
           command: show version
           required: true
+        - id: inventory
+          command: show inventory
+          required: false
+        - id: license_usage
+          command: show license usage
+          required: false
         - id: processes_cpu
           command: show processes cpu
           required: true

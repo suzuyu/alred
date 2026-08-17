@@ -304,6 +304,11 @@ from .health.report import (
     render_overlay_summary,
     terminal_result_lines,
 )
+from .health.device_summary import (
+    build_device_summary_rows,
+    render_device_summary_csv,
+    render_device_summary_markdown,
+)
 from .health.vni_map import (
     build_overlay_state,
     compare_overlay_states,
@@ -13725,6 +13730,23 @@ def cmd_health_check_snapshot(args: argparse.Namespace) -> int:
                     output_dir / "checklist.md",
                     render_health_checklist(health_result).encode("utf-8"),
                 )
+                device_summary_rows = build_device_summary_rows(
+                    snapshot,
+                    health_result,
+                    resolved_roles=resolved_roles,
+                )
+                atomic_write_bytes(
+                    workspace.operation_root,
+                    output_dir / "device-summary.md",
+                    render_device_summary_markdown(device_summary_rows).encode(
+                        "utf-8"
+                    ),
+                )
+                atomic_write_bytes(
+                    workspace.operation_root,
+                    output_dir / "device-summary.csv",
+                    render_device_summary_csv(device_summary_rows).encode("utf-8"),
+                )
                 if overlay_profile_enabled(profile_names):
                     overlay_state = build_overlay_state(snapshot)
                     atomic_write_yaml(
@@ -13818,6 +13840,8 @@ def cmd_health_check_snapshot(args: argparse.Namespace) -> int:
             )
         print(f"Snapshot  : {display_dir / 'snapshot.json'}")
         print(f"Checklist : {display_dir / 'checklist.md'}")
+        print(f"Devices   : {display_dir / 'device-summary.md'}")
+        print(f"Device CSV: {display_dir / 'device-summary.csv'}")
         if overlay_state is not None:
             print(f"Overlay   : {display_dir / 'overlay-state.yaml'}")
             print(f"VNI Map   : {display_dir / 'vni-map.md'}")

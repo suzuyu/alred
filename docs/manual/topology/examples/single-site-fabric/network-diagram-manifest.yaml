@@ -73,7 +73,7 @@ spec:
   - path: docs/manual/topology/examples/single-site-fabric/topology_overlay_service.md
     sha256: sha256:f0eafdd9aceb81bf66633bdf24a167bdaf918be768f89090f5fc372cea05d9f7
   - path: docs/manual/topology/examples/single-site-fabric/overlay-service-model.yaml
-    sha256: sha256:134bde6d0458c16c030801b8e497a2b84280170ecae935a6aba2ff78ceb12fdf
+    sha256: sha256:2c4a33a9aca03ccf5fa2c652af67cd8435c5d9e76fa543730051373bff98ecf0
   - path: docs/manual/topology/examples/single-site-fabric/overlay-service-links.csv
     sha256: sha256:c1bdd789f498058b8494202e95d5674993117332107e5fc7c19e235f54d6e391
   - path: docs/manual/topology/examples/single-site-fabric/topology-graph-all.drawio
