@@ -341,6 +341,8 @@ def test_builtin_profiles_resolve_deterministically():
     ]
     assert {command["id"] for command in commands} == {
         "show_version",
+        "inventory",
+        "license_usage",
         "processes_cpu",
         "system_resources",
         "show_logging",
@@ -536,6 +538,35 @@ def test_phase3_nxos_parsers_normalize_environment_routes_and_neighbors():
     bgp_default = bgp["routing_neighbors"]["bgp_ipv4"]["vrfs"]["default"]
     assert bgp_default["configured_peers"] == 1
     assert bgp_default["neighbors"]["192.0.2.254"]["state"] == "Idle"
+
+
+def test_environment_health_failure_message_includes_alarm_lines():
+    resolved = _resolved()
+    snapshot = _snapshot(resolved)
+    snapshot["hosts"]["leaf01"]["common"]["environment"] = {
+        "applicable": True,
+        "healthy": False,
+        "alarms": [
+            "Power Supply 2    Shutdown",
+            "Power redundancy mode: Non-Redundant (Alarm)",
+        ],
+    }
+
+    result = evaluate_snapshot(
+        snapshot,
+        resolved,
+        started_at=JST_NOW,
+        completed_at=JST_NOW,
+    )
+    check = next(
+        item for item in result["checks"] if item["check_id"] == "environment_health"
+    )
+
+    assert check["result"] == "FAIL"
+    assert check["message"] == (
+        "Environment alarm was detected: Power Supply 2    Shutdown; "
+        "Power redundancy mode: Non-Redundant (Alarm)"
+    )
 
 
 def test_interface_utilization_parser_and_threshold_boundaries():
@@ -1091,10 +1122,28 @@ Eth1/2              --                 mystery   1         auto    auto    10g
     assert check["message"] == "Interface status could not be parsed"
 
 
+@pytest.mark.parametrize("raw_status", ["xcvrAbsen", "xcvrAbsent"])
+def test_interface_status_normalizes_transceiver_absent_aliases(raw_status):
+    output = f"""\
+Port                Name               Status    Vlan      Duplex  Speed   Type
+Eth1/3              --                 {raw_status:<9} 1         auto    auto    10g
+"""
+
+    parsed, _ = parse_nxos_command("interface_status", output)
+
+    assert parsed["interfaces"]["Eth1/3"] == {
+        "admin_state": "up",
+        "operational_state": "down",
+        "status": "sfpAbsent",
+    }
+
+
 def test_baseline_command_ids_connect_collected_health_outputs() -> None:
     assert {
         command: command_id(command)
         for command in (
+            "show inventory",
+            "show license usage",
             "show clock",
             "show ntp status",
             "show ntp peers",
@@ -1106,6 +1155,8 @@ def test_baseline_command_ids_connect_collected_health_outputs() -> None:
             "show running-config diff unified",
         )
     } == {
+        "show inventory": "inventory",
+        "show license usage": "license_usage",
         "show clock": "clock",
         "show ntp status": "ntp_status",
         "show ntp peers": "ntp_peers",

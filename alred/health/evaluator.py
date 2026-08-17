@@ -567,6 +567,14 @@ def _evaluate_environment(
             resource="system/environment",
         )
     result = "PASS" if environment.get("healthy") else "FAIL"
+    alarm_lines = [
+        str(line).strip()
+        for line in environment.get("alarms", [])
+        if str(line).strip()
+    ]
+    failure_message = "Environment alarm was detected"
+    if alarm_lines:
+        failure_message += ": " + "; ".join(alarm_lines)
     return _check(
         check_id=definition["id"],
         profile=definition["profile"],
@@ -576,7 +584,7 @@ def _evaluate_environment(
         message=(
             "Environment sensors are healthy"
             if result == "PASS"
-            else "Environment alarm was detected"
+            else failure_message
         ),
         evidence=evidence,
         resource="system/environment",

@@ -2,7 +2,9 @@ from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
 
 datas = collect_data_files("alred")
+datas += collect_data_files("ntc_templates")
 datas += [("pyproject.toml", ".")]
+datas += [("THIRD_PARTY_LICENSES.txt", ".")]
 hiddenimports = collect_submodules("netmiko")
 
 

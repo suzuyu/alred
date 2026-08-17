@@ -10,6 +10,7 @@
 | [NX-OS Baseline Health Check Commands](NXOS_BASELINE_HEALTH_CHECK_COMMANDS.md) | baseline取得commandと判定 |
 | [NX-OS Overlay Role Health Check Catalog](NXOS_OVERLAY_ROLE_HEALTH_CHECK_CATALOG.md) | role/function別Overlay check |
 | [Health Check Output Formats](HEALTH_CHECK_OUTPUT_FORMATS.md) | JSON、Markdown、checklist、terminal summary |
+| [Device Summary Design](DEVICE_SUMMARY_DESIGN.md) | Health Check と同時生成する機器一覧、取得元、Markdown／CSV |
 | [Health Check Execution Scenarios](HEALTH_CHECK_EXECUTION_SCENARIOS.md) | direct、collect、transcript、offline比較のCLI例 |
 
 ## VNI、Overlay、設定投入

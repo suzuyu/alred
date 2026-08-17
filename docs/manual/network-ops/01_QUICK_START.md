@@ -37,6 +37,8 @@ Checks    : PASS=28 WARN=2 FAIL=0 UNKNOWN=0 N/A=2
 Manifest  : operations/live/2026/08/02/HC-20260802T091500-p1234-a1b2c3/health/before/collection-manifest.yaml
 Snapshot  : operations/live/2026/08/02/HC-20260802T091500-p1234-a1b2c3/health/before/snapshot.json
 Checklist : operations/live/2026/08/02/HC-20260802T091500-p1234-a1b2c3/health/before/checklist.md
+Devices   : operations/live/2026/08/02/HC-20260802T091500-p1234-a1b2c3/health/before/device-summary.md
+Device CSV: operations/live/2026/08/02/HC-20260802T091500-p1234-a1b2c3/health/before/device-summary.csv
 ```
 
 成功した最新 Operation は `operations/live/latest` からも参照できる。これは確認用の symbolic link であり、
@@ -120,6 +122,8 @@ Checks    : PASS=20 WARN=0 FAIL=0 UNKNOWN=0 N/A=2
 Manifest  : operations/live/2026/08/02/HC-20260802T091500-p1234-a1b2c3/health/after/collection-manifest.yaml
 Snapshot  : operations/live/2026/08/02/HC-20260802T091500-p1234-a1b2c3/health/after/snapshot.json
 Checklist : operations/live/2026/08/02/HC-20260802T091500-p1234-a1b2c3/health/after/checklist.md
+Devices   : operations/live/2026/08/02/HC-20260802T091500-p1234-a1b2c3/health/after/device-summary.md
+Device CSV: operations/live/2026/08/02/HC-20260802T091500-p1234-a1b2c3/health/after/device-summary.csv
 ```
 
 after単体だけでなく、before / after比較結果も確認してください。生成されている場合は

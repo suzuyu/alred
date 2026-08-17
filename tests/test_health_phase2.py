@@ -934,6 +934,9 @@ def test_health_before_collect_preserves_collection_time_range(
         (phase_root / "health-result.json").read_text(encoding="utf-8")
     )
     checklist = (phase_root / "checklist.md").read_text(encoding="utf-8")
+    device_summary = (phase_root / "device-summary.md").read_text(
+        encoding="utf-8"
+    )
 
     assert manifest["metadata"]["started_at"] == (
         collection_started_at.isoformat()
@@ -945,6 +948,8 @@ def test_health_before_collect_preserves_collection_time_range(
     assert result["completed_at"] == evaluation_completed_at.isoformat()
     assert f"- Started at: {collection_started_at.isoformat()}" in checklist
     assert f"- Completed at: {evaluation_completed_at.isoformat()}" in checklist
+    assert "| hostname | management_ip | manufacturer |" in device_summary
+    assert (phase_root / "device-summary.csv").is_file()
 
 
 def test_health_inspection_records_purpose_without_active_change(

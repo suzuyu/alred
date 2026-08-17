@@ -35,7 +35,9 @@ mdurl==0.1.2
 netmiko==4.6.0
     # via alred
 ntc-templates==9.0.0
-    # via netmiko
+    # via
+    #   alred
+    #   netmiko
 packaging==26.2
     # via
     #   pyinstaller

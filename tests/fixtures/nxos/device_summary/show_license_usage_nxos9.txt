@@ -1,0 +1,5 @@
+Feature                      Ins  Lic   Status Expiry Date Comments
+                                 Count
+--------------------------------------------------------------------------------
+LAN_BASE_SERVICES_PKG            Yes  -     In use             -
+LAN_ENTERPRISE_SERVICES_PKG      No   0     Unused             -

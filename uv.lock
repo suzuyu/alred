@@ -4,12 +4,13 @@ requires-python = ">=3.11"
 
 [[package]]
 name = "alred"
-version = "0.2.0a4"
+version = "0.2.0a5"
 source = { editable = "." }
 dependencies = [
     { name = "jinja2" },
     { name = "jsonschema" },
     { name = "netmiko" },
+    { name = "ntc-templates" },
     { name = "python-dotenv" },
     { name = "pyyaml" },
 ]
@@ -28,6 +29,7 @@ requires-dist = [
     { name = "jinja2", specifier = ">=3.1.4" },
     { name = "jsonschema", specifier = ">=4.23.0" },
     { name = "netmiko", specifier = ">=4.4.0" },
+    { name = "ntc-templates", specifier = ">=9.0,<10" },
     { name = "python-dotenv", specifier = ">=1.0.1" },
     { name = "pyyaml", specifier = ">=6.0.2" },
 ]

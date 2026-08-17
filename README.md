@@ -98,6 +98,7 @@ flowchart TD
 | 成果物 | 主な内容 | 代表 sample／手順 |
 |---|---|---|
 | Operation Evidence | 収集結果、Health Check、before／after 比較、VNI map、実行 metadata | [NX-OS Overlay sample](./docs/manual/network-ops/examples/nxos-overlay/README.md) |
+| Device Summary | Health Check 対象の識別情報、role、license usage、host 別 Health 結果の Markdown／CSV | [Output Guide](./docs/manual/network-ops/04_OUTPUT_GUIDE.md#9-device-summary) |
 | Evidence Package | Manifest、hash、開示 policy で固定した Portable Evidence | [Evidence Package 生成手順](./docs/manual/containerlab/02_EXISTING_NETWORK_TO_LAB.md) |
 | Containerlab | `topology.clab.yaml`、`hosts.lab.yaml`、変換済み config、変換 Manifest | [Single-site Fabric sample](./docs/manual/containerlab/examples/single-site-fabric/README.md) |
 | Network Diagram | Physical、Underlay、EVPN、Overlay Service の Mermaid／`draw.io` | [Network Diagram sample](./docs/manual/topology/examples/single-site-fabric/README.md) |

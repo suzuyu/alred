@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import hashlib
 import ipaddress
+from importlib import metadata as importlib_metadata
+from pathlib import Path
 import re
 from datetime import datetime
 from typing import Any
@@ -12,7 +14,33 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from .overlay import parse_overlay_running_config
 from ..logging_check import parse_nxos_log_records
 
-NXOS_PARSER_VERSION = "1.15"
+try:
+    import ntc_templates
+    from ntc_templates.parse import ParsingException, parse_output
+
+    NTC_TEMPLATES_IMPORT_ERROR: BaseException | None = None
+except ImportError as exc:
+    ntc_templates = None
+    parse_output = None
+    ParsingException = Exception
+    NTC_TEMPLATES_IMPORT_ERROR = exc
+
+NXOS_PARSER_VERSION = "1.16"
+NTC_TEMPLATES_VERSION = (
+    importlib_metadata.version("ntc-templates")
+    if NTC_TEMPLATES_IMPORT_ERROR is None
+    else "unavailable"
+)
+TEXTFSM_VERSION = (
+    importlib_metadata.version("textfsm")
+    if NTC_TEMPLATES_IMPORT_ERROR is None
+    else "unavailable"
+)
+NTC_TEMPLATE_FILES = {
+    "inventory": "cisco_nxos_show_inventory.textfsm",
+    "license_usage": "cisco_nxos_show_license_usage.textfsm",
+}
+NTC_PARSER_IDENTIFIERS = frozenset(NTC_TEMPLATE_FILES)
 
 _INTERFACE_STATUS_NAME_RE = re.compile(
     r"^(?:Eth|Ethernet|Po|port-channel|mgmt|Vlan|Lo|loopback)\S+",
@@ -26,6 +54,8 @@ _INTERFACE_STATUS_ALIASES = {
     "err-disabled": "err-disabled",
     "inactive": "inactive",
     "sfpabsent": "sfpAbsent",
+    "xcvrabsen": "sfpAbsent",
+    "xcvrabsent": "sfpAbsent",
     "down": "down",
 }
 
@@ -48,6 +78,166 @@ def _require_output(output: str) -> str:
     if any(marker in lowered for marker in error_markers):
         raise ParserError("NX-OS command returned an error")
     return stripped
+
+
+def _ntc_template_path(identifier: str) -> Path:
+    if ntc_templates is None:
+        raise ParserError(
+            "NTC Templates is unavailable: "
+            + str(NTC_TEMPLATES_IMPORT_ERROR or "import failed")
+        )
+    path = (
+        Path(ntc_templates.__file__).resolve().parent
+        / "templates"
+        / NTC_TEMPLATE_FILES[identifier]
+    )
+    if not path.is_file() or path.is_symlink():
+        raise ParserError(f"NTC template is missing or unsafe: {path.name}")
+    return path
+
+
+def parser_provenance(identifier: str) -> dict[str, Any]:
+    """Return deterministic parser provenance for a supported command ID."""
+    if identifier in NTC_PARSER_IDENTIFIERS:
+        provenance = {
+            "parser": f"ntc_templates.{identifier}",
+            "parser_version": NTC_TEMPLATES_VERSION,
+            "parser_template": NTC_TEMPLATE_FILES[identifier],
+        }
+        try:
+            path = _ntc_template_path(identifier)
+        except ParserError:
+            return provenance
+        provenance["parser_template_sha256"] = "sha256:" + hashlib.sha256(
+            path.read_bytes()
+        ).hexdigest()
+        return provenance
+    if identifier in PARSERS or identifier in {"clock", "show_logging"}:
+        return {
+            "parser": f"nxos.{identifier}",
+            "parser_version": NXOS_PARSER_VERSION,
+        }
+    return {"parser": None, "parser_version": None}
+
+
+def _parse_ntc_rows(
+    identifier: str,
+    command: str,
+    text: str,
+) -> list[dict[str, str]]:
+    if parse_output is None:
+        raise ParserError(
+            "NTC Templates is unavailable: "
+            + str(NTC_TEMPLATES_IMPORT_ERROR or "import failed")
+        )
+    template_path = _ntc_template_path(identifier)
+    try:
+        rows = parse_output(
+            platform="cisco_nxos",
+            command=command,
+            data=text,
+            template_dir=str(template_path.parent),
+        )
+    except ParsingException as exc:
+        raise ParserError(
+            f"NTC Templates could not parse {command}: {exc}"
+        ) from exc
+    except Exception as exc:
+        raise ParserError(
+            f"NTC Templates failed while parsing {command}: {exc}"
+        ) from exc
+    if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
+        raise ParserError(f"NTC Templates returned invalid rows for {command}")
+    return [{str(key): str(value) for key, value in row.items()} for row in rows]
+
+
+def _parse_inventory(output: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    text = _require_output(output)
+    if not re.search(r"^NAME:\s*", text, re.MULTILINE | re.IGNORECASE) or not re.search(
+        r"^(?:PID|SN):\s*", text, re.MULTILINE | re.IGNORECASE
+    ):
+        raise ParserError("inventory NAME/PID anchors were not recognized")
+    rows = _parse_ntc_rows("inventory", "show inventory", text)
+    if not rows:
+        raise ParserError("inventory rows were not recognized")
+    components = []
+    for row in rows:
+        components.append(
+            {
+                "name": row.get("name", "").strip() or None,
+                "description": row.get("descr", "").strip() or None,
+                "product_id": row.get("pid", "").strip() or None,
+                "version_id": row.get("vid", "").strip() or None,
+                "serial_number": row.get("sn", "").strip() or None,
+            }
+        )
+    return {"inventory": {"components": components}}, {}
+
+
+def _parse_license_usage(output: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    text = _require_output(output)
+    explicitly_not_applicable = bool(
+        re.search(
+            r"\bno\s+(?:feature\s+)?licenses?\s+(?:are\s+)?"
+            r"(?:installed|in\s+use|required)\b",
+            text,
+            re.IGNORECASE,
+        )
+    )
+    heading = re.search(
+        r"^Feature\s+Ins\s+Lic\s+Status\s+Expiry\s+Date\s+Comments\s*$",
+        text,
+        re.MULTILINE | re.IGNORECASE,
+    )
+    if not heading:
+        if explicitly_not_applicable:
+            return {"license": {"applicable": False, "usage": []}}, {}
+        raise ParserError("license usage heading was not recognized")
+    rows = _parse_ntc_rows("license_usage", "show license usage", text)
+    if not rows:
+        if explicitly_not_applicable:
+            return {"license": {"applicable": False, "usage": []}}, {}
+        raise ParserError("license usage rows were not recognized")
+    usage = []
+    features: set[str] = set()
+    for row in rows:
+        feature = row.get("feature", "").strip()
+        if not feature:
+            raise ParserError("license usage row has no feature name")
+        feature_key = feature.casefold()
+        if feature_key in features:
+            raise ParserError(f"duplicate license usage feature: {feature}")
+        features.add(feature_key)
+        installed_text = row.get("installed", "").strip().lower()
+        if installed_text not in {"yes", "no"}:
+            raise ParserError(
+                f"unsupported license installed state: {installed_text or '<empty>'}"
+            )
+        count_text = row.get("license_count", "").strip()
+        if count_text in {"", "-"}:
+            license_count = None
+        elif count_text.isdigit():
+            license_count = int(count_text)
+        else:
+            raise ParserError(f"unsupported license count: {count_text}")
+        status_text = " ".join(row.get("status", "").split()).lower()
+        if status_text not in {"in use", "unused"}:
+            raise ParserError(
+                f"unsupported license usage status: {status_text or '<empty>'}"
+            )
+        expiry = row.get("expiry_date", "").strip()
+        comments = row.get("comments", "").strip()
+        usage.append(
+            {
+                "feature": feature,
+                "installed": installed_text == "yes",
+                "license_count": license_count,
+                "usage_status": status_text.replace(" ", "_"),
+                "expiry_date": None if expiry in {"", "-"} else expiry,
+                "comments": None if comments in {"", "-"} else comments,
+            }
+        )
+    return {"license": {"applicable": True, "usage": usage}}, {}
 
 
 def _parse_running_config(
@@ -1205,6 +1395,8 @@ def _parse_show_logging(
 PARSERS = {
     "running_config": _parse_running_config,
     "show_version": _parse_show_version,
+    "inventory": _parse_inventory,
+    "license_usage": _parse_license_usage,
     "processes_cpu": _parse_processes_cpu,
     "system_resources": _parse_system_resources,
     "environment": _parse_environment,

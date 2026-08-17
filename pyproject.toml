@@ -1,6 +1,6 @@
 [project]
 name = "alred"
-version = "0.2.0a4"
+version = "0.2.0a5"
 description = "Collect LLDP and running-config, normalize links, generate containerlab, Mermaid, Terraform, and VNI outputs, and push config to devices"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -19,6 +19,7 @@ dependencies = [
   "Jinja2>=3.1.4",
   "jsonschema>=4.23.0",
   "netmiko>=4.4.0",
+  "ntc-templates>=9.0,<10",
   "PyYAML>=6.0.2",
   "python-dotenv>=1.0.1",
 ]
@@ -49,6 +50,7 @@ include = [
   "/alred/sample_configs/*",
   "/README.md",
   "/CONFIG.md",
+  "/THIRD_PARTY_LICENSES.txt",
 ]
 
 [dependency-groups]

@@ -8,14 +8,18 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from .parsers import (
+    NTC_PARSER_IDENTIFIERS,
+    NTC_TEMPLATES_VERSION,
     NXOS_PARSER_VERSION,
     ParserError,
+    TEXTFSM_VERSION,
+    parser_provenance,
     parse_nxos_command,
 )
 from ..schema import SCHEMA_VERSION, canonical_sha256, validate_document
 
 
-SNAPSHOT_BUILDER_VERSION = "1.1"
+SNAPSHOT_BUILDER_VERSION = "1.2"
 
 
 class SnapshotBuildError(ValueError):
@@ -106,46 +110,7 @@ def build_health_snapshot(
                 )
                 if key in record
             }
-            source["parser"] = (
-                f"nxos.{identifier}"
-                if identifier
-                in {
-                    "running_config",
-                    "show_version",
-                    "processes_cpu",
-                    "system_resources",
-                    "environment",
-                    "running_config_diff",
-                    "clock",
-                    "ntp_status",
-                    "ntp_peers",
-                    "ntp_peer_status",
-                    "interface_status",
-                    "interface_counters_table",
-                    "interface_brief",
-                    "interface_errors",
-                    "port_channel_summary",
-                    "reload_pending",
-                    "show_logging",
-                    "route_summary_ipv4",
-                    "ospf_neighbors",
-                    "bgp_ipv4_summary",
-                    "bgp_ipv6_summary",
-                    "vpc_brief",
-                    "nve_interface",
-                    "nve_peers",
-                    "nve_vni",
-                    "nve_vni_ingress_replication",
-                    "bgp_l2vpn_evpn_summary",
-                    "bgp_l2vpn_evpn",
-                    "route_ipv4_all_vrfs",
-                    "route_ipv6_all_vrfs",
-                    "vlan_brief",
-                    "vrf",
-                }
-                else None
-            )
-            source["parser_version"] = NXOS_PARSER_VERSION if source["parser"] else None
+            source.update(parser_provenance(identifier))
             if record["status"] != "success":
                 source["parse_status"] = "unknown"
                 failed_count += 1
@@ -200,6 +165,21 @@ def build_health_snapshot(
         ).strip().lower()
         hosts[hostname]["platform"] = platform or "unknown"
 
+    parser_versions = {
+        "snapshot_builder": SNAPSHOT_BUILDER_VERSION,
+        "nxos": NXOS_PARSER_VERSION,
+    }
+    if any(
+        identifier in NTC_PARSER_IDENTIFIERS
+        for host_record in manifest["spec"]["hosts"].values()
+        for identifier in host_record["commands"]
+    ):
+        parser_versions.update(
+            {
+                "ntc_templates": NTC_TEMPLATES_VERSION,
+                "textfsm": TEXTFSM_VERSION,
+            }
+        )
     snapshot = {
         "schema_version": SCHEMA_VERSION,
         "change_id": metadata["change_id"],
@@ -207,10 +187,7 @@ def build_health_snapshot(
         "phase": metadata["phase"],
         "created_at": created_at.isoformat(timespec="seconds"),
         "timezone": timezone,
-        "parser_versions": {
-            "snapshot_builder": SNAPSHOT_BUILDER_VERSION,
-            "nxos": NXOS_PARSER_VERSION,
-        },
+        "parser_versions": parser_versions,
         "profile_sha256": profile_hash,
         "hosts": hosts,
     }
