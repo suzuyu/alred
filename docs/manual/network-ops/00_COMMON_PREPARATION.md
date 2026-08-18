@@ -14,13 +14,6 @@ alred --version
 alred health-check before --help
 ```
 
-リポジトリをcheckoutした開発環境では、次のように実行できます。
-
-```bash
-uv run python alred.py --version
-uv run python alred.py health-check before --help
-```
-
 確認項目:
 
 - 利用予定のCLIとoptionがhelpに表示される

@@ -221,9 +221,14 @@ Markdown はレビュー、CSV は表計算や後続処理に使用します。
 | `manufacturer` / `model` / `serial_number` | メーカー、機種、primary chassis の serial number |
 | `os_type` / `os_version` | OS 種別と version |
 | `license_usage` / `license_parse_status` | 観測した license usage と解析状態 |
-| `topology_role` / `functions` | 解決済み role policy から得た role と function |
+| `site` / `topology_role` / `functions` | inventory または site rule で解決した site と、role policy から得た role／function |
 | `health_result` / `collection_status` | host ごとの代表 Health 判定と収集状態 |
-| `collected_at` | Snapshot 作成時刻 |
+| `collected_at` | Snapshot 作成時刻の wall-clock 部分。UTC offset は省略 |
+
+row は `sites.yaml` の site `priority`、site 名、`roles.yaml` で解決した topology role の `priority`、
+topology role 名、hostname の順に並びます。各 `priority` は数値が小さいほど先になります。site は inventory の
+`site` または `metadata.site` を優先し、未定義の場合は before で固定した `sites.yaml` の hostname rule を
+使用します。どちらでも解決できない場合は `UNKNOWN` です。
 
 `license_usage` は情報表示であり、契約、entitlement、registration、compliance の
 正常性判定ではありません。`not_collected` や `unknown` を正常とみなさず、

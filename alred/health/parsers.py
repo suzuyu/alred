@@ -25,7 +25,7 @@ except ImportError as exc:
     ParsingException = Exception
     NTC_TEMPLATES_IMPORT_ERROR = exc
 
-NXOS_PARSER_VERSION = "1.16"
+NXOS_PARSER_VERSION = "1.17"
 NTC_TEMPLATES_VERSION = (
     importlib_metadata.version("ntc-templates")
     if NTC_TEMPLATES_IMPORT_ERROR is None
@@ -98,6 +98,20 @@ def _ntc_template_path(identifier: str) -> Path:
 
 def parser_provenance(identifier: str) -> dict[str, Any]:
     """Return deterministic parser provenance for a supported command ID."""
+    if identifier == "license_usage":
+        provenance = {
+            "parser": "nxos.license_usage",
+            "parser_version": NXOS_PARSER_VERSION,
+            "parser_template": NTC_TEMPLATE_FILES[identifier],
+        }
+        try:
+            path = _ntc_template_path(identifier)
+        except ParserError:
+            return provenance
+        provenance["parser_template_sha256"] = "sha256:" + hashlib.sha256(
+            path.read_bytes()
+        ).hexdigest()
+        return provenance
     if identifier in NTC_PARSER_IDENTIFIERS:
         provenance = {
             "parser": f"ntc_templates.{identifier}",
@@ -174,6 +188,85 @@ def _parse_inventory(output: str) -> tuple[dict[str, Any], dict[str, Any]]:
     return {"inventory": {"components": components}}, {}
 
 
+_LICENSE_BLOCK_HEADING_RE = re.compile(
+    r"^\((?P<feature>[^()\r\n]+)\):\s*$",
+    re.MULTILINE,
+)
+_LICENSE_BLOCK_FIELD_RE = re.compile(
+    r"^\s{2}(?P<name>"
+    r"Description|Count|Version|Status|Enforcement Type|License Type"
+    r"):\s*(?P<value>.*?)\s*$"
+)
+
+
+def _parse_license_usage_blocks(text: str) -> dict[str, Any] | None:
+    matches = list(_LICENSE_BLOCK_HEADING_RE.finditer(text))
+    if not matches:
+        return None
+
+    preamble = text[: matches[0].start()].strip()
+    if not re.fullmatch(
+        r"License Authorization:\s*\n\s{2}Status:\s*\S(?:.*\S)?",
+        preamble,
+        re.IGNORECASE,
+    ):
+        raise ParserError("license usage block preamble was not recognized")
+
+    usage = []
+    features: set[str] = set()
+    for index, match in enumerate(matches):
+        feature = match.group("feature").strip()
+        if not feature:
+            raise ParserError("license usage block has no feature name")
+        feature_key = feature.casefold()
+        if feature_key in features:
+            raise ParserError(f"duplicate license usage feature: {feature}")
+        features.add(feature_key)
+
+        block_end = (
+            matches[index + 1].start()
+            if index + 1 < len(matches)
+            else len(text)
+        )
+        fields: dict[str, str] = {}
+        for raw_line in text[match.end() : block_end].splitlines():
+            if not raw_line.strip():
+                continue
+            field_match = _LICENSE_BLOCK_FIELD_RE.fullmatch(raw_line)
+            if field_match is None:
+                raise ParserError(
+                    f"unrecognized license usage block line for {feature}"
+                )
+            name = field_match.group("name").casefold().replace(" ", "_")
+            if name in fields:
+                raise ParserError(
+                    f"duplicate license usage block field for {feature}: {name}"
+                )
+            fields[name] = field_match.group("value").strip()
+
+        count_text = fields.get("count", "")
+        if not count_text.isdigit():
+            raise ParserError(
+                f"unsupported license count: {count_text or '<empty>'}"
+            )
+        status_text = " ".join(fields.get("status", "").split()).lower()
+        if status_text not in {"in use", "unused"}:
+            raise ParserError(
+                f"unsupported license usage status: {status_text or '<empty>'}"
+            )
+        usage.append(
+            {
+                "feature": feature,
+                "installed": True,
+                "license_count": int(count_text),
+                "usage_status": status_text.replace(" ", "_"),
+                "expiry_date": None,
+                "comments": None,
+            }
+        )
+    return {"license": {"applicable": True, "usage": usage}}
+
+
 def _parse_license_usage(output: str) -> tuple[dict[str, Any], dict[str, Any]]:
     text = _require_output(output)
     explicitly_not_applicable = bool(
@@ -190,6 +283,9 @@ def _parse_license_usage(output: str) -> tuple[dict[str, Any], dict[str, Any]]:
         re.MULTILINE | re.IGNORECASE,
     )
     if not heading:
+        block_data = _parse_license_usage_blocks(text)
+        if block_data is not None:
+            return block_data, {}
         if explicitly_not_applicable:
             return {"license": {"applicable": False, "usage": []}}, {}
         raise ParserError("license usage heading was not recognized")

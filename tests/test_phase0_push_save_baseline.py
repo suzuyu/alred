@@ -209,12 +209,109 @@ logging source-interface mgmt0
     ]
 
 
-@pytest.mark.parametrize("force", [False, True])
+def test_push_config_dir_filters_ssh_host_key_and_service_commands(tmp_path):
+    config_path = tmp_path / "leaf01"
+    config_path.write_text(
+        """\
+feature ssh
+ssh key rsa 2048
+ssh key rsa 3072 force
+no ssh key rsa
+default ssh key rsa
+no feature ssh
+hostname leaf01
+""",
+        encoding="utf-8",
+    )
+
+    lines, findings = cli.prepare_push_config_dir_lines(
+        config_path,
+        device_type="nxos",
+        login_username="admin",
+    )
+
+    assert lines == ["feature ssh", "hostname leaf01"]
+    assert findings == [
+        {
+            "rule_id": "ssh_host_key",
+            "line_count": 4,
+            "sample": "ssh key rsa 2048",
+        },
+        {
+            "rule_id": "ssh_service",
+            "line_count": 1,
+            "sample": "no feature ssh",
+        },
+    ]
+
+
+def test_push_config_dir_can_include_only_line_vty_config(tmp_path):
+    config_path = tmp_path / "leaf01"
+    config_path.write_text(
+        """\
+ssh key rsa 2048
+line vty 0 4
+  access-class MGMT in
+hostname leaf01
+""",
+        encoding="utf-8",
+    )
+
+    lines, findings = cli.prepare_push_config_dir_lines(
+        config_path,
+        device_type="nxos",
+        login_username="admin",
+        include_line_vty_config=True,
+    )
+
+    assert lines == [
+        "line vty 0 4",
+        "access-class MGMT in",
+        "hostname leaf01",
+    ]
+    assert [item["rule_id"] for item in findings] == ["ssh_host_key"]
+
+
+def test_push_config_dir_exposes_explicit_safe_filter_option():
+    args = cli.build_parser().parse_args([
+        "push-config-dir",
+        "--exclude-protected-config",
+    ])
+
+    assert args.exclude_protected_config is True
+    assert args.include_line_vty_config is False
+    assert args.force is False
+
+    include_args = cli.build_parser().parse_args([
+        "push-config-dir",
+        "--include-line-vty-config",
+    ])
+    assert include_args.exclude_protected_config is False
+    assert include_args.include_line_vty_config is True
+    assert include_args.force is False
+
+    with pytest.raises(SystemExit):
+        cli.build_parser().parse_args([
+            "push-config-dir",
+            "--exclude-protected-config",
+            "--force",
+        ])
+
+    for conflicting_option in ("--exclude-protected-config", "--force"):
+        with pytest.raises(SystemExit):
+            cli.build_parser().parse_args([
+                "push-config-dir",
+                "--include-line-vty-config",
+                conflicting_option,
+            ])
+
+
+@pytest.mark.parametrize("mode", ["default", "force", "include-line-vty"])
 def test_push_config_dir_applies_filter_before_confirmation(
     tmp_path,
     monkeypatch,
     capsys,
-    force,
+    mode,
 ):
     hosts_path = tmp_path / "hosts.yaml"
     hosts_path.write_text(
@@ -234,6 +331,8 @@ all:
 username admin password 0 MustNotBePrinted role network-admin
 interface mgmt0
   ip address 192.0.2.10/24
+line vty 0 4
+  access-class MGMT in
 logging source-interface mgmt0
 """,
         encoding="utf-8",
@@ -262,8 +361,12 @@ logging source-interface mgmt0
         "--log-file",
         str(tmp_path / "push.log"),
     ]
+    force = mode == "force"
+    include_line_vty = mode == "include-line-vty"
     if force:
         arguments.append("--force")
+    elif include_line_vty:
+        arguments.append("--include-line-vty-config")
 
     result = cli.cmd_push_config_dir(cli.build_parser().parse_args(arguments))
     output = capsys.readouterr().out
@@ -278,7 +381,11 @@ logging source-interface mgmt0
     assert "logging source-interface mgmt0" in observed[0]
     assert ("username admin password" in "\n".join(observed[0])) is force
     assert ("interface mgmt0" in observed[0]) is force
+    assert ("line vty 0 4" in observed[0]) is (force or include_line_vty)
     assert ("WARNING: --force" in output) is force
+    assert (
+        "WARNING: --include-line-vty-config" in output
+    ) is include_line_vty
 
 
 def test_push_sends_one_line_at_a_time_and_disconnects(monkeypatch):

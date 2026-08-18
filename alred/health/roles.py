@@ -276,6 +276,7 @@ def resolve_role_policy(
         if schema_version == 1:
             devices[hostname] = {
                 "status": "legacy",
+                "priority": 99,
                 "detected_topology_roles": [],
                 "topology_role": None,
                 "functions": {},
@@ -295,6 +296,11 @@ def resolve_role_policy(
         else:
             status = "fallback"
             topology_role = "other"
+        priority = (
+            int(config["role_detection"][topology_role]["priority"])
+            if topology_role not in {None, "other"}
+            else 99
+        )
         functions: dict[str, Any] = {}
         if topology_role not in {None, "other"}:
             role_rule = config["role_detection"][topology_role]
@@ -311,6 +317,7 @@ def resolve_role_policy(
                 }
         devices[hostname] = {
             "status": status,
+            "priority": priority,
             "detected_topology_roles": matched,
             "topology_role": topology_role,
             "functions": functions,

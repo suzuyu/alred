@@ -85,12 +85,13 @@ alred health-check before \
   --profile network-baseline-nxos \
   --mappings ./mappings.yaml \
   --description-rules ./description_rules.yaml \
+  --sites ./sites.yaml \
   --ask-pass
 ```
 
 収集内容は通常のbeforeと同じで、running config、LLDP、baseline show outputを同じattemptへ保存します。
 inspectionはactive changeへ登録せず、変更継続用Operation Gateを要求しません。異常を修正してafterを取得する場合は、
-自動選択に頼らず表示されたchange IDを`--change-id`へ指定します。mappingsとdescription rulesはbeforeでpathとhashを
+自動選択に頼らず表示されたchange IDを`--change-id`へ指定します。mappings、description rules、sites は before で path と hash を
 固定し、afterで継承します。
 
 ### 2.2 alredで取得済みのrawログ
@@ -450,19 +451,19 @@ option へ指定する必要はありません。既存の`operations/<change-id
 14 日以上経過した完了済み operation の候補だけを確認します。
 
 ```bash
-uv run python alred.py operation archive --dry-run
+alred operation archive --dry-run
 ```
 
 確認後に archive します。自動 archive は実行されません。
 
 ```bash
-uv run python alred.py operation archive
+alred operation archive
 ```
 
 1 件だけを対象にする場合や日数を変更する場合は次のように実行します。
 
 ```bash
-uv run python alred.py operation archive \
+alred operation archive \
   --change-id CHG-2026-00123 \
   --older-than-days 30
 ```
@@ -471,18 +472,37 @@ uv run python alred.py operation archive \
 `--dry-run`の結果を log へ保存して対象を確認し、その後に実行 command を登録してください。
 
 ```cron
-20 3 * * * cd /opt/alred && uv run python alred.py operation archive >> logs/operation-archive.log 2>&1
+20 3 * * * cd /opt/alred && alred operation archive >> logs/operation-archive.log 2>&1
 ```
 
 archive 対象は`completed`、`completed_with_warnings`、`cancelled`かつ lock がない operation
 だけです。`failed`、`state_unknown`、進行中の operation は保存容量だけを理由に archive しません。
 出力は`operations/archive/YYYY/MM/DD/<change-id>.tar.gz`と checksum file です。
 
+archive 自体は retention option を指定しない限り削除しません。archive 作成から 90 日以上経過したものを
+確認して削除する場合は次を使用します。
+
+```bash
+alred operation archive --delete-older-than-days 90 --dry-run
+alred operation archive --delete-older-than-days 90
+```
+
+日数ではなく最新 30 件を保持する場合は次を使用します。
+
+```bash
+alred operation archive --keep-latest-archives 30 --dry-run
+alred operation archive --keep-latest-archives 30
+```
+
+2 つの retention option は同時指定できず、`--change-id` とも同時指定できません。削除対象は検証済み archive、
+checksum、Operation index です。retention option の指定時は live operation を同時に archive しません。
+`--dry-run` の `DELETE-ELIGIBLE` を確認してから削除してください。
+
 archive 後も次は展開せずに利用できます。
 
 ```bash
-uv run python alred.py operation status --change-id CHG-2026-00123
-uv run python alred.py operation inspect --change-id CHG-2026-00123
+alred operation status --change-id CHG-2026-00123
+alred operation inspect --change-id CHG-2026-00123
 ```
 
 一方、archive 済み operation に対する phase 追加、apply、rollback、Support Bundle／Evidence Package 作成、

@@ -16,6 +16,7 @@ from alred.health.device_summary import (
 )
 from alred.health.parsers import ParserError, parse_nxos_command
 from alred.health.snapshot import build_health_snapshot
+from alred.inventory import load_inventory_data
 
 
 NOW = datetime.fromisoformat("2026-08-17T10:00:00+09:00")
@@ -88,6 +89,65 @@ def test_ntc_license_usage_parser_accepts_nxos9_style_fixture():
     ]
 
 
+def test_license_usage_parser_accepts_feature_block_format():
+    license_data, _ = parse_nxos_command(
+        "license_usage",
+        _fixture("show_license_usage_block_nxos10.txt"),
+    )
+
+    assert license_data == {
+        "license": {
+            "applicable": True,
+            "usage": [
+                {
+                    "feature": "LAN_ENTERPRISE_SERVICES_PKG",
+                    "installed": True,
+                    "license_count": 1,
+                    "usage_status": "in_use",
+                    "expiry_date": None,
+                    "comments": None,
+                },
+                {
+                    "feature": "VPN_FABRIC",
+                    "installed": True,
+                    "license_count": 1,
+                    "usage_status": "unused",
+                    "expiry_date": None,
+                    "comments": None,
+                },
+            ],
+        }
+    }
+
+
+@pytest.mark.parametrize(
+    ("replacement", "message"),
+    [
+        ("Count: 1", "duplicate license usage block field"),
+        ("Serial: redacted", "unrecognized license usage block line"),
+        ("Count: unlimited", "unsupported license count"),
+        ("Status: UNKNOWN", "unsupported license usage status"),
+    ],
+)
+def test_license_usage_block_parser_fails_closed(replacement, message):
+    output = _fixture("show_license_usage_block_nxos10.txt")
+    if replacement == "Count: 1":
+        output = output.replace("  Count: 1", "  Count: 1\n  Count: 1", 1)
+    elif replacement == "Serial: redacted":
+        output = output.replace(
+            "  Version: 1.0",
+            "  Version: 1.0\n  Serial: redacted",
+            1,
+        )
+    elif replacement == "Count: unlimited":
+        output = output.replace("  Count: 1", "  Count: unlimited", 1)
+    else:
+        output = output.replace("  Status: IN USE", "  Status: UNKNOWN", 1)
+
+    with pytest.raises(ParserError, match=message):
+        parse_nxos_command("license_usage", output)
+
+
 def test_license_usage_parser_recognizes_explicit_not_applicable_output():
     license_data, _ = parse_nxos_command(
         "license_usage",
@@ -112,6 +172,11 @@ def test_license_usage_parser_recognizes_explicit_not_applicable_output():
             "Feature Ins Lic Status Expiry Date Comments\n    Count\n",
             "license usage rows",
         ),
+        (
+            "license_usage",
+            "License Authorization:\n  Status: Not Applicable\n",
+            "license usage heading",
+        ),
     ],
 )
 def test_ntc_device_summary_parsers_fail_closed(identifier, output, message):
@@ -127,9 +192,9 @@ def test_license_usage_parser_rejects_duplicate_features():
         parse_nxos_command("license_usage", output)
 
 
-def test_snapshot_records_ntc_package_and_template_provenance():
+def test_snapshot_records_device_summary_parser_provenance():
     inventory = FIXTURES / "show_inventory_n9k_c93180yc.txt"
-    license_usage = FIXTURES / "show_license_usage_nxos10.txt"
+    license_usage = FIXTURES / "show_license_usage_block_nxos10.txt"
     commands = {}
     for identifier, command, path in (
         ("inventory", "show inventory", inventory),
@@ -181,9 +246,16 @@ def test_snapshot_records_ntc_package_and_template_provenance():
     for identifier in ("inventory", "license_usage"):
         source = snapshot["hosts"]["leaf01"]["sources"][identifier]
         assert source["parse_status"] == "parsed"
-        assert source["parser"] == f"ntc_templates.{identifier}"
         assert source["parser_template"].endswith(".textfsm")
         assert source["parser_template_sha256"].startswith("sha256:")
+    assert (
+        snapshot["hosts"]["leaf01"]["sources"]["inventory"]["parser"]
+        == "ntc_templates.inventory"
+    )
+    assert (
+        snapshot["hosts"]["leaf01"]["sources"]["license_usage"]["parser"]
+        == "nxos.license_usage"
+    )
 
 
 def _snapshot():
@@ -338,6 +410,7 @@ def _resolved_roles():
             "devices": {
                 "leaf01": {
                     "status": "resolved",
+                    "priority": 0,
                     "detected_topology_roles": ["leaf"],
                     "topology_role": "leaf",
                     "functions": {
@@ -353,6 +426,7 @@ def _resolved_roles():
                 },
                 "leaf02": {
                     "status": "fallback",
+                    "priority": 99,
                     "detected_topology_roles": [],
                     "topology_role": "other",
                     "functions": {},
@@ -367,17 +441,21 @@ def test_device_summary_uses_one_sorted_row_model_for_markdown_and_csv():
         _snapshot(),
         _health_result(),
         resolved_roles=_resolved_roles(),
+        inventory_sites={"leaf01": "site-a"},
     )
 
     assert [row["hostname"] for row in rows] == ["leaf01", "leaf02"]
     assert rows[0]["serial_number"] == "SAL00000001"
+    assert rows[0]["site"] == "site-a"
     assert rows[0]["license_parse_status"] == "parsed"
     assert rows[0]["license_usage"].startswith(
         "LAN_ENTERPRISE_SERVICES_PKG(installed=yes,status=in_use"
     )
     assert rows[0]["functions"] == "evpn-route-reflector; vtep"
     assert rows[0]["health_result"] == "WARN"
+    assert rows[0]["collected_at"] == "2026-08-17T10:00:00"
     assert rows[1]["serial_number"] == "UNKNOWN"
+    assert rows[1]["site"] == "UNKNOWN"
     assert rows[1]["license_usage"] == "UNKNOWN"
     assert rows[1]["license_parse_status"] == "unknown"
     assert rows[1]["health_result"] == "UNKNOWN"
@@ -385,10 +463,69 @@ def test_device_summary_uses_one_sorted_row_model_for_markdown_and_csv():
     markdown = render_device_summary_markdown(rows)
     assert markdown.count("\n| ") == 3
     assert "N9K-C93180YC-EX \\| lab, row" in markdown
+    assert "2026-08-17T10:00:00+09:00" not in markdown
 
     csv_rows = list(csv.DictReader(io.StringIO(render_device_summary_csv(rows))))
     assert tuple(csv_rows[0]) == DEVICE_SUMMARY_COLUMNS
+    assert DEVICE_SUMMARY_COLUMNS.index("site") == (
+        DEVICE_SUMMARY_COLUMNS.index("license_parse_status") + 1
+    )
+    assert DEVICE_SUMMARY_COLUMNS.index("topology_role") == (
+        DEVICE_SUMMARY_COLUMNS.index("site") + 1
+    )
     assert csv_rows == rows
+
+
+def test_device_summary_sorts_lower_numeric_role_priority_first():
+    resolved_roles = _resolved_roles()
+    resolved_roles["spec"]["devices"]["leaf01"]["priority"] = 10
+    resolved_roles["spec"]["devices"]["leaf02"]["priority"] = 1
+
+    rows = build_device_summary_rows(
+        _snapshot(),
+        _health_result(),
+        resolved_roles=resolved_roles,
+    )
+
+    assert [row["hostname"] for row in rows] == ["leaf02", "leaf01"]
+
+
+def test_device_summary_sorts_site_priority_before_role_priority():
+    resolved_roles = _resolved_roles()
+    resolved_roles["spec"]["devices"]["leaf01"]["priority"] = 10
+    resolved_roles["spec"]["devices"]["leaf02"]["priority"] = 1
+
+    rows = build_device_summary_rows(
+        _snapshot(),
+        _health_result(),
+        resolved_roles=resolved_roles,
+        inventory_sites={"leaf01": "site-a", "leaf02": "site-b"},
+        site_rules={
+            "site-a": {"priority": 1},
+            "site-b": {"priority": 100},
+        },
+    )
+
+    assert [row["hostname"] for row in rows] == ["leaf01", "leaf02"]
+
+
+def test_inventory_site_prefers_explicit_value_then_metadata():
+    inventory = load_inventory_data({
+        "all": {
+            "hosts": {
+                "leaf01": {
+                    "site": "site-a",
+                    "metadata": {"site": "ignored"},
+                },
+                "leaf02": {"metadata": {"site": "site-b"}},
+            }
+        }
+    })
+
+    assert {item["hostname"]: item["site"] for item in inventory} == {
+        "leaf01": "site-a",
+        "leaf02": "site-b",
+    }
 
 
 def test_device_summary_rejects_mismatched_operation_identity():

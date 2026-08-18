@@ -948,7 +948,10 @@ def test_health_before_collect_preserves_collection_time_range(
     assert result["completed_at"] == evaluation_completed_at.isoformat()
     assert f"- Started at: {collection_started_at.isoformat()}" in checklist
     assert f"- Completed at: {evaluation_completed_at.isoformat()}" in checklist
-    assert "| hostname | management_ip | manufacturer |" in device_summary
+    assert (
+        "| license_usage | license_parse_status | site | topology_role |"
+        in device_summary
+    )
     assert (phase_root / "device-summary.csv").is_file()
 
 
@@ -959,12 +962,17 @@ def test_health_inspection_records_purpose_without_active_change(
     hosts_path = tmp_path / "hosts.yaml"
     mappings_path = tmp_path / "mappings.yaml"
     description_rules_path = tmp_path / "description_rules.yaml"
+    sites_path = tmp_path / "sites.yaml"
     hosts_path.write_text(
         "all:\n  hosts:\n    leaf01:\n      device_type: nxos\n",
         encoding="utf-8",
     )
     mappings_path.write_text("{}\n", encoding="utf-8")
     description_rules_path.write_text("rules: []\n", encoding="utf-8")
+    sites_path.write_text(
+        "site_detection:\n  site-a:\n    startswith: [leaf]\n",
+        encoding="utf-8",
+    )
     args = build_parser().parse_args(
         [
             "health-check",
@@ -981,6 +989,8 @@ def test_health_inspection_records_purpose_without_active_change(
             str(mappings_path),
             "--description-rules",
             str(description_rules_path),
+            "--sites",
+            str(sites_path),
             "--operations-root",
             str(operations_root),
         ]
@@ -1008,6 +1018,11 @@ def test_health_inspection_records_purpose_without_active_change(
     assert context["spec"]["description_rules"]["path"] == str(
         description_rules_path.resolve()
     )
+    assert context["spec"]["sites"]["path"] == str(sites_path.resolve())
+    device_summary = (
+        operation_root / "health/before/device-summary.md"
+    ).read_text(encoding="utf-8")
+    assert " | site-a | " in device_summary
     assert health["operation_gate"]["required"] is False
     assert not (operations_root / ".state/active-change.yaml").exists()
 

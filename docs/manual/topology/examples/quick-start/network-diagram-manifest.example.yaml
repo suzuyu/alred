@@ -55,7 +55,7 @@ spec:
     - path: docs/manual/topology/examples/quick-start/topology_overlay_service.example.md
       sha256: sha256:e8a07237b37e79d2c33bf17e43e0313fdec370398a58aef6a5be1c7e8685e451
     - path: docs/manual/topology/examples/quick-start/overlay-service-model.example.yaml
-      sha256: sha256:62ccdde79ba15cd0e58ce266dade51c39bc01b295352d2783ba5d7626e6d11c3
+      sha256: sha256:8be6eef4ca215dcb2a967f93d6fa845dd5a5823086b6d8670876d0a9dade05ef
     - path: docs/manual/topology/examples/quick-start/overlay-service-links.example.csv
       sha256: sha256:3ce7e39e685fe65864a9b248a4d31e29bbfacad856be699ba372836f8ea38310
     - path: docs/manual/topology/examples/quick-start/topology-graph-all.example.drawio

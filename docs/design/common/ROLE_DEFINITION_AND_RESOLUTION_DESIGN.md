@@ -195,6 +195,7 @@ device ごとに次を生成する。
 | diagram filter/annotation | `topology_role` と `functions` | topology 上の配置と RR などの function を区別して表示 |
 | role/function 別 show command 収集 | `topology_role` と `functions` | topology role と、その配下で対象になった function の command group をまとめ、順序を維持して重複排除 |
 | checklist | device → profile → topology role / function 別 section | 実行した host だけを device section に表示し、profile を実行しなかった host は未実行ホスト一覧へ理由付きで集約 |
+| Device Summary | `priority`、`topology_role`、`functions` | 数値の小さい `priority`、次に hostname の順で表示し、role／function を列へ出力 |
 | Health Check profile | `topology_role`、`functions`、config evidence | function の期待状態で候補 check を選択し、最終適用・判定は同一 Snapshot の設定証跡で確定 |
 | Overlay plan/apply | canonical role と config evidence | role 不足・競合を安全側に扱い、 role だけで投入可否を許可しない |
 | Capability Registry | qualification role | 明示 mapping 後だけ照合し、 generic role を直接渡さない |
@@ -262,6 +263,7 @@ spec:
   devices:
     ss01:
       status: resolved
+      priority: 1
       detected_topology_roles: [super-spine]
       topology_role: super-spine
       functions:
@@ -270,7 +272,10 @@ spec:
           source: topology_role_default
 ```
 
-成果物には schema version、 resolver version、 inventory/hostname source、 role rule hash、解決時刻を含める。 before で固定した role 解決を after/rollback で再利用し、再解決結果が変わった場合は比較条件の変更として `PLAN_ERROR` にする。 role 定義を変更してやり直す場合は profile revision と同様に理由、新旧 hash、差分を新 attempt へ保存する。
+成果物には schema version、resolver version、inventory／hostname source、role rule hash、解決時刻、device ごとの
+`priority` を含める。未解決、競合、legacy schema の `priority` は `99` とし、before で固定した role 解決を
+after／rollback で再利用する。再解決結果が変わった場合は比較条件の変更として `PLAN_ERROR` にする。role 定義を
+変更してやり直す場合は profile revision と同様に理由、新旧 hash、差分を新 attempt へ保存する。
 
 partial attempt では `resolved-roles.yaml` の存在、 schema、 hash を検証し、欠落または不整合時に以前の成功済み current を上書きしない。
 

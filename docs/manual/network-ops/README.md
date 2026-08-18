@@ -51,12 +51,6 @@
 alred health-check before --help
 ```
 
-リポジトリをcheckoutした開発環境では、次のように読み替えられます。
-
-```bash
-uv run python alred.py health-check before --help
-```
-
 ## 出力例の読み方
 
 本文の端末出力、YAML、JSON、Checklistは、現行実装の形式に合わせてhostnameや事象を匿名化した

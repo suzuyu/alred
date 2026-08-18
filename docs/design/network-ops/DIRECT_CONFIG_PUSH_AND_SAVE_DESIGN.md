@@ -57,6 +57,8 @@ direct loaderはmanaged loaderの危険command denylist、regular file／symlink
 | `current_login_user` | `username <login-user> ...`、`no username <login-user>` | login username が大文字・小文字を含めて完全一致する top-level command。別 user は除外しない |
 | `management_vrf` | `vrf context management`、`no vrf context management` | context header と配下の全 command。削除 command は単独で除外 |
 | `management_interface` | `interface mgmt0`、`no interface mgmt0`、`default interface mgmt0` | interface header と配下の全 command。削除／初期化 command は単独で除外 |
+| `ssh_host_key` | `ssh key ...`、対応する `no`／`default` command | SSH host key の生成、再生成、削除に関わる top-level command を除外 |
+| `ssh_service` | `no feature ssh` | SSH service を無効化する top-level command を除外。冪等な `feature ssh` は保持 |
 | `line_vty` | `line vty`、`line vty <range>`、対応する `no`／`default` command | header と配下の全 command。削除／初期化 command は単独で除外 |
 
 block は元 file のインデントと `!` 区切りを使用し、次の top-level command または `!` までを同じ section とする。
@@ -68,6 +70,14 @@ protected section の header 後に、インデントも明示的な `!` 境界�
 filter 適用後、mutation 確認 prompt より前に host 単位で rule ID、除外行数、secret を含まない代表 command を
 表示し、同じ内容を log に記録する。`username` command は username だけを表示し、password、secret、hash など
 後続 token を `<redacted>` とする。除外がない host は一覧へ表示しない。
+
+`--exclude-protected-config` はこの既定動作を明示する option とする。指定の有無で除外結果は変わらず、automation や
+作業記録で接続保護 config を除外する意図を明示するために使用する。
+
+`--include-line-vty-config` は、複数 device へ共通 VTY ACL を投入する場合などに、`line_vty` rule だけを無効化する。
+current login user、management VRF、`mgmt0`、SSH host key、SSH service の保護は維持する。option 自体を明示的な
+risk acceptance とし、対象表示と通常の `yes` 確認に加えて VTY 変更で再接続を失う可能性を警告する。
+`--exclude-protected-config`、`--include-line-vty-config`、`--force` は相互排他とする。
 
 `--force` を指定した場合はこの接続保護 filter を無効化し、上表の command も投入対象へ含める。`--force` は
 既存の device type 別除外 prefix、strict CLI error 検出、connect check、対象表示、`yes` 確認を無効化しない。
@@ -175,6 +185,6 @@ Direct Config Pushはattempt directory、immutable command evidence、current po
   一元化は未実装である。
 - Direct Config Pushのdefault CLI error本文検出、YAML error allowlist、非推奨`--ignore-all-cli-errors`、saveとの排他を
   実装済みとする。immutable command evidence schema、post-check、automatic rollbackは未実装である。
-- `push-config-dir` の NX-OS 接続保護 filter、sanitized 投入前 summary、`--force`、曖昧な protected section の
+- `push-config-dir` の NX-OS 接続保護 filter、明示的な `--exclude-protected-config`、sanitized 投入前 summary、`--force`、曖昧な protected section の
   fail-closed validation は実装済みとする。`clab-apply-config` は独自の変換・risk scan・再接続検証を使用する。
 - 安全性要件を追加する新規機能はDirect Config Pushを拡張するのではなく、managed operationを利用する。

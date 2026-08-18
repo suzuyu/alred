@@ -76,12 +76,14 @@ PyInstallerはPython 3.11でone-file console binaryを作る。netmikoのdynamic
 - package dataを使うsample config生成
 - schema、health profile、capability、templateのresource解決
 - NTC Templatesを利用するparserのtemplate data解決
+- `ntc_templates` と `textfsm` の distribution metadata 解決、および NTC Templates parser の実行
 
 Python code、dependency、package data、schema、profile、template、spec、packagingを変更した場合はnative binary
 testを行う。Docker buildが必要な変更では対象variantも確認する。
 
 外部parser packageを直接importする場合は推移依存に依存せずruntime dependencyへ明示する。PyInstallerへ
-package dataを同梱する場合は、対応する著作権表示とlicenseを第三者ライセンス一覧へ記録する。
+package dataを同梱する場合は、対応する著作権表示とlicenseを第三者ライセンス一覧へ記録する。package が
+`importlib.metadata` で version を取得する場合は、module と data に加えて distribution metadata も同梱する。
 
 ## 7. Linux compatibility variants
 

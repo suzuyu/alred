@@ -18,7 +18,9 @@ from alred.operation import (
     assess_operation_lock,
     atomic_write_bytes,
     archive_operation_workspace,
+    archived_operation_retention_candidates,
     create_operation_workspace,
+    delete_archived_operation,
     generate_attempt_id,
     generate_change_id,
     load_active_change,
@@ -209,6 +211,62 @@ def test_terminal_operation_archive_is_verified_and_readable(tmp_path):
     }
     with pytest.raises(OperationArchivedError):
         open_operation_workspace(operations_root, workspace.change_id)
+
+
+def test_operation_archive_retention_selects_age_or_latest_generations(tmp_path):
+    operations_root = tmp_path / "operations"
+    archive_times = (
+        ("CHG-ARCHIVE-OLD", "2026-08-02T10:02:03+09:00"),
+        ("CHG-ARCHIVE-MIDDLE", "2026-08-10T10:02:03+09:00"),
+        ("CHG-ARCHIVE-NEW", "2026-08-20T10:02:03+09:00"),
+    )
+    for change_id, archived_at in archive_times:
+        workspace = create_operation_workspace(
+            operations_root,
+            change_id=change_id,
+            now=JST_NOW,
+        )
+        with OperationLock(workspace, "test", now=JST_NOW) as lock:
+            transition_operation(workspace, "running", lock=lock, now=JST_NOW)
+            transition_operation(workspace, "completed", lock=lock, now=JST_NOW)
+        archive_operation_workspace(
+            operations_root,
+            change_id,
+            older_than_days=0,
+            now=datetime.fromisoformat(archived_at),
+        )
+
+    by_age = archived_operation_retention_candidates(
+        operations_root,
+        older_than_days=14,
+        now=datetime.fromisoformat("2026-09-01T10:02:03+09:00"),
+    )
+    by_generation = archived_operation_retention_candidates(
+        operations_root,
+        keep_latest=1,
+    )
+
+    expected = ["CHG-ARCHIVE-OLD", "CHG-ARCHIVE-MIDDLE"]
+    assert [item["change_id"] for item in by_age] == expected
+    assert [item["change_id"] for item in by_generation] == expected
+
+    preview = delete_archived_operation(
+        operations_root,
+        "CHG-ARCHIVE-OLD",
+        dry_run=True,
+    )
+    assert preview["status"] == "eligible"
+    assert preview["archive"].is_file()
+
+    deleted = delete_archived_operation(
+        operations_root,
+        "CHG-ARCHIVE-OLD",
+    )
+    assert deleted["status"] == "deleted"
+    assert not deleted["archive"].exists()
+    assert load_operation_location(
+        operations_root, "CHG-ARCHIVE-OLD"
+    ) is None
 
 
 def test_operation_archive_rejects_nonterminal_and_too_recent(tmp_path):

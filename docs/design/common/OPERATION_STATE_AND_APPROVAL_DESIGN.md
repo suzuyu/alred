@@ -160,6 +160,17 @@ alred operation archive --change-id CHG-2026-00123
   除去して同じ CLI を再実行可能にする。index 公開後の live directory 削除失敗は archive を破棄せず、
   archived index を正本として fail closed する。
 
+archive 自体の削除は既定では行わず、次のどちらかを明示した retention mode でだけ実行する。retention mode では
+live Operation の archive 作成を同時に行わず、既存 archive だけを評価するため、`--dry-run` と実行時の候補集合を一致させる。
+
+- `--delete-older-than-days DAYS`: archive 作成時刻から `DAYS` 日以上経過した archive を削除する。
+- `--keep-latest-archives COUNT`: archive 作成時刻が新しい `COUNT` 件を保持し、それより古い archive を削除する。
+
+2 つの retention option は同時指定できず、`--change-id` とも同時指定できない。対象は index が `archived` を示す
+archive だけとし、archive 全体 hash、Manifest、checksum file、index path を検証してから、archive、checksum、index を
+削除する。`--dry-run` では `DELETE-ELIGIBLE` を表示して削除しない。retention option を省略した従来 command は archive の
+作成だけを行い、既存 archive を削除しない。
+
 この境界により、archive 形式や保存階層を変更しても consumer の CLI 契約を Operation ID 中心に維持できる。
 将来は`storage_version`別 adapter、index rebuild、selective restore を追加し、既存 archive を in-place で
 書き換えない。

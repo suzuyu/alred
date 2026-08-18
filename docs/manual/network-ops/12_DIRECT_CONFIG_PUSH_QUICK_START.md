@@ -54,7 +54,8 @@ alred push-config-dir \
 
 投入前表示で、host と config file の対応、接続保護 filter で除外された command、投入 command 数を
 確認し、意図どおりの場合だけ `yes` と入力します。NX-OS では接続に使用中の username、management VRF、
-`interface mgmt0`、`line vty` が既定で除外されます。
+`interface mgmt0`、SSH host key／service、`line vty` が既定で除外されます。共通 VTY ACL など `line vty` だけを
+投入する場合は `--include-line-vty-config` を明示します。
 
 CLI error は既定で strict に検出されます。最初の未許可 error で該当 host の残りを停止し、`--fail-fast` は
 まだ開始していない host の投入も停止します。失敗した file を無条件で再送せず、log の command 行番号、
@@ -113,6 +114,8 @@ alred push-config \
 | `--write-memory` | push と保存を同じ実行にする。投入後確認を分離できないため標準手順では使用しない |
 | `--allow-cli-error-pattern` | レビュー済みの限定的な command／response 組だけを許可する |
 | `--ignore-all-cli-errors` | 非推奨。全 CLI error を無視し、保存対象外となる |
+| `--exclude-protected-config` | 既定の接続保護 config 除外を明示する。他の接続保護 mode option とは同時指定不可 |
+| `--include-line-vty-config` | `line vty` だけを投入対象へ戻す。他の接続保護は維持する |
 | `--force` | `push-config-dir` の接続保護 filter を解除する。代替接続と復旧手段がある場合だけ使用する |
 
 接続保護 filter、投入前表示、`--force` の詳細は

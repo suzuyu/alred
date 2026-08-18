@@ -46,8 +46,17 @@ def test_pyinstaller_spec_collects_alred_package_resources():
     content = (REPO_ROOT / "alred.spec").read_text(encoding="utf-8")
     assert 'collect_data_files("alred")' in content
     assert 'collect_data_files("ntc_templates")' in content
+    assert 'copy_metadata("ntc_templates")' in content
+    assert 'copy_metadata("textfsm")' in content
     assert 'collect_submodules("netmiko")' in content
     assert '("THIRD_PARTY_LICENSES.txt", ".")' in content
+
+    workflow = (REPO_ROOT / ".github/workflows/quality.yml").read_text(
+        encoding="utf-8"
+    )
+    assert "transcript_inventory_license.txt" in workflow
+    assert ".hosts.leaf01.sources.inventory.parse_status" in workflow
+    assert ".hosts.leaf01.sources.license_usage.parse_status" in workflow
 
 
 def test_ntc_templates_are_a_direct_dependency_with_third_party_notice():

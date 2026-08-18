@@ -132,6 +132,10 @@ Linux 例:
 ./dist/alred --help
 ```
 
+CI ではこれに加え、sanitized transcript を binary の `health-check snapshot` で解析し、NTC Templates を使う
+inventory と native license parser の両方が `parsed` になることを確認します。これにより template data だけでなく、
+`ntc_templates` と `textfsm` の distribution metadata の同梱漏れも検出します。
+
 必要に応じて、実際の配布先に近い OS / アーキテクチャ上でも動作確認してください。
 
 ## release 用ファイル名
