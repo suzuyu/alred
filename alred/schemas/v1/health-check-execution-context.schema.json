@@ -56,6 +56,12 @@
             {"$ref": "#/$defs/sourceFile"}
           ]
         },
+        "sites": {
+          "oneOf": [
+            {"type": "null"},
+            {"$ref": "#/$defs/sourceFile"}
+          ]
+        },
         "input_format": {
           "oneOf": [
             {"type": "null"},

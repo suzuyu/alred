@@ -49,6 +49,7 @@
       "required": ["status", "detected_topology_roles", "topology_role", "functions"],
       "properties": {
         "status": {"enum": ["legacy", "resolved", "fallback", "conflict"]},
+        "priority": {"type": "integer"},
         "detected_topology_roles": {
           "type": "array",
           "items": {"type": "string", "minLength": 1},

@@ -1,0 +1,15 @@
+leaf01# show inventory
+NAME: "Chassis", DESCR: "Nexus9000 C93180YC-EX Chassis"
+PID: N9K-C93180YC-EX, VID: V01, SN: SAL00000001
+
+leaf01# show license usage
+License Authorization:
+  Status: Not Applicable
+
+(LAN_ENTERPRISE_SERVICES_PKG):
+  Description: LAN license for Nexus platform
+  Count: 1
+  Version: 1.0
+  Status: IN USE
+  Enforcement Type: NOT ENFORCED
+  License Type: Generic

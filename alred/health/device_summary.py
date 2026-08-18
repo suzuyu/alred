@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+from datetime import datetime
 import io
 import re
 from typing import Any, Mapping
@@ -21,6 +22,7 @@ DEVICE_SUMMARY_COLUMNS = (
     "os_version",
     "license_usage",
     "license_parse_status",
+    "site",
     "topology_role",
     "functions",
     "health_result",
@@ -139,18 +141,41 @@ def _license_usage(host_data: Mapping[str, Any], parse_status: str) -> str:
 def _role_values(
     resolved_roles: Mapping[str, Any] | None,
     hostname: str,
-) -> tuple[str, str]:
+) -> tuple[int, str, str]:
     if resolved_roles is None:
-        return "UNKNOWN", "-"
+        return 99, "UNKNOWN", "-"
     device = resolved_roles.get("spec", {}).get("devices", {}).get(hostname)
     if not isinstance(device, Mapping):
-        return "UNKNOWN", "-"
+        return 99, "UNKNOWN", "-"
+    priority = int(device.get("priority", 99))
     topology_role = str(device.get("topology_role") or "UNKNOWN")
     functions = device.get("functions", {})
     if not isinstance(functions, Mapping):
-        return topology_role, "-"
+        return priority, topology_role, "-"
     names = sorted(str(name) for name in functions)
-    return topology_role, "; ".join(names) if names else "-"
+    return priority, topology_role, "; ".join(names) if names else "-"
+
+
+def _site_priority(
+    site: str,
+    site_rules: Mapping[str, Any] | None,
+) -> int:
+    if site_rules is None:
+        return 99
+    rule = site_rules.get(site)
+    if not isinstance(rule, Mapping):
+        return 99
+    return int(rule.get("priority", 99))
+
+
+def _display_collected_at(value: Any) -> str:
+    if value is None:
+        return "UNKNOWN"
+    text = str(value).strip()
+    if not text:
+        return "UNKNOWN"
+    parsed = datetime.fromisoformat(text)
+    return parsed.replace(tzinfo=None).isoformat()
 
 
 def build_device_summary_rows(
@@ -158,6 +183,8 @@ def build_device_summary_rows(
     health_result: Mapping[str, Any],
     *,
     resolved_roles: Mapping[str, Any] | None = None,
+    inventory_sites: Mapping[str, str] | None = None,
+    site_rules: Mapping[str, Any] | None = None,
 ) -> list[dict[str, str]]:
     """Build one deterministic, display-ready row for each Snapshot host."""
     validate_document(snapshot, kind="HealthSnapshot", allow_unknown_fields=True)
@@ -174,34 +201,65 @@ def build_device_summary_rows(
         ):
             raise ValueError("Device Summary ResolvedRoles change_id mismatch")
 
-    rows = []
-    for hostname, host_data in sorted(snapshot["hosts"].items()):
+    prioritized_rows: list[
+        tuple[int, str, str, int, str, str, dict[str, str]]
+    ] = []
+    for hostname, host_data in snapshot["hosts"].items():
         common = host_data.get("common", {})
         system = common.get("system", {})
         platform = str(host_data.get("platform") or "unknown").strip().lower()
         license_status = _license_parse_status(host_data)
-        topology_role, functions = _role_values(resolved_roles, hostname)
-        rows.append(
-            {
-                "hostname": str(hostname),
-                "management_ip": str(host_data.get("address") or "UNKNOWN"),
-                "manufacturer": _MANUFACTURERS.get(platform, "UNKNOWN"),
-                "model": str(system.get("model") or "UNKNOWN"),
-                "serial_number": _primary_serial(common),
-                "os_type": platform or "unknown",
-                "os_version": str(system.get("version") or "UNKNOWN"),
-                "license_usage": _license_usage(host_data, license_status),
-                "license_parse_status": license_status,
-                "topology_role": topology_role,
-                "functions": functions,
-                "health_result": _host_health_result(health_result, hostname),
-                "collection_status": str(
-                    host_data.get("collection_status") or "UNKNOWN"
-                ),
-                "collected_at": str(snapshot.get("created_at") or "UNKNOWN"),
-            }
+        priority, topology_role, functions = _role_values(
+            resolved_roles, hostname
         )
-    return rows
+        site = str((inventory_sites or {}).get(hostname) or "UNKNOWN")
+        prioritized_rows.append(
+            (
+                _site_priority(site, site_rules),
+                site.casefold(),
+                site,
+                priority,
+                topology_role.casefold(),
+                str(hostname),
+                {
+                    "hostname": str(hostname),
+                    "management_ip": str(
+                        host_data.get("address") or "UNKNOWN"
+                    ),
+                    "site": site,
+                    "manufacturer": _MANUFACTURERS.get(platform, "UNKNOWN"),
+                    "model": str(system.get("model") or "UNKNOWN"),
+                    "serial_number": _primary_serial(common),
+                    "os_type": platform or "unknown",
+                    "os_version": str(system.get("version") or "UNKNOWN"),
+                    "license_usage": _license_usage(host_data, license_status),
+                    "license_parse_status": license_status,
+                    "topology_role": topology_role,
+                    "functions": functions,
+                    "health_result": _host_health_result(
+                        health_result, hostname
+                    ),
+                    "collection_status": str(
+                        host_data.get("collection_status") or "UNKNOWN"
+                    ),
+                    "collected_at": _display_collected_at(
+                        snapshot.get("created_at")
+                    ),
+                },
+            )
+        )
+    prioritized_rows.sort(
+        key=lambda item: (
+            item[0],
+            item[1],
+            item[2],
+            item[3],
+            item[4],
+            item[5].casefold(),
+            item[5],
+        )
+    )
+    return [row for *_sort_values, row in prioritized_rows]
 
 
 def render_device_summary_markdown(rows: list[Mapping[str, Any]]) -> str:

@@ -82,3 +82,18 @@ jobs:
           ./dist/alred --help
           ./dist/alred generate-sample-config \
             --output-dir "${RUNNER_TEMP}/alred-samples"
+          set +e
+          ./dist/alred health-check snapshot \
+            --input tests/fixtures/nxos/device_summary/transcript_inventory_license.txt \
+            --input-format nxos-transcript \
+            --phase before \
+            --purpose inspection \
+            --change-id CI-BINARY-PARSER \
+            --operations-root "${RUNNER_TEMP}/alred-operations"
+          parser_smoke_status=$?
+          set -e
+          test "${parser_smoke_status}" -eq 3
+          find "${RUNNER_TEMP}/alred-operations" -name snapshot.json -exec \
+            jq -e \
+              '.hosts.leaf01.sources.inventory.parse_status == "parsed" and .hosts.leaf01.sources.license_usage.parse_status == "parsed"' \
+              {} \;

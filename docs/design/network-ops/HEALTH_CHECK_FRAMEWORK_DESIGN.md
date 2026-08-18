@@ -757,6 +757,7 @@ change-idは両Snapshotから取得するため、CLIでの指定は原則不要
 | `--purpose <change\|inspection>` | before | Operationの用途。収集・判定内容は変えずstateと表示を区別 | no | no | あり | `change` |
 | `--mappings <path>` | before、snapshot | hostname／interface mappingとlink除外規則 | no | no | あり | 既存標準探索または組み込みdefault。afterはbeforeから継承 |
 | `--description-rules <path>` | before、snapshot | interface descriptionからremote endpointを抽出する規則 | no | no | あり | 既存標準探索または組み込みdefault。afterはbeforeから継承 |
+| `--sites <path>` | before、snapshot | Device Summary の site 解決 rule | no | no | あり | inventory の明示 site を優先。`./sites.yaml` が存在すれば使用し、after／rollback は before から継承 |
 | `--hosts <path>` | 機器収集、transcript alias照合 | inventory / hostsファイル | beforeの`--collect`時は必須入力。ただし既定ファイルが存在すれば省略可 | no | あり | after / rollbackではbeforeのpathとSHA-256を継承・検証 |
 | `--transport <ssh\|nxapi\|auto>` | before、after、rollbackの直接収集 | 既存collect runnerがshowコマンドに使うtransport | no | no | あり | 新規beforeは`ssh`。after / rollbackはbefore execution contextを継承し、contextがない明示的な直接収集では`ssh` |
 | `--output <path>` | 全サブコマンド | 当該コマンドの成果物出力先 | no | no | あり | `operations/<change-id>/`配下のphase / reportに応じたパス |
@@ -812,7 +813,7 @@ afterはSnapshot単体判定に続けてbefore/after共通compareを自動実行
 - `purpose`: `change`または`inspection`
 - inventoryの正規化済み絶対pathとsource SHA-256
 - policyの正規化済み絶対pathとsource SHA-256
-- mappingsとdescription rulesのsource path／SHA-256、解決済み内容のhash
+- mappings、description rules、sites の source path／SHA-256、解決済み内容の hash
 - 解決済み`link_health` policy、`exclude_interfaces`、SVI descriptionを含めるか
 - Link Evidence parser／normalizer version
 - offline入力の`input_format`。before input path自体はafter / rollbackへ流用しない

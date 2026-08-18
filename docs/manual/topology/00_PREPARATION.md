@@ -61,8 +61,6 @@ alred generate-graphviz --help
 alred generate-drawio --help
 ```
 
-source checkout から実行する場合は、各例の `alred` を `uv run python alred.py` へ置き換える。
-
 ## 5. 安全上の注意
 
 - `evidence-package import`、`import-running-config`、`normalize-links`、各 renderer は機器へ接続しない。

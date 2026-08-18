@@ -825,6 +825,20 @@ def list_live_operation_ids(operations_root: str | Path) -> list[str]:
     return sorted(identifiers)
 
 
+def list_archived_operation_ids(operations_root: str | Path) -> list[str]:
+    """List indexed archived operation IDs without scanning archive data."""
+    root = Path(operations_root)
+    identifiers: list[str] = []
+    index_root = root / ".index"
+    if not index_root.is_dir():
+        return identifiers
+    for path in sorted(index_root.glob("*.yaml")):
+        document = load_operation_location(root, path.stem)
+        if document and document["spec"]["state"] == "archived":
+            identifiers.append(path.stem)
+    return identifiers
+
+
 def _file_sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as stream:
@@ -1127,6 +1141,134 @@ def load_archived_operation_documents(
     validate_document(metadata, kind="OperationMetadata", allow_unknown_fields=True)
     validate_document(execution, kind="OperationExecution", allow_unknown_fields=True)
     return metadata, execution, manifest
+
+
+def archived_operation_retention_candidates(
+    operations_root: str | Path,
+    *,
+    older_than_days: int | None = None,
+    keep_latest: int | None = None,
+    now: datetime | None = None,
+) -> list[dict[str, Any]]:
+    """Select verified archived operations for one explicit retention rule."""
+    if (older_than_days is None) == (keep_latest is None):
+        raise ValueError(
+            "exactly one of older_than_days or keep_latest must be specified"
+        )
+    if older_than_days is not None and older_than_days < 0:
+        raise ValueError("older_than_days must be zero or greater")
+    if keep_latest is not None and keep_latest < 0:
+        raise ValueError("keep_latest must be zero or greater")
+
+    root = Path(operations_root)
+    records: list[dict[str, Any]] = []
+    for change_id in list_archived_operation_ids(root):
+        location = load_operation_location(root, change_id)
+        if location is None:
+            continue
+        archive_path = root / location["spec"]["relative_path"]
+        manifest, _selected = read_operation_archive(
+            archive_path,
+            expected_sha256=location["spec"].get("archive_sha256"),
+            verify_files=False,
+        )
+        archived_at = datetime.fromisoformat(
+            manifest["metadata"]["archived_at"]
+        )
+        if archived_at.tzinfo is None:
+            raise OperationPathError(
+                f"operation archive timestamp has no timezone: {change_id}"
+            )
+        records.append({
+            "change_id": change_id,
+            "archived_at": archived_at,
+            "archive": archive_path,
+        })
+
+    records.sort(
+        key=lambda item: (item["archived_at"], item["change_id"]),
+        reverse=True,
+    )
+    if keep_latest is not None:
+        selected = records[keep_latest:]
+    else:
+        evaluated_at = now or datetime.now().astimezone()
+        if evaluated_at.tzinfo is None:
+            raise ValueError("now must include a timezone")
+        selected = [
+            item
+            for item in records
+            if (evaluated_at - item["archived_at"]).total_seconds()
+            >= int(older_than_days) * 86400
+        ]
+    return sorted(
+        selected,
+        key=lambda item: (item["archived_at"], item["change_id"]),
+    )
+
+
+def delete_archived_operation(
+    operations_root: str | Path,
+    change_id: str,
+    *,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    """Verify and delete one archived operation and its lookup index."""
+    root = Path(operations_root)
+    location = load_operation_location(root, change_id)
+    if location is None or location["spec"]["state"] != "archived":
+        raise OperationPathError(f"archived operation does not exist: {change_id}")
+    archive_path = root / location["spec"]["relative_path"]
+    try:
+        archive_path.relative_to(root / "archive")
+    except ValueError as exc:
+        raise OperationPathError(
+            f"operation archive path is outside archive root: {archive_path}"
+        ) from exc
+    checksum_path = archive_path.with_suffix(archive_path.suffix + ".sha256")
+    index_path = _operation_index_path(root, change_id)
+    for label, path in (
+        ("archive", archive_path),
+        ("archive checksum", checksum_path),
+        ("operation index", index_path),
+    ):
+        if not path.is_file() or path.is_symlink():
+            raise OperationPathError(f"{label} is missing or unsafe: {path}")
+    manifest, _selected = read_operation_archive(
+        archive_path,
+        expected_sha256=location["spec"].get("archive_sha256"),
+        verify_files=False,
+    )
+    expected_checksum = str(location["spec"].get("archive_sha256", ""))
+    checksum_parts = checksum_path.read_text(encoding="utf-8").split()
+    if checksum_parts != [
+        expected_checksum.removeprefix("sha256:"),
+        archive_path.name,
+    ]:
+        raise OperationPathError(
+            f"operation archive checksum file is invalid: {checksum_path}"
+        )
+    result = {
+        "change_id": change_id,
+        "status": "eligible" if dry_run else "deleted",
+        "archived_at": manifest["metadata"]["archived_at"],
+        "archive": archive_path,
+    }
+    if dry_run:
+        return result
+
+    archive_path.unlink()
+    checksum_path.unlink()
+    index_path.unlink()
+    parent = archive_path.parent
+    archive_root = root / "archive"
+    while parent != archive_root:
+        try:
+            parent.rmdir()
+        except OSError:
+            break
+        parent = parent.parent
+    return result
 
 
 def load_operation_metadata(operation_root: str | Path) -> dict[str, Any]:

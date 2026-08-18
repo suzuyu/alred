@@ -46,6 +46,7 @@ def build_health_execution_context(
     purpose: str = "change",
     mappings_path: str | Path | None = None,
     description_rules_path: str | Path | None = None,
+    sites_path: str | Path | None = None,
 ) -> dict[str, Any]:
     """Build and validate one context without storing credential secrets."""
     document = {
@@ -75,6 +76,11 @@ def build_health_execution_context(
             "description_rules": (
                 source_file_reference(description_rules_path)
                 if description_rules_path is not None
+                else None
+            ),
+            "sites": (
+                source_file_reference(sites_path)
+                if sites_path is not None
                 else None
             ),
             "input_format": input_format,

@@ -21,6 +21,7 @@ from alred.operation import (
     OperationLock,
     archive_operation_workspace,
     create_operation_workspace,
+    load_operation_location,
     transition_operation,
     transition_workflow,
 )
@@ -131,6 +132,26 @@ def test_operation_cli_dispatch(arguments, expected_function):
     assert args.operations_root == "operations"
 
 
+def test_operation_archive_help_exposes_explicit_retention_modes(capsys):
+    with pytest.raises(SystemExit) as exc_info:
+        build_parser().parse_args(["operation", "archive", "--help"])
+
+    assert exc_info.value.code == 0
+    output = capsys.readouterr().out
+    assert "--delete-older-than-days DAYS" in output
+    assert "--keep-latest-archives COUNT" in output
+
+    with pytest.raises(SystemExit):
+        build_parser().parse_args([
+            "operation",
+            "archive",
+            "--delete-older-than-days",
+            "30",
+            "--keep-latest-archives",
+            "10",
+        ])
+
+
 def test_operation_status_reads_verified_archive_without_extracting(
     tmp_path, capsys
 ):
@@ -194,6 +215,51 @@ def test_operation_archive_rejects_an_already_archived_id_without_traceback(
 
     assert exc_info.value.code == 2
     assert "OPERATION_ARCHIVED" in capsys.readouterr().err
+
+
+def test_operation_archive_retention_mode_does_not_archive_live_operations(
+    tmp_path, capsys
+):
+    operations_root = tmp_path / "operations"
+    archived = create_operation_workspace(
+        operations_root,
+        change_id="CHG-ARCHIVED",
+        now=JST_NOW,
+    )
+    live = create_operation_workspace(
+        operations_root,
+        change_id="CHG-LIVE",
+        now=JST_NOW,
+    )
+    for workspace in (archived, live):
+        with OperationLock(workspace, "test", now=JST_NOW) as lock:
+            transition_operation(workspace, "running", lock=lock, now=JST_NOW)
+            transition_operation(workspace, "completed", lock=lock, now=JST_NOW)
+    archive_operation_workspace(
+        operations_root,
+        archived.change_id,
+        older_than_days=0,
+        now=JST_NOW,
+    )
+
+    cmd_operation_archive(argparse.Namespace(
+        operations_root=str(operations_root),
+        change_id=None,
+        older_than_days=0,
+        dry_run=False,
+        delete_older_than_days=None,
+        keep_latest_archives=0,
+    ))
+
+    assert "Archive creation skipped in archive retention mode." in (
+        capsys.readouterr().out
+    )
+    assert load_operation_location(
+        operations_root, archived.change_id
+    ) is None
+    assert load_operation_location(
+        operations_root, live.change_id
+    )["spec"]["state"] == "live"
 
 
 def test_overlay_approve_help_documents_initial_safety_options(capsys):

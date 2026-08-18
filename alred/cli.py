@@ -194,10 +194,12 @@ from .operation import (
     OperationPathError,
     OperationStateError,
     archive_operation_workspace,
+    archived_operation_retention_candidates,
     atomic_write_bytes,
     atomic_write_json,
     atomic_write_yaml,
     create_operation_workspace,
+    delete_archived_operation,
     generate_attempt_id,
     load_operation_execution,
     load_operation_location,
@@ -1095,6 +1097,8 @@ PUSH_DIR_CONNECTION_SAFETY_RULE_ORDER = (
     "current_login_user",
     "management_vrf",
     "management_interface",
+    "ssh_host_key",
+    "ssh_service",
     "line_vty",
 )
 
@@ -1116,6 +1120,10 @@ def _nxos_push_dir_standalone_rule(command: str) -> str | None:
         return "management_vrf"
     if normalized in {"no interface mgmt0", "default interface mgmt0"}:
         return "management_interface"
+    if re.match(r"^(?:no |default )?ssh key(?: |$)", normalized):
+        return "ssh_host_key"
+    if normalized == "no feature ssh":
+        return "ssh_service"
     if re.match(r"^(?:no|default) line vty(?:\s|$)", normalized):
         return "line_vty"
     return None
@@ -1157,6 +1165,7 @@ def prepare_push_config_dir_lines(
     device_type: str,
     login_username: str,
     force: bool = False,
+    include_line_vty_config: bool = False,
 ) -> tuple[List[str], List[Dict[str, Any]]]:
     """Load one config and optionally remove NX-OS connection-sensitive sections."""
     if device_type != "nxos":
@@ -1168,7 +1177,10 @@ def prepare_push_config_dir_lines(
             command = raw.strip()
             if not command or command.startswith(("#", "!")):
                 continue
-            if _nxos_push_dir_block_rule(command) is None:
+            block_rule = _nxos_push_dir_block_rule(command)
+            if include_line_vty_config and block_rule == "line_vty":
+                block_rule = None
+            if block_rule is None:
                 continue
             for following in raw_lines[line_index + 1:]:
                 following_command = following.strip()
@@ -1208,12 +1220,16 @@ def prepare_push_config_dir_lines(
         is_top_level = not raw[:1].isspace()
         if is_top_level:
             current_rule = _nxos_push_dir_block_rule(command)
+            if include_line_vty_config and current_rule == "line_vty":
+                current_rule = None
             if current_rule is not None:
                 record(current_rule, command)
                 if force:
                     prepared.append(command)
                 continue
             standalone_rule = _nxos_push_dir_standalone_rule(command)
+            if include_line_vty_config and standalone_rule == "line_vty":
+                standalone_rule = None
             if standalone_rule is not None:
                 record(standalone_rule, command)
                 if force:
@@ -7659,6 +7675,21 @@ def cmd_push_config_dir(args: argparse.Namespace) -> Dict[str, Any]:
         }
 
     force_connection_config = bool(getattr(args, "force", False))
+    include_line_vty_config = bool(
+        getattr(args, "include_line_vty_config", False)
+    )
+    if bool(getattr(args, "exclude_protected_config", False)):
+        logger.info(
+            "NX-OS connection-protected config exclusion was explicitly requested"
+        )
+    if include_line_vty_config:
+        print(
+            "WARNING: --include-line-vty-config includes NX-OS line vty "
+            "configuration and can block the current or subsequent SSH access."
+        )
+        logger.warning(
+            "NX-OS line vty connection protection was explicitly disabled"
+        )
     connection_safety_enabled = not bool(
         getattr(args, "_disable_push_dir_connection_safety_filter", False)
     )
@@ -7679,6 +7710,7 @@ def cmd_push_config_dir(args: argparse.Namespace) -> Dict[str, Any]:
                 device_type=str(host.get("device_type", "")),
                 login_username=credentials[0],
                 force=force_connection_config,
+                include_line_vty_config=include_line_vty_config,
             )
             safety_findings_by_host[str(host["hostname"])] = safety_findings
         else:
@@ -11306,17 +11338,34 @@ def get_operation_archive_after_days() -> int:
 
 def cmd_operation_archive(args: argparse.Namespace) -> None:
     """Manually archive eligible terminal operations without device access."""
-    identifiers = (
-        [args.change_id]
-        if args.change_id
-        else list_live_operation_ids(args.operations_root)
-    )
-    if not identifiers:
-        print("No live operations found.")
+    delete_older_than_days = getattr(args, "delete_older_than_days", None)
+    keep_latest_archives = getattr(args, "keep_latest_archives", None)
+    if args.change_id and (
+        delete_older_than_days is not None or keep_latest_archives is not None
+    ):
+        _operation_cli_error(OperationStateError(
+            "archive retention options cannot be used with --change-id"
+        ))
         return
+    retention_requested = (
+        delete_older_than_days is not None or keep_latest_archives is not None
+    )
+    identifiers = (
+        []
+        if retention_requested
+        else (
+            [args.change_id]
+            if args.change_id
+            else list_live_operation_ids(args.operations_root)
+        )
+    )
     archived = 0
     eligible = 0
     skipped = 0
+    if retention_requested:
+        print("Archive creation skipped in archive retention mode.")
+    elif not identifiers:
+        print("No live operations found.")
     for change_id in identifiers:
         try:
             result = archive_operation_workspace(
@@ -11347,6 +11396,34 @@ def cmd_operation_archive(args: argparse.Namespace) -> None:
     print(
         "Archive summary: "
         f"archived={archived} eligible={eligible} skipped={skipped}"
+    )
+    if delete_older_than_days is None and keep_latest_archives is None:
+        return
+    try:
+        candidates = archived_operation_retention_candidates(
+            args.operations_root,
+            older_than_days=delete_older_than_days,
+            keep_latest=keep_latest_archives,
+        )
+        for candidate in candidates:
+            result = delete_archived_operation(
+                args.operations_root,
+                candidate["change_id"],
+                dry_run=args.dry_run,
+            )
+            action = "DELETE-ELIGIBLE" if args.dry_run else "DELETED"
+            print(
+                f"{action} {result['change_id']}: "
+                f"archived_at={result['archived_at']} "
+                f"archive={result['archive']}"
+            )
+    except (OperationError, ValueError) as exc:
+        _operation_cli_error(exc)
+        return
+    print(
+        "Archive retention summary: "
+        f"deleted={0 if args.dry_run else len(candidates)} "
+        f"eligible={len(candidates) if args.dry_run else 0}"
     )
 
 
@@ -13600,12 +13677,27 @@ def cmd_health_check_snapshot(args: argparse.Namespace) -> int:
                 import_manifest = None
                 host_addresses: dict[str, str] = {}
                 host_platforms: dict[str, str] = {}
+                host_sites: dict[str, str] = {}
+                site_rules = (
+                    {}
+                    if bool(
+                        getattr(args, "_health_sites_default_disabled", False)
+                    )
+                    else load_sites(getattr(args, "sites", None))
+                )
                 if args.hosts:
                     inventory = load_inventory_data(load_yaml(str(args.hosts)))
                     for inventory_host in inventory:
+                        hostname = str(inventory_host["hostname"])
                         host_platforms[str(inventory_host["hostname"])] = str(
                             inventory_host.get("device_type") or "unknown"
                         ).strip().lower()
+                        raw_site = str(inventory_host.get("site") or "").strip()
+                        resolved_site = raw_site or detect_node_site(
+                            hostname, site_rules
+                        )
+                        if resolved_site:
+                            host_sites[hostname] = resolved_site
                         raw_address = inventory_host.get("ip")
                         if raw_address is None:
                             continue
@@ -13734,6 +13826,8 @@ def cmd_health_check_snapshot(args: argparse.Namespace) -> int:
                     snapshot,
                     health_result,
                     resolved_roles=resolved_roles,
+                    inventory_sites=host_sites,
+                    site_rules=site_rules,
                 )
                 atomic_write_bytes(
                     workspace.operation_root,
@@ -13975,6 +14069,12 @@ def _write_health_execution_context(
         if args.hosts is not None:
             args.hosts = _optional_existing_file(args.hosts, label="inventory")
         collection = None
+    sites_path = getattr(args, "sites", None)
+    if sites_path is None:
+        default_sites = Path(DEFAULT_SITES_PATH)
+        if default_sites.is_file() and not default_sites.is_symlink():
+            sites_path = str(default_sites)
+    args.sites = _optional_existing_file(sites_path, label="sites")
     context = build_health_execution_context(
         change_id=workspace.change_id,
         recorded_at=recorded_at,
@@ -14001,6 +14101,7 @@ def _write_health_execution_context(
         purpose=getattr(args, "purpose", "change"),
         mappings_path=getattr(args, "mappings", None),
         description_rules_path=getattr(args, "description_rules", None),
+        sites_path=getattr(args, "sites", None),
     )
     atomic_write_yaml(
         workspace.operation_root,
@@ -14068,6 +14169,15 @@ def _apply_health_followup_execution_context(
                 "inventory was not used by before and cannot be added to "
                 f"{phase}"
             )
+
+    args.sites = _inherit_context_source(
+        spec.get("sites"),
+        getattr(args, "sites", None),
+        label="sites",
+        phase=phase,
+    )
+    if args.sites is None:
+        args._health_sites_default_disabled = True
 
     if args.input:
         if args.input_format is None and spec["input_mode"] == "input":
@@ -14397,6 +14507,18 @@ def _validate_before_retry_context(args: argparse.Namespace, workspace) -> None:
                 raise HealthExecutionContextError(
                     f"{label} was not fixed by the original before"
                 )
+    site_reference = spec.get("sites")
+    supplied_sites = getattr(args, "sites", None)
+    if site_reference is not None:
+        args.sites = verify_source_file(
+            site_reference, supplied_sites, label="sites"
+        )
+    elif supplied_sites is not None:
+        raise HealthExecutionContextError(
+            "sites was not fixed by the original before"
+        )
+    else:
+        args._health_sites_default_disabled = True
 
 
 def _profile_value_changes(
@@ -16371,6 +16493,25 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="List eligible operations without creating or deleting files",
     )
+    p_operation_retention = p_operation_archive.add_mutually_exclusive_group()
+    p_operation_retention.add_argument(
+        "--delete-older-than-days",
+        type=int,
+        metavar="DAYS",
+        help=(
+            "Retention mode: delete verified archives created at least DAYS "
+            "ago; live operations are not archived in this mode"
+        ),
+    )
+    p_operation_retention.add_argument(
+        "--keep-latest-archives",
+        type=int,
+        metavar="COUNT",
+        help=(
+            "Retention mode: keep the latest COUNT verified archives and "
+            "delete older generations; live operations are not archived"
+        ),
+    )
     p_operation_archive.add_argument(
         "--operations-root",
         default=DEFAULT_OPERATIONS_ROOT,
@@ -16987,6 +17128,14 @@ def build_parser() -> argparse.ArgumentParser:
                 "hash-verify the before source"
             ),
         )
+        phase_parser.add_argument(
+            "--sites",
+            help=(
+                "Site detection YAML; explicit inventory site wins, before "
+                "defaults to ./sites.yaml when present, and after/rollback "
+                "inherit and hash-verify the before source"
+            ),
+        )
         if phase_name == "before":
             phase_parser.add_argument(
                 "--revision-reason",
@@ -17108,6 +17257,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_health_snapshot.add_argument("--mappings")
     p_health_snapshot.add_argument("--description-rules")
+    p_health_snapshot.add_argument(
+        "--sites",
+        help=(
+            "Site detection YAML used when inventory has no explicit site "
+            f"(default: ./{DEFAULT_SITES_PATH} if present)"
+        ),
+    )
     p_health_snapshot.add_argument(
         "--profile",
         action="append",
@@ -17502,7 +17658,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_transform.add_argument(
         "--clab-env",
-        help="containerlab env YAML used to read mgmt.ipv4-subnet (default: ./clab_merge.yaml if exists)",
+        help=(
+            "Containerlab YAML whose mgmt.ipv4-subnet remaps inventory and "
+            "mgmt0 addresses; other fields are not merged by this command "
+            "(default: ./clab_merge.yaml if it exists)"
+        ),
     )
     p_transform.add_argument(
         "--node-map",
@@ -17577,7 +17737,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_init_clab.add_argument("--cables", required=True, help="Input cable CSV")
     p_init_clab.add_argument(
         "--clab-env",
-        help="containerlab environment YAML for mgmt IP conversion and merge (default: ./clab_merge.yaml if exists)",
+        help=(
+            "Containerlab YAML merged over generated topology and used for "
+            "mgmt.ipv4-subnet address conversion; precedes --clab-merge and "
+            "--clab-lab-profile (default: ./clab_merge.yaml if it exists)"
+        ),
     )
     p_init_clab.add_argument("--mappings", help="Mappings YAML path")
     p_init_clab.add_argument("--roles", help=f"Role detection YAML path (default: ./{DEFAULT_ROLES_PATH} if exists)")
@@ -18149,7 +18313,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_clab_set.set_defaults(group_by_site=None)
     p_clab_set.add_argument("--linux-csv", help="CSV override for generate-clab")
     p_clab_set.add_argument("--kind-cluster-csv", help="Kind cluster CSV override for generate-clab")
-    p_clab_set.add_argument("--clab-env", help="YAML override for clab-transform-config")
+    p_clab_set.add_argument(
+        "--clab-env",
+        help=(
+            "Containerlab YAML passed to clab-transform-config; its "
+            "mgmt.ipv4-subnet remaps inventory and mgmt0 addresses"
+        ),
+    )
     p_clab_set.add_argument(
         "--node-map",
         help="CSV mapping source/production hostnames and management IPs to target/lab values",
@@ -18357,12 +18527,30 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Stop starting unstarted hosts after the first host failure",
     )
-    p_push_dir.add_argument(
+    p_push_dir_connection_safety = p_push_dir.add_mutually_exclusive_group()
+    p_push_dir_connection_safety.add_argument(
+        "--exclude-protected-config",
+        action="store_true",
+        help=(
+            "Explicitly exclude NX-OS current login user, management VRF, "
+            "mgmt0, SSH host key/service, and line vty config (this is also "
+            "the safe default)"
+        ),
+    )
+    p_push_dir_connection_safety.add_argument(
+        "--include-line-vty-config",
+        action="store_true",
+        help=(
+            "Include NX-OS line vty config while retaining all other "
+            "connection protection rules"
+        ),
+    )
+    p_push_dir_connection_safety.add_argument(
         "--force",
         action="store_true",
         help=(
-            "Include NX-OS current login user, management VRF, mgmt0, and "
-            "line vty config that is excluded by default"
+            "Include NX-OS current login user, management VRF, mgmt0, SSH "
+            "host key/service, and line vty config excluded by default"
         ),
     )
     p_push_dir.add_argument("--log-file", default=f"{default_log_dir}/push-config-dir.log", help="Log file path")

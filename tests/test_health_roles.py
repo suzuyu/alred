@@ -53,6 +53,7 @@ def test_versionless_roles_preserve_legacy_scope(tmp_path: Path) -> None:
 
     assert resolved["spec"]["role_schema_version"] == 1
     assert resolved["spec"]["devices"]["lf01"]["status"] == "legacy"
+    assert resolved["spec"]["devices"]["lf01"]["priority"] == 99
     assert overlay_profile_scope(resolved, "unknown01")[0] is True
 
 
@@ -63,6 +64,7 @@ def test_v2_resolves_topology_role_and_nested_functions(tmp_path: Path) -> None:
             "schema_version": 2,
             "role_detection": {
                 "leaf": {
+                    "priority": 3,
                     "contains": ["lf"],
                     "functions": {
                         "vtep": {"expectation": "required"},
@@ -79,6 +81,7 @@ def test_v2_resolves_topology_role_and_nested_functions(tmp_path: Path) -> None:
     resolved = _resolve(path, ["lf-vpc01", "lf02"])
 
     first = resolved["spec"]["devices"]["lf-vpc01"]
+    assert first["priority"] == 3
     assert first["topology_role"] == "leaf"
     assert first["functions"]["vtep"]["expectation"] == "required"
     assert first["functions"]["vpc"] == {

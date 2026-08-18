@@ -162,6 +162,9 @@ def load_inventory_data(data: Dict[str, Any]) -> List[Dict[str, Any]]:
     result: List[Dict[str, Any]] = []
 
     for hostname, attrs in data.get("all", {}).get("hosts", {}).items():
+        metadata = attrs.get("metadata", {})
+        if not isinstance(metadata, dict):
+            metadata = {}
         result.append({
             "hostname": hostname,
             "ip": attrs.get("ansible_host"),
@@ -170,7 +173,8 @@ def load_inventory_data(data: Dict[str, Any]) -> List[Dict[str, Any]]:
             "ansible_connection": attrs.get("ansible_connection"),
             "netmiko_device_type": attrs.get("netmiko_device_type"),
             "ansible_network_os": attrs.get("ansible_network_os"),
-            "metadata": attrs.get("metadata", {}),
+            "metadata": metadata,
+            "site": attrs.get("site") or metadata.get("site"),
         })
 
     return result

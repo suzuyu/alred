@@ -122,6 +122,7 @@ ALRED_OPERATION_ARCHIVE_AFTER_DAYS=14
 
 補足:
 
+- archive 自体の retention は環境変数では設定せず、実行時に `--delete-older-than-days DAYS` または `--keep-latest-archives COUNT` を明示します。どちらも未指定の場合、既存 archive は削除しません
 - `.env` や shell history にパスワードを残したくない場合は、`-k` / `--ask-pass` で SSH パスワードを実行時入力できます
 - enable secret が必要な機器では、`-K` / `--ask-become-pass` で enable パスワードを実行時入力できます
 - `asa` / `asav` は CLI 引数未指定時に `ALRED_FW_USERNAME` / `ALRED_FW_PASSWORD` / `ALRED_FW_ENABLE_SECRET` を優先して使用します
@@ -320,7 +321,8 @@ version を省略した既存形式は `schema_version: 1` として扱い、既
 
 ## 8. サイト定義 (`sites.yaml`)
 
-`generate-mermaid --group-by-site` / `generate-graphviz --group-by-site` / `generate-drawio --group-by-site`、`generate-clab`、`init-clab` で利用します。
+`health-check` の Device Summary、`generate-mermaid --group-by-site` / `generate-graphviz --group-by-site` /
+`generate-drawio --group-by-site`、`generate-clab`、`init-clab` で利用します。
 
 `--sites` を省略した場合でも、実行ディレクトリに `sites.yaml` があれば自動で読み込みます。
 
@@ -358,6 +360,7 @@ site_detection:
 - `generate-mermaid --group-by-site` / `generate-graphviz --group-by-site` / `generate-drawio --group-by-site` は、`labels.site` がないノードを `sites.yaml` で自動判定して site group に配置します
 - site group は `priority` の小さい順に並びます。draw.io の `TD` では priority ごとに段を作り、同じ priority の site を横並びに配置します
 - `generate-clab --sites sites.yaml` / `init-clab --sites sites.yaml` は、生成する `topology.nodes.<node>.labels.site` に判定結果を書き込みます
+- `health-check before --sites sites.yaml` は inventory に明示 site がない host の Device Summary site を解決し、source path と hash を after／rollback 用 context に固定します
 - 既に `labels.site` がある場合は、その値を優先し、`sites.yaml` では上書きしません
 
 ## 9. Description ルール (`description_rules.yaml`)
@@ -462,7 +465,7 @@ topology:
 - 辞書同士は再帰的にマージ
 - それ以外の値 (文字列・配列など) は後勝ちで上書き
 - `topology.links` は追加マージ (generated links の後ろに merge 側 links を連結)
-- `clab-transform-config` は `--clab-env` で指定した YAML の `mgmt.ipv4-subnet` を参照して `hosts.lab.yaml` と `raw/labconfig/<hostname><suffix>` の管理 IP を変換します。`--file-suffix` の既定は `_run.txt` です
+- `clab-transform-config` は `--clab-env` で指定した Containerlab YAML の `mgmt.ipv4-subnet` だけを参照し、`hosts.lab.yaml` と `raw/labconfig/<hostname><suffix>` の管理 IP を変換します。同じ YAML の `topology.kinds`、image、bind mount などはこの command の出力へ merge しません。`--file-suffix` の既定は `_run.txt` です
 - `clab-transform-config`は`--lab-parameters`の`LabTransformParameters`を検証し、未指定時もbuilt-in safety policyでproduction user、AAA、SNMP、NTP、remote logging、DNS、certificate／key、management access classを除去します
 - lab userは`lab_users.users[].authentication.password_ref`と同名の環境変数から解決します。secret本文はparameterやManifestへ記載しません
 - NX-OSでは共通`privilege: admin|read-only`を`network-admin|network-operator`へ変換します。lab user指定時は`primary: true`を1件だけ必要とします
@@ -677,7 +680,8 @@ interfaces:
 ## 17. `push-config-dir` 接続保護
 
 NX-OS の `push-config-dir` は、接続中の login user、management VRF、`interface mgmt0`、`line vty` を
-既定で投入対象から除外します。`--force` はこの接続保護 filter だけを解除します。入力 file の section は
+既定で投入対象から除外します。`--exclude-protected-config` で同じ安全動作を明示できます。`--force` は
+この接続保護 filter だけを解除します。入力 file の section は
 元のインデントまたは `!` 境界を維持してください。
 
 対象 command、投入前表示、`--force` の維持される安全機能は

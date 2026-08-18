@@ -21,8 +21,10 @@ operations/<change-id>/health/<phase>/device-summary.csv
 before／rollback の immutable attempt を使用する場合は attempt directory に先に生成し、attempt 完了後だけ
 既存の publish 処理で canonical phase directory へコピーする。失敗 attempt から canonical 成果物を更新しない。
 
-Markdown と CSV は同じ canonical row、列順、hostname sort から生成する。CSV は UTF-8、header あり、
-LF 改行とし、Python `csv` の標準 quoting を使用する。複数値は semicolon と space の `; ` で連結する。
+Markdown と CSV は同じ canonical row と列順から生成する。row は site の `priority`、site 名、解決済み
+topology role の `priority`、topology role 名、hostname の順で生成する。数値が小さいほど先に表示する。
+site または role が未解決、競合、または固定 artifact に `priority` がない場合は `99` とする。CSV は UTF-8、
+header あり、LF 改行とし、Python `csv` の標準 quoting を使用する。複数値は semicolon と space の `; ` で連結する。
 
 ## 3. 列と取得元
 
@@ -39,18 +41,33 @@ LF 改行とし、Python `csv` の標準 quoting を使用する。複数値は 
 | `os_version` | `common.system.version`。`show version` | `UNKNOWN` |
 | `license_usage` | `common.license.usage` | `UNKNOWN` または `NOT_APPLICABLE` |
 | `license_parse_status` | `sources.license_usage.parse_status` と applicability | 下記の状態値 |
+| `site` | inventory の `site`／`metadata.site`、次に固定済み `sites.yaml` の hostname rule | `UNKNOWN` |
 | `topology_role` | `ResolvedRoles.spec.devices.<host>.topology_role` | `UNKNOWN` |
 | `functions` | 同 device の function 名を辞書順で列挙 | `-` |
 | `health_result` | Health Result の host 別 check を共通 severity 順で集約 | `NOT_APPLICABLE` |
 | `collection_status` | `hosts.<host>.collection_status` | `UNKNOWN` |
-| `collected_at` | `Snapshot.created_at` | `UNKNOWN` |
+| `collected_at` | `Snapshot.created_at` の wall-clock 部分。UTC offset は表示しない | `UNKNOWN` |
 
 host 別 `health_result` の優先順位は `PLAN_ERROR`、`FAIL`、`UNKNOWN`、`WARN`、`PASS`、
 `NOT_APPLICABLE` とし、全体結果を各 host へ複製しない。profile scope 外の記録がある場合は、その host の
 `unexecuted_hosts.profile_result` も同じ優先順位で集約する。
 
+`collected_at` は Markdown／CSV の視認性を優先し、`2026-08-19T00:03:48+09:00` を
+`2026-08-19T00:03:48` と表示する。時刻の変換は行わず、UTC offset を除いた wall-clock 部分を使用する。timezone を
+含む正本の timestamp は Snapshot の `created_at` と `timezone` に保持する。
+
 `functions` は role policy で解決した function 名であり、設定済みであることを名前だけから保証しない。
 期待状態と設定 evidence の詳細は `resolved-roles.yaml` と Checklist を参照する。
+
+並び順に使用する role の `priority` は `roles.yaml` の topology role rule から `ResolvedRoles` の device ごとに
+固定する。site の `priority` は固定した `sites.yaml` から取得する。値自体は Device Summary の列へ重複出力せず、
+`resolved-roles.yaml` と execution context に固定した `sites.yaml` から追跡する。数値が小さいほど先に表示する意味は
+topology renderer の site／role priority と共通とする。
+
+`site` は inventory の明示値を優先し、空または未定義の場合だけ `sites.yaml` の `site_detection` rule で
+hostname を解決する。`health-check before` は明示した `--sites`、または存在する `./sites.yaml` の絶対 path と
+SHA-256 を execution context に固定し、after／rollback は同じ source を hash 検証して再利用する。固定 source が
+ない旧 Operation や rule 不一致では、現在の作業 directory の `sites.yaml` を暗黙に追加せず `UNKNOWN` とする。
 
 ## 4. NX-OS command と parser
 
@@ -58,18 +75,20 @@ host 別 `health_result` の優先順位は `PLAN_ERROR`、`FAIL`、`UNKNOWN`、
 |---|---|---|---|---|
 | `show_version` | `show version` | required | alred native | `common.system` |
 | `inventory` | `show inventory` | optional | NTC Templates | `common.inventory.components` |
-| `license_usage` | `show license usage` | optional | NTC Templates | `common.license` |
+| `license_usage` | `show license usage` | optional | alred adapter。表形式は NTC Templates、feature block 形式は native parser | `common.license` |
 
 `show license all` は初期 Device Summary では収集しない。Smart Licensing 全体状態を扱う場合は、対象 model／
 release、command、状態判定を別途設計する。
 
 collector は parser を実行せず raw output を Collection Manifest に固定する。Snapshot builder が raw output を
-読み、固定した package resource の NTC template で解析する。Netmiko の `use_textfsm=True` は使用しないため、
-SSH／NX-API／transcript import の各入力で同じ解析経路を使用できる。
+読み、出力形式を判定する alred adapter から、固定した package resource の NTC template または native parser で
+解析する。Netmiko の `use_textfsm=True` は使用しないため、SSH／NX-API／transcript import の各入力で同じ解析経路を
+使用できる。
 
-NTC Templates の package version、TextFSM version、template file 名、template SHA-256 を Snapshot の
-`parser_versions` と source provenance へ記録する。`NTC_TEMPLATES_DIR` などの実行環境 override で template を
-暗黙に差し替えない。
+alred native parser、NTC Templates、TextFSM の version と、template file 名、template SHA-256 を Snapshot の
+`parser_versions` と source provenance へ記録する。`license_usage` source の parser は format 判定を所有する
+`nxos.license_usage` とし、表形式で使用する NTC template も provenance へ併記する。`NTC_TEMPLATES_DIR` などの
+実行環境 override で template を暗黙に差し替えない。
 
 ## 5. `show inventory` の解析と primary chassis
 
@@ -105,8 +124,22 @@ module、fan、power supply、transceiver の serial number を chassis serial �
 
 ## 6. `show license usage` の解析
 
-`cisco_nxos_show_license_usage.textfsm` が出力する `FEATURE`、`INSTALLED`、`LICENSE_COUNT`、`STATUS`、
-`EXPIRY_DATE`、`COMMENTS` を次へ正規化する。
+表形式では `cisco_nxos_show_license_usage.textfsm` が出力する `FEATURE`、`INSTALLED`、`LICENSE_COUNT`、
+`STATUS`、`EXPIRY_DATE`、`COMMENTS` を次へ正規化する。NX-OS が次の feature block 形式を返す場合は、alred の
+native parser で同じ canonical data へ正規化する。
+
+```text
+License Authorization:
+  Status: Not Applicable
+
+(LAN_ENTERPRISE_SERVICES_PKG):
+  Description: LAN license
+  Count: 1
+  Version: 1.0
+  Status: IN USE
+  Enforcement Type: NOT ENFORCED
+  License Type: Generic
+```
 
 ```json
 {
@@ -131,6 +164,12 @@ module、fan、power supply、transceiver の serial number を chassis serial �
 - `In use`／`Unused` は `in_use`／`unused` とする。
 - 空の expiry date と comments は `null` とする。
 - feature は辞書順で表示し、同名 feature が複数 row に現れた場合は曖昧なため parser error とする。
+- feature block 形式では block の存在を `installed: true` とし、`Count` と `Status` を必須とする。既知 field の
+  重複、未知の非空行、非整数の `Count`、`IN USE`／`UNUSED` 以外の `Status` は parser error とする。
+- feature block 形式には expiry date と comments がないため `null` とする。`Description` を comments へ転用しない。
+- `License Authorization` の `Status: Not Applicable` は authorization の状態であり、feature block が存在する場合は
+  usage 自体を `not_applicable` にしない。feature block がない同 header だけの出力も、安全に判断できないため
+  `unknown` とする。
 
 `license_usage` 列には次の形式を semicolon 連結して表示する。
 
@@ -166,7 +205,8 @@ serial number を含む運用成果物であるため、repository へ commit �
 ## 8. Dependency、配布、検証
 
 alred が NTC Templates API を直接使用するため、`ntc-templates` を直接 runtime dependency として宣言し、
-major version を上限付きで管理する。PyInstaller binary には `ntc_templates` の template data を同梱する。
+major version を上限付きで管理する。PyInstaller binary には `ntc_templates` の template data と、
+`ntc_templates`／`textfsm` の distribution metadata を同梱する。
 NTC Templates と TextFSM の Apache-2.0 notice は第三者ライセンス一覧へ含める。
 
 test は少なくとも次を含む。
@@ -175,6 +215,6 @@ test は少なくとも次を含む。
 - chassis と module／power supply が混在する inventory
 - command error、空 output、anchor 欠落、row 0 件、未知 row、重複 feature
 - collection／parse failure でも他 device の row を維持すること
-- Markdown escaping、CSV quoting、複数値、hostname sort
+- Markdown escaping、CSV quoting、複数値、site priority／role priority／hostname sort、inventory site 優先と `sites.yaml` fallback
 - source tree と PyInstaller における NTC template resource の存在
 - parser backend、package version、template 名、template SHA-256 の provenance

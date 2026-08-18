@@ -880,7 +880,7 @@ alred health-check after \
   --change-id INS-20260809T100000-p0900-a1b2c3
 ```
 
-afterはbeforeのinventory、profile、collection条件、mappings、description rules、link health policyを
+afterはbeforeのinventory、profile、collection条件、mappings、description rules、sites、link health policyを
 継承・hash検証し、HealthとCanonical Link Evidenceの差分を生成する。inspectionをManaged Config
 Operationへ利用する場合は暗黙に昇格せず、別のchange operationまたは明示的な移行手順を使用する。
 

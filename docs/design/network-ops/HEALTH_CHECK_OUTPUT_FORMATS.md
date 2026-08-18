@@ -36,7 +36,8 @@
 
 機器一覧の列、取得元、ライセンス値の意味、欠損時の表示、NTC Templates の provenance は
 [Device Summary Design](./DEVICE_SUMMARY_DESIGN.md)を正本とする。`collected_at` は同じ phase の
-`Snapshot.created_at` を表示し、command ごとの取得時刻を代表する値とはみなさない。
+`Snapshot.created_at` の wall-clock 部分を UTC offset なしで表示し、command ごとの取得時刻を代表する値とは
+みなさない。timezone を含む正本は Snapshot に保持する。
 
 ### 2.1 metadata.yaml
 

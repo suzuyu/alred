@@ -61,6 +61,11 @@ alred init-clab \
 disabled row は normalized CSV へ残るが topology link にはならない。生成後も validation report を成果物と一緒に
 保持する。
 
+`init-clab` の `--clab-env` は、指定した Containerlab YAML を自動生成 topology へ merge し、
+`mgmt.ipv4-subnet` を管理 address 変換にも使用する。追加 override がある場合の適用順は
+`自動生成 < --clab-env < --clab-merge < --clab-lab-profile` である。同じ key は後の YAML を優先し、
+`topology.links` だけは生成済み link の後ろへ追加する。
+
 ## 4. 任意の外部 runtime 操作
 
 生成した Topology を確認後、必要に応じて Containerlab CLI で deploy する。

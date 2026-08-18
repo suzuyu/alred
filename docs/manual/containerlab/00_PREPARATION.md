@@ -8,8 +8,6 @@ alred collect-clab --help
 alred init-clab --help
 ```
 
-source checkoutでは`alred`を`uv run python alred.py`へ置き換える。
-
 既存ネットワークから生成する場合はread-onlyで機器へ接続する。対象host、実行時間、収集先、credentialを
 事前に確認する。通常の収集は設定を変更しないが、生成rawには商用構成と管理addressが含まれる。
 

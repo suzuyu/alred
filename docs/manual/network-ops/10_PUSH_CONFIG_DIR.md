@@ -44,6 +44,8 @@ NX-OS では、投入に使用している認証と management 接続を途中�
 | 接続に使用した `username <login-user> ...` と `no username <login-user>` | login username が大文字・小文字を含めて完全一致する command だけを除外 |
 | `vrf context management` | section 全体を除外 |
 | `interface mgmt0` | section 全体を除外 |
+| `ssh key ...` と対応する `no`／`default` command | SSH host key の生成、再生成、削除 command を除外 |
+| `no feature ssh` | SSH service の無効化 command を除外。`feature ssh` は保持 |
 | `line vty`／`line vty <range>` | section 全体を除外 |
 | management VRF、`mgmt0`、VTY の削除／初期化 command | 該当 command を除外 |
 
@@ -59,16 +61,48 @@ section 判定には元 file のインデントまたは `!` 境界を使用し�
 インデントなしにした file は安全に範囲を確定できないため、投入前に validation error となります。元の
 階層を保持するか、section 間へ `!` を残してください。
 
-## 3. 投入前表示
+接続保護 config を除外する意図を command 上で明示する場合は、既定動作と同じ
+`--exclude-protected-config` を指定できます。
+
+```bash
+alred push-config-dir \
+  --hosts hosts.yaml \
+  --input-dir raw/config \
+  --file-suffix _run.txt \
+  --exclude-protected-config
+```
+
+`--exclude-protected-config`、`--include-line-vty-config`、`--force` は相互排他です。
+
+## 3. `line vty` だけを投入する場合
+
+複数 device へ共通 VTY ACL を投入するなど、`line vty` section を意図的に含める場合は
+`--include-line-vty-config` を指定します。
+
+```bash
+alred push-config-dir \
+  --hosts hosts.yaml \
+  --input-dir raw/config \
+  --file-suffix _run.txt \
+  --include-line-vty-config
+```
+
+この option は `line_vty` rule だけを解除します。login user、management VRF、`mgmt0`、SSH host key、
+`no feature ssh` は引き続き除外されます。VTY ACL の誤りで現在または次回の SSH 接続を失う可能性があるため、
+対象 ACL、適用方向、代替接続、rollback 手順を確認してください。
+
+## 4. 投入前表示
 
 除外対象がある場合、対象確認 prompt より前に category、行数、sanitized command を表示します。
 
 ```text
 === PUSH CONFIG CONNECTION SAFETY ===
-- leaf01: excluded=9
+- leaf01: excluded=11
   - current_login_user: lines=1 command=username admin <redacted>
   - management_vrf: lines=2 command=vrf context management
   - management_interface: lines=3 command=interface mgmt0
+  - ssh_host_key: lines=1 command=ssh key rsa 2048
+  - ssh_service: lines=1 command=no feature ssh
   - line_vty: lines=3 command=line vty
 Use --force only when these commands must be included.
 =======================================
@@ -77,7 +111,7 @@ Use --force only when these commands must be included.
 `username` の password、secret、hash は端末と log に表示しません。除外後に投入可能な command がない
 host は mutation 対象から外します。
 
-## 4. `--force` で接続保護 filter を解除
+## 5. `--force` で接続保護 filter を解除
 
 接続経路の変更を意図的に同じ session で投入する場合だけ、`--force` を指定します。
 
@@ -100,10 +134,11 @@ alred push-config-dir \
 - NX-OS CLI error の strict 検出
 - 既存の device type 別非投入 line
 
-`--force` では login user、management VRF、`mgmt0`、VTY の変更によって投入中または投入後の再接続が
-失敗する可能性があります。到達可能な代替 user／経路と rollback 手順を確認してから使用してください。
+`--force` では login user、management VRF、`mgmt0`、SSH host key／service、VTY の変更によって投入中または
+投入後の再接続が失敗する可能性があります。到達可能な代替 user／経路と rollback 手順を確認してから
+使用してください。
 
-## 5. 投入後確認と保存
+## 6. 投入後確認と保存
 
 投入後は別 session で対象へ再接続し、running-config と正常性を確認します。失敗した host へ同じ file を
 無条件で再送しないでください。

@@ -53,6 +53,22 @@ alred clab-transform-config
 `--input raw`は同一環境内の既存 file互換経路である。source configがない hostをwarningでskipする動作と、
 Evidence Package経路の fail-closed動作を混同しない。
 
+### `--clab-env` の内容
+
+`--clab-env` には Containerlab topology 形式の YAML を指定する。この command が参照する field は
+`mgmt.ipv4-subnet` だけであり、source inventory と `interface mgmt0` の address を、host 部を維持したまま
+lab 用 subnet へ変換する。`topology.kinds`、image、bind mount など、同じ YAML のその他の field は
+`clab-transform-config` の出力へ merge しない。
+
+```yaml
+mgmt:
+  network: clab-mgmt
+  ipv4-subnet: 172.20.20.0/24
+```
+
+未指定時は `./clab_merge.yaml` が存在すれば使用し、存在しなければ subnet 変換を行わない。明示指定した
+file の欠落、不正な YAML、`mgmt.ipv4-subnet` の不正値、変換後 address の重複は error とする。
+
 ## 4. Lab user
 
 credentialが完全に解決できる場合、同名NX-OS userをlab用設定へ置換する。生成される boot後投入用 configには平文passwordが
