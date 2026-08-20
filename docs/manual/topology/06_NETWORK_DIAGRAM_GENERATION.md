@@ -55,14 +55,14 @@ Overlay Service の route 到達性は、対応する Type-5 と destination VRF
 
 | Option | 動作 |
 |---|---|
-| `--all-graph` | Physical／Underlay／EVPN／Overlay Service の TD／LR を 8 page draw.io にまとめる |
-| `--directions TD,LR,BT,RL` | `--all-graph` と併用し、反転方向を含む 16 page を生成する |
+| `--all-graph` | Physical／Underlay／EVPN／Overlay Service の TD／LR と Topology Confirmed Links を 9 page draw.io にまとめる |
+| `--directions TD,LR,BT,RL` | `--all-graph` と併用し、反転方向を含む 17 page を生成する |
 | `--all-overlay-details` | Detail 上限を解除して全 service を選択する |
 | `--overlay-detail-format markdown,drawio` | service Detail を Markdown と draw.io の両形式で生成する |
 | `--overlay-detail-limit <count>` | selector 未指定時に生成する Detail 件数を制限する。既定は 20 件 |
 | `--site`／`--vrf`／`--l2vni`／`--l3vni`／`--service` | Detail 対象を union で選択する |
 | `--output-dir <directory>` | 固定成果物の公開先を変更する |
-| `--no-overlay-service` | Overlay Service を除外し、従来の 6 page を生成する |
+| `--no-overlay-service` | Overlay Service を除外した 7 page を生成する |
 | `--no-group-by-role`／`--no-group-by-site` | role grouping または自動 site grouping を無効化する |
 
 `--all-overlay-details --overlay-detail-format markdown,drawio` は全 VRF の両形式を生成する。大規模環境で review 対象が限定される場合は、
@@ -110,7 +110,7 @@ hub 左列／spoke 右列へ配置する。逆方向 route leak は 2 lane に�
 | `overlay-services/*.md` | Overlay Service Detail で `markdown` を選択時 | VRF 単位の設定・RT・placement Detail | [tenant1 Markdown sample](examples/single-site-fabric/overlay-services/adc_tenant1-vpc1-faa720c4.md) |
 | `overlay-services/*.drawio` | Overlay Service Detail で `drawio` を選択時 | VRF 単位の編集可能な Detail | [tenant1 draw.io sample](examples/single-site-fabric/overlay-services/adc_tenant1-vpc1-faa720c4.drawio) |
 | `topology-graph.drawio` | `--all-graph` 未指定時 | `--direction` で選択した単一 view の draw.io | [Diagram Rendering](03_DIAGRAM_RENDERING.md) |
-| `topology-graph-all.drawio` | `--all-graph` 指定時 | 4 view × TD／LR の 8 page draw.io | [8-page draw.io sample](examples/single-site-fabric/topology-graph-all.drawio) |
+| `topology-graph-all.drawio` | `--all-graph` 指定時 | 4 view × TD／LR と Topology Confirmed Links の 9 page draw.io | [9-page draw.io sample](examples/single-site-fabric/topology-graph-all.drawio) |
 | `network-diagram-manifest.yaml` | 常時 | source、実効 option、入力・成果物 hash、Detail 選択結果 | [Manifest sample](examples/single-site-fabric/network-diagram-manifest.yaml) |
 
 `--no-overlay-service` 指定時は Overlay Service Summary、model、CSV、Detail を生成しない。Detail の生成件数と形式は

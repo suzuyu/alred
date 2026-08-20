@@ -8,6 +8,7 @@ import io
 import re
 from typing import Any, Mapping
 
+from ..constants import DEFAULT_SITE_PRIORITY
 from .evaluator import RESULT_ORDER
 from ..schema import validate_document
 
@@ -161,11 +162,11 @@ def _site_priority(
     site_rules: Mapping[str, Any] | None,
 ) -> int:
     if site_rules is None:
-        return 99
+        return DEFAULT_SITE_PRIORITY
     rule = site_rules.get(site)
     if not isinstance(rule, Mapping):
-        return 99
-    return int(rule.get("priority", 99))
+        return DEFAULT_SITE_PRIORITY
+    return int(rule.get("priority", DEFAULT_SITE_PRIORITY))
 
 
 def _display_collected_at(value: Any) -> str:

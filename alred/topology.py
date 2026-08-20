@@ -8,6 +8,7 @@ from logging import Logger
 from typing import Any, Dict, List, Optional, Tuple
 
 from .constants import (
+    DEFAULT_SITE_PRIORITY,
     DEFAULT_INIT_LINUX_NODE_BIND,
     DEFAULT_LINUX_NODE_EXEC,
     DEVICE_TYPE_TO_KIND,
@@ -197,12 +198,12 @@ def get_site_priority(site: str, sites: Dict[str, Any]) -> int:
         sites: Site rules.
 
     Returns:
-        Numeric priority. Unknown sites default to 99.
+        Numeric priority. Unknown sites default to 1000.
     """
     rule = sites.get(site)
     if not rule:
-        return 99
-    return int(rule.get("priority", 99))
+        return DEFAULT_SITE_PRIORITY
+    return int(rule.get("priority", DEFAULT_SITE_PRIORITY))
 
 
 def order_link_endpoints(

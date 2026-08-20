@@ -48,7 +48,7 @@ alred generate-network-diagram \
   --overlay-detail-format markdown,drawio
 ```
 
-`--all-graph` は Physical／Underlay／EVPN／Overlay Service の TD／LR を 8 page の draw.io にまとめる。
+`--all-graph` は Physical／Underlay／EVPN／Overlay Service の TD／LR と Topology Confirmed Links を 9 page の draw.io にまとめる。
 `--all-overlay-details --overlay-detail-format markdown,drawio` は全 service の Markdown／draw.io Detail を生成する。
 Overlay Service Summary の hub-and-spoke 配置は自動適用され、追加 option は不要である。内部処理、evidence 判定、
 規模に応じた selector、個別 renderer は [Network Diagram Generation](06_NETWORK_DIAGRAM_GENERATION.md) を参照する。
@@ -61,7 +61,7 @@ Overlay Service Summary の hub-and-spoke 配置は自動適用され、追加 o
 | `topology_underlay.md` | Underlay address／session の Mermaid | [Underlay sample](examples/single-site-fabric/topology_underlay.md) |
 | `topology_evpn.md` | EVPN RR／VTEP／session の Mermaid | [EVPN sample](examples/single-site-fabric/topology_evpn.md) |
 | `topology_overlay_service.md` | VRF／VNI／route leak の Mermaid Summary | [Overlay Summary sample](examples/single-site-fabric/topology_overlay_service.md) |
-| `topology-graph-all.drawio` | 4 view × TD／LR の 8 page | [8-page draw.io sample](examples/single-site-fabric/topology-graph-all.drawio) |
+| `topology-graph-all.drawio` | 4 view × TD／LR と Topology Confirmed Links の 9 page | [9-page draw.io sample](examples/single-site-fabric/topology-graph-all.drawio) |
 | `overlay-services/*.md` | VRF 単位の設定・RT・placement Detail | [tenant1 Markdown sample](examples/single-site-fabric/overlay-services/adc_tenant1-vpc1-faa720c4.md) |
 | `overlay-services/*.drawio` | VRF 単位の編集可能な Detail | [tenant1 draw.io sample](examples/single-site-fabric/overlay-services/adc_tenant1-vpc1-faa720c4.drawio) |
 

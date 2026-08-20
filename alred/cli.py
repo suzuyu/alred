@@ -4436,7 +4436,7 @@ def prepare_evpn_diagram_context(
     for hostname in source_hosts:
         normalized = normalize_hostname(hostname, mappings)
         attrs = normalized_inventory_map.get(normalized, {})
-        role = str(attrs.get("group", "")).strip() or detect_node_role(
+        role = str(attrs.get("group") or "").strip() or detect_node_role(
             normalized, roles
         )
         node_roles[normalized] = role
@@ -4449,7 +4449,7 @@ def prepare_evpn_diagram_context(
                 and isinstance(rule, dict)
                 and rule.get("expectation") == "required"
             )
-        site = str(attrs.get("site", "")).strip() or detect_node_site(
+        site = str(attrs.get("site") or "").strip() or detect_node_site(
             normalized, sites
         )
         if site:
@@ -4530,7 +4530,7 @@ def prepare_overlay_service_diagram_context(
     for hostname in source_hosts:
         normalized = normalize_hostname(hostname, mappings)
         attrs = normalized_inventory_map.get(normalized, {})
-        site = str(attrs.get("site", "")).strip() or detect_node_site(
+        site = str(attrs.get("site") or "").strip() or detect_node_site(
             normalized, sites
         )
         if site:
@@ -4957,14 +4957,14 @@ def prepare_topology_diagram_context(args: argparse.Namespace, logger: Logger) -
         mappings=mappings,
     )
     node_role_map = {
-        node: str(attrs.get("group", "")).strip()
+        node: str(attrs.get("group") or "").strip()
         for node, attrs in normalized_inventory_map.items()
-        if isinstance(attrs, dict) and str(attrs.get("group", "")).strip()
+        if isinstance(attrs, dict) and str(attrs.get("group") or "").strip()
     }
     inventory_site_map = {
-        node: str(attrs.get("site", "")).strip()
+        node: str(attrs.get("site") or "").strip()
         for node, attrs in normalized_inventory_map.items()
-        if isinstance(attrs, dict) and str(attrs.get("site", "")).strip()
+        if isinstance(attrs, dict) and str(attrs.get("site") or "").strip()
     }
     diagram_node_names = set(extra_node_names)
     for link in rendered_links + rendered_candidate_links:
@@ -5098,7 +5098,7 @@ def build_drawio_page_diagram(
     """
     page_args = argparse.Namespace(**vars(args))
     page_args.direction = direction
-    page_args.view = view
+    page_args.view = "physical" if view == "confirmed" else view
     page_args.underlay = view == "underlay"
     context = prepare_topology_diagram_context(page_args, logger)
 
@@ -5115,7 +5115,9 @@ def build_drawio_page_diagram(
         group_by_site=getattr(args, "group_by_site", False),
         add_comments=args.add_comments,
         title=context["title"],
-        candidate_links=context["rendered_candidate_links"],
+        candidate_links=(
+            [] if view == "confirmed" else context["rendered_candidate_links"]
+        ),
         node_address_map=context["node_address_map"],
         node_address_label_map=context["node_address_label_map"],
         node_address_lines_map=context["node_address_lines_map"],
@@ -9593,12 +9595,19 @@ def build_drawio_page_variants(
     *,
     include_overlay_service: bool = True,
 ) -> List[Tuple[str, str, str]]:
-    """Build stable Physical, Underlay, EVPN, and Overlay Service pages."""
+    """Build stable view pages plus one confirmed-links-only page."""
     resolved = tuple(directions)
-    variants = [
+    topology_variants = [
         (f"Topology {direction}", direction, "physical")
         for direction in resolved
-    ] + [
+    ]
+    variants = topology_variants[:1] + [
+        (
+            f"Topology Confirmed Links {resolved[0]}",
+            resolved[0],
+            "confirmed",
+        )
+    ] + topology_variants[1:] + [
         (f"Underlay {direction}", direction, "underlay")
         for direction in resolved
     ] + [

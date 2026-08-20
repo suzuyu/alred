@@ -23,7 +23,7 @@ before／rollback の immutable attempt を使用する場合は attempt directo
 
 Markdown と CSV は同じ canonical row と列順から生成する。row は site の `priority`、site 名、解決済み
 topology role の `priority`、topology role 名、hostname の順で生成する。数値が小さいほど先に表示する。
-site または role が未解決、競合、または固定 artifact に `priority` がない場合は `99` とする。CSV は UTF-8、
+site が未解決、競合、または固定 artifact に `priority` がない場合は `1000`、role の場合は `99` とする。CSV は UTF-8、
 header あり、LF 改行とし、Python `csv` の標準 quoting を使用する。複数値は semicolon と space の `; ` で連結する。
 
 ## 3. 列と取得元

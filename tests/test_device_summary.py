@@ -509,6 +509,21 @@ def test_device_summary_sorts_site_priority_before_role_priority():
     assert [row["hostname"] for row in rows] == ["leaf01", "leaf02"]
 
 
+def test_device_summary_uses_1000_for_missing_site_priority():
+    rows = build_device_summary_rows(
+        _snapshot(),
+        _health_result(),
+        resolved_roles=_resolved_roles(),
+        inventory_sites={"leaf01": "implicit", "leaf02": "explicit"},
+        site_rules={
+            "implicit": {},
+            "explicit": {"priority": 999},
+        },
+    )
+
+    assert [row["hostname"] for row in rows] == ["leaf02", "leaf01"]
+
+
 def test_inventory_site_prefers_explicit_value_then_metadata():
     inventory = load_inventory_data({
         "all": {

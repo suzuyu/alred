@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Optional
 
 from .constants import (
+    DEFAULT_SITE_PRIORITY,
     DRAWIO_HOST,
     DRAWIO_LAYOUT,
     DRAWIO_MODEL_ATTRIBUTES,
@@ -27,14 +28,14 @@ from .constants import (
 
 def get_site_priority(site: str, sites: Optional[Dict[str, Any]]) -> int:
     """
-    Return numeric sort priority for a site. Unknown sites default to 99.
+    Return numeric sort priority for a site. Unknown sites default to 1000.
     """
     if not sites:
-        return 99
+        return DEFAULT_SITE_PRIORITY
     rule = sites.get(site)
     if not isinstance(rule, dict):
-        return 99
-    return int(rule.get("priority", 99))
+        return DEFAULT_SITE_PRIORITY
+    return int(rule.get("priority", DEFAULT_SITE_PRIORITY))
 
 
 def site_sort_key(site: str, sites: Optional[Dict[str, Any]]) -> tuple[int, bool, str]:

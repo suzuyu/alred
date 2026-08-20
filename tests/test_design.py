@@ -17,6 +17,7 @@ from alred.cli import (
     build_parser,
     collect_cable_description_warnings,
     filter_links_by_target_roles,
+    prepare_topology_diagram_context,
 )
 from alred.constants import DEFAULT_CLAB_SET_CMDS
 from alred.design import normalize_and_validate_cables
@@ -972,6 +973,52 @@ class GenerateMermaidClabInputTests(unittest.TestCase):
             self.assertIn("subgraph standalone[standalone]", mermaid)
             self.assertIn('server01 -->|"eth1 ↔ Ethernet1/1"| leaf01', mermaid)
 
+    def test_null_inventory_site_falls_back_to_site_detection(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            links = root / "links.csv"
+            hosts = root / "hosts.yaml"
+            sites = root / "sites.yaml"
+
+            links.write_text(
+                "src_node,src_if,dst_node,dst_if,confidence\n"
+                "adc-leaf01,Ethernet1/1,adc-spine01,Ethernet1/1,high\n",
+                encoding="utf-8",
+            )
+            hosts.write_text(
+                "all:\n"
+                "  hosts:\n"
+                "    adc-leaf01:\n"
+                "      ansible_host: 192.0.2.11\n"
+                "      device_type: nxos\n"
+                "    adc-spine01:\n"
+                "      ansible_host: 192.0.2.12\n"
+                "      device_type: nxos\n",
+                encoding="utf-8",
+            )
+            sites.write_text(
+                "site_detection:\n"
+                "  adc:\n"
+                "    startswith: [adc-]\n",
+                encoding="utf-8",
+            )
+
+            args = build_parser().parse_args([
+                "generate-mermaid",
+                "--input", str(links),
+                "--hosts", str(hosts),
+                "--sites", str(sites),
+            ])
+            context = prepare_topology_diagram_context(
+                args, logging.getLogger("test-null-inventory-site")
+            )
+
+            self.assertEqual(
+                context["node_site_map"],
+                {"adc-leaf01": "adc", "adc-spine01": "adc"},
+            )
+            self.assertNotIn("None", context["node_site_map"].values())
+
     def test_generates_site_and_role_hierarchy_from_clab_labels(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -1358,7 +1405,7 @@ class GenerateNetworkDiagramTests(unittest.TestCase):
                 )
             self.assertFalse((output / "network-diagram-manifest.yaml").exists())
 
-    def test_all_graph_writes_eight_page_drawio_by_default(self) -> None:
+    def test_all_graph_writes_nine_page_drawio_by_default(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             clab, roles, raw = self._write_inputs(root)
@@ -1381,7 +1428,7 @@ class GenerateNetworkDiagramTests(unittest.TestCase):
             self.assertEqual(
                 [item.get("name") for item in drawio.findall("diagram")],
                 [
-                    "Topology TD", "Topology LR",
+                    "Topology TD", "Topology Confirmed Links TD", "Topology LR",
                     "Underlay TD", "Underlay LR",
                     "EVPN TD", "EVPN LR",
                     "Overlay Service TD", "Overlay Service LR",
@@ -1413,7 +1460,8 @@ class GenerateNetworkDiagramTests(unittest.TestCase):
             self.assertEqual(
                 [item.get("name") for item in drawio.findall("diagram")],
                 [
-                    "Topology TD", "Topology LR", "Topology BT", "Topology RL",
+                    "Topology TD", "Topology Confirmed Links TD",
+                    "Topology LR", "Topology BT", "Topology RL",
                     "Underlay TD", "Underlay LR", "Underlay BT", "Underlay RL",
                     "EVPN TD", "EVPN LR", "EVPN BT", "EVPN RL",
                     "Overlay Service TD", "Overlay Service LR",
@@ -1421,7 +1469,7 @@ class GenerateNetworkDiagramTests(unittest.TestCase):
                 ],
             )
 
-    def test_no_overlay_service_keeps_legacy_six_page_drawio(self) -> None:
+    def test_no_overlay_service_writes_seven_page_drawio(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             clab, roles, raw = self._write_inputs(root)
@@ -1445,7 +1493,7 @@ class GenerateNetworkDiagramTests(unittest.TestCase):
             self.assertEqual(
                 [item.get("name") for item in drawio.findall("diagram")],
                 [
-                    "Topology TD", "Topology LR",
+                    "Topology TD", "Topology Confirmed Links TD", "Topology LR",
                     "Underlay TD", "Underlay LR",
                     "EVPN TD", "EVPN LR",
                 ],
