@@ -69,6 +69,7 @@ DEVICE_TYPE_TO_KIND = {
 }
 
 NETWORK_DEVICE_TYPES = {"nxos", "ios", "iosxe", "iosxr", "eos", "nokia_srlinux", "junos", "asa", "asav"}
+DEFAULT_SITE_PRIORITY = 1000
 PRIVILEGED_EXEC_DEVICE_TYPES = {"asa", "asav", "eos"}
 REQUIRE_ENABLE_SECRET_DEVICE_TYPES = {"asa", "asav"}
 NETMIKO_DEVICE_TYPE_OVERRIDE_MAP = {

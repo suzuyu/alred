@@ -17,7 +17,7 @@
 | `overlay-services/*.md` | 既定 20 件または selector／option で選んだ service Markdown Detail |
 | `overlay-services/*.drawio` | `--overlay-detail-format` に `drawio` を指定した VRF Detail |
 | `topology-graph.drawio` | `generate-network-diagram` の編集可能な draw.io XML |
-| `topology-graph-all.drawio` | `--all-graph` 指定時の 4 view、既定 8 page draw.io XML |
+| `topology-graph-all.drawio` | `--all-graph` 指定時の 4 view と Topology Confirmed Links、既定 9 page draw.io XML |
 | `network-diagram-manifest.yaml` | diagram source、実効 option、入力・成果物 hash |
 | `topology.md` | 個別 `generate-mermaid` で出力先を指定した Mermaid 構成図 |
 | `topology.dot` | Graphviz DOT |

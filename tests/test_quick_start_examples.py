@@ -11,6 +11,7 @@ from alred.cli import build_parser
 from alred.health.roles import load_role_config
 from alred.lab_transform import load_lab_transform_parameters
 from alred.parsing import load_roles, load_sites
+from alred.render import get_site_priority as get_render_site_priority
 from alred.schema import canonical_sha256, source_sha256, validate_document
 from alred.secret_scan import sanitize_text, scan_text
 from alred.topology import detect_node_role, detect_node_site, get_site_priority
@@ -152,7 +153,8 @@ def test_topology_quick_start_samples_match_current_renderers(tmp_path: Path) ->
         TOPOLOGY_SAMPLE / "topology-graph-all.example.drawio"
     ).getroot()
     assert [item.get("name") for item in actual_drawio.findall("diagram")] == [
-        "Topology TD", "Topology LR", "Underlay TD", "Underlay LR",
+        "Topology TD", "Topology Confirmed Links TD", "Topology LR",
+        "Underlay TD", "Underlay LR",
         "EVPN TD", "EVPN LR", "Overlay Service TD", "Overlay Service LR",
     ]
 
@@ -302,6 +304,10 @@ def test_single_site_fabric_sites_include_multisite_extension_rules() -> None:
     assert get_site_priority("adc", sites) == 100
     assert get_site_priority("bdc", sites) == 100
     assert get_site_priority("cdc", sites) == 100
+    assert get_site_priority("unknown", sites) == 1000
+    assert get_site_priority("no-priority", {"no-priority": {}}) == 1000
+    assert get_render_site_priority("unknown", sites) == 1000
+    assert get_render_site_priority("no-priority", {"no-priority": {}}) == 1000
 
 
 def test_single_site_fabric_secret_mask_example_and_configs_are_safe() -> None:
@@ -478,7 +484,8 @@ def test_single_site_fabric_diagrams_are_reproducible(tmp_path: Path) -> None:
         SINGLE_SITE_TOPOLOGY_SAMPLE / "topology-graph-all.drawio"
     ).getroot()
     assert [item.get("name") for item in actual_drawio.findall("diagram")] == [
-        "Topology TD", "Topology LR", "Underlay TD", "Underlay LR",
+        "Topology TD", "Topology Confirmed Links TD", "Topology LR",
+        "Underlay TD", "Underlay LR",
         "EVPN TD", "EVPN LR", "Overlay Service TD", "Overlay Service LR",
     ]
 

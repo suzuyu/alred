@@ -23,8 +23,8 @@ alred generate-network-diagram \
 `overlay-services/`、`topology-graph.drawio` と、source／option／hash を記録した
 `network-diagram-manifest.yaml` を出力する。role grouping は既定で有効、site grouping は metadata から自動判定し、
 すべての diagram へ同じ値を適用する。既定方向は `TD` であり、横方向は `--direction LR` で選択する。draw.io の
-主要方向の 4 view を 8 page にまとめる場合は `--all-graph` を指定する。`BT`／`RL` も含む 16 page 版が必要な場合は
-`--all-graph --directions TD,LR,BT,RL` を指定する。Overlay Service を除く従来の 6／12 page は
+主要方向の 4 view と Topology Confirmed Links を 9 page にまとめる場合は `--all-graph` を指定する。`BT`／`RL` も含む 17 page 版が必要な場合は
+`--all-graph --directions TD,LR,BT,RL` を指定する。Overlay Service を除く 7／13 page は
 `--no-overlay-service` で生成する。
 
 Evidence Package、external import、Operation では、それぞれの Manifest から検証済み running config を host 単位で解決して
@@ -81,9 +81,11 @@ alred generate-drawio \
   --output output/topology.drawio
 ```
 
-`--all-graph` は `Topology TD`、`Topology LR`、`Underlay TD`、`Underlay LR`、`EVPN TD`、`EVPN LR`、
-`Overlay Service TD`、`Overlay Service LR` の 8 page を 1 file へまとめる。`--directions TD,LR,BT,RL` を追加すると、
-反転方向を含む 16 page を生成する。`--no-overlay-service` では Overlay Service page を生成しない。
+`--all-graph` は `Topology TD`、`Topology Confirmed Links TD`、`Topology LR`、`Underlay TD`、`Underlay LR`、
+`EVPN TD`、`EVPN LR`、`Overlay Service TD`、`Overlay Service LR` の 9 page を 1 file へまとめる。
+`Topology Confirmed Links TD` は
+candidate link を含めない。`--directions TD,LR,BT,RL` を追加すると、反転方向を含む 17 page を生成する。
+`--no-overlay-service` では Overlay Service page を生成しない。
 EVPN LR の Spine–Leaf session は Spine の右側から Leaf の左側へ接続し、遠い反対側を経由しない。Overlay Service Summary は
 route leak の向きを優先し、最大次数の service を hub とする。TD は hub を上段、直接接続する service 群を下段へ横並びにし、
 LR は hub を左列、直接接続する service 群を右列へ縦並びにする。相互 import／export による逆方向 edge は別 lane に分けて表示する。

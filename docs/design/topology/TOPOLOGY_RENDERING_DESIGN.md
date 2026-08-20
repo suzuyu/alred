@@ -48,6 +48,7 @@ candidate は confirmed と区別できる線種・注記で表示する。`gene
 または解決済み `sites.yaml` rule から 1 台以上の site を解決できた場合に自動的に有効化する。明示的な
 `--group-by-site` は metadata がない場合も `default` site へ group 化し、`--no-group-by-site` は自動判定を無効化する。
 node に明示した site は hostname の `sites.yaml` rule より優先し、命名規則で上書きしない。
+site の `priority` は数値が小さい順とし、未指定または未定義の site は `1000` とする。
 role group は `roles.yaml` の `priority` 数値が小さい順に出力する。同一 priority は role 名で決定的に並べ、
 Mermaid source 上で上から順に subgraph を定義する。
 draw.io は同一 priority の role を同じ layout band に配置し、`TD` では横並び、`LR` では縦並びにする。
@@ -70,11 +71,14 @@ Mermaid の方向は、縦長の構成を上から下へ追いやすい `TD` を
 `generate-network-diagram`、`generate-doc` で統一する。横方向が必要な場合は `--direction LR` を明示する。
 Graphviz と単体 draw.io renderer の既定方向も `TD` とする。
 
-draw.io `--all-graph` は、`TD` と `LR` について Physical、Underlay、EVPN、Overlay Service を作成し、計 8 page を
-1 file へ格納する。page 名と順序は `Topology TD`、`Topology LR`、`Underlay TD`、`Underlay LR`、`EVPN TD`、
-`EVPN LR`、`Overlay Service TD`、`Overlay Service LR` とする。既存 6 page が必要な場合は
-`--no-overlay-service` を指定する。`--directions TD,LR,BT,RL` を明示した場合は Overlay Service を含むと 16 page、
-除外すると 12 page とする。詳細は
+draw.io `--all-graph` は、`TD` と `LR` について Physical、Underlay、EVPN、Overlay Service を作成し、
+candidate を除外した `Topology Confirmed Links TD` を加えた計 9 page を
+1 file へ格納する。page 名と順序は `Topology TD`、`Topology Confirmed Links TD`、`Topology LR`、
+`Underlay TD`、`Underlay LR`、`EVPN TD`、`EVPN LR`、`Overlay Service TD`、`Overlay Service LR` とする。
+`Topology Confirmed Links TD` は
+`--directions` の先頭方向を使用し、`links_confirmed.csv` の link と endpoint node だけを描画する。
+`--no-overlay-service` を指定した場合は 7 page とする。`--directions TD,LR,BT,RL` を明示した場合は
+Overlay Service を含むと 17 page、除外すると 13 page とする。詳細は
 [Overlay Service Diagram Design](OVERLAY_SERVICE_DIAGRAM_DESIGN.md) を参照する。
 `--directions` は comma 区切りの `TD`、`LR`、`BT`、`RL` を受け付け、指定順を Physical、Underlay、EVPN の
 各 page 順に反映する。
@@ -110,8 +114,8 @@ inventory、mapping、role、site を使って diagram を生成する。
 | `topology-graph.drawio` | topology の draw.io XML |
 | `network-diagram-manifest.yaml` | source、実効 option、入力・成果物 hash |
 
-`--all-graph` 指定時は `topology-graph.drawio` の代わりに `topology-graph-all.drawio` を生成する。既定は 8 page、
-`--directions TD,LR,BT,RL` 指定時は 16 page とする。`--no-overlay-service` では従来の 6／12 page を維持する。
+`--all-graph` 指定時は `topology-graph.drawio` の代わりに `topology-graph-all.drawio` を生成する。既定は 9 page、
+`--directions TD,LR,BT,RL` 指定時は 17 page とする。`--no-overlay-service` では 7／13 page とする。
 role grouping は既定で有効、site grouping は解決済み metadata により
 自動判定し、全 view で同じ実効値を使う。
 
@@ -184,7 +188,8 @@ Containerlab YAML を生成しない diagram 専用 command であり、`generat
 - CSVとcontainerlab入力から同一link集合になること
 - confidence境界、exclude、endpoint ordering、deduplication
 - Mermaid、DOT、draw.ioのgolden testとhash seed差分
-- draw.io の既定 8 page／全方向 16 page と、`--no-overlay-service` の 6／12 page の名称・順序
+- draw.io の既定 9 page／全方向 17 page と、`--no-overlay-service` の 7／13 page の名称・順序、および
+  `Topology Confirmed Links <direction>` に candidate link が含まれないこと
 - role/site groupingとunderlay address欠落
 - Underlay／EVPN view の責務分離と model parity
 - malformed CSV/YAMLのcode付きerrorとpartial file非公開

@@ -7,7 +7,7 @@ route-target import／export による route leak を、物理 topology、Underl
 分離して描画する仕様を定める。
 
 初期実装として、`generate-network-diagram`、`generate-mermaid`、`generate-graphviz`、`generate-drawio` の
-`overlay-service` view、`OverlayServiceModel`、有向 route leak、既定 8 page 出力に対応している。保存済み
+`overlay-service` view、`OverlayServiceModel`、有向 route leak、既定 9 page 出力に対応している。保存済み
 `OverlayState` を直接優先入力とする adapter と `sampled` verification は未実装である。詳細な実装状態は
 [Implementation Status](../../implementation/IMPLEMENTATION_STATUS.md) を参照する。
 
@@ -430,16 +430,17 @@ alred generate-network-diagram \
   --output-dir output/overlay-tenant1
 ```
 
-実装後の `generate-network-diagram --all-graph` は、既定 `TD,LR` で次の 8 page をこの順序で生成する。
+`generate-network-diagram --all-graph` は、既定 `TD,LR` で次の 9 page をこの順序で生成する。
 
 1. `Topology TD`
-2. `Topology LR`
-3. `Underlay TD`
-4. `Underlay LR`
-5. `EVPN TD`
-6. `EVPN LR`
-7. `Overlay Service TD`
-8. `Overlay Service LR`
+2. `Topology Confirmed Links TD`
+3. `Topology LR`
+4. `Underlay TD`
+5. `Underlay LR`
+6. `EVPN TD`
+7. `EVPN LR`
+8. `Overlay Service TD`
+9. `Overlay Service LR`
 
 Overlay Service Summary の draw.io page は route leak adjacency の最大次数 node を hub とする。`TD` では hub を上段、直接接続する
 service 群を下段へ横並びにし、`LR` では hub を左列、直接接続する service 群を右列へ縦並びにする。3 service の例で
@@ -447,9 +448,10 @@ service 群を下段へ横並びにし、`LR` では hub を左列、直接接�
 同数の hub candidate は canonical service ID で決定し、hub からの最短 hop 数を後続 rank とする。逆方向を含む同一 service pair の
 edge は別 lane に分離し、完全に重ねない。interface を持たない論理 edge は配置後の座標から相手 node に最も近い側へ接続する。
 
-Overlay Service を不要とする既存 consumer 向けに `--no-overlay-service` を用意し、従来と同じ 6 page を生成する。
-`--directions TD,LR,BT,RL` では、Overlay Service を含む場合は 4 view × 4 direction の 16 page、
-`--no-overlay-service` の場合は従来どおり 12 page とする。
+Overlay Service を不要とする consumer 向けに `--no-overlay-service` を用意し、7 page を生成する。
+`--directions TD,LR,BT,RL` では、Overlay Service を含む場合は 4 view × 4 direction と
+Topology Confirmed Links の 17 page、
+`--no-overlay-service` の場合は 13 page とする。
 
 単体 `--view overlay-service` で evidence が不足する場合は `status: insufficient-evidence` の model と理由を記載した
 artifact を生成する。入力 Manifest、schema、hash の検証失敗では部分生成せず、以前の公開済み artifact を維持する。
@@ -479,8 +481,8 @@ Physical、Underlay、EVPN、Overlay Service の model、CSV、Markdown、draw.i
 同じ固定 source、parser version、selector、detail limit、direction からは、stable order の同じ model と diagram を
 再生成できることを要求する。route leak edge は source service ID、destination service ID、AF、matched RT の順で sort する。
 
-既存の Physical／Underlay／EVPN 6 page の内容と page 名は変更しない。Overlay Service は末尾へ追加する。
-`--no-overlay-service` は既存 6 page consumer の互換経路であり、従来の page 内容と名称を変更しない。
+Physical／Underlay／EVPN 6 page の内容と page 名は変更しない。Topology Confirmed Links は最初の Topology page の直後に追加する。
+`--no-overlay-service` は Overlay Service だけを除外し、Topology Confirmed Links は維持する。
 
 ## 11. Test 要件
 
@@ -497,6 +499,6 @@ Physical、Underlay、EVPN、Overlay Service の model、CSV、Markdown、draw.i
 - RT の明示値／`auto` 注記、SVI Gateway state、IPv4／IPv6 address の集約
 - Markdown／draw.io Detail の形式選択、VRF Detail draw.io の node／edge parity
 - Mermaid、Graphviz、draw.io の service／route leak parity
-- draw.io の既定 8 page、`--no-overlay-service` の 6 page、全方向の 16／12 page
+- draw.io の既定 9 page、`--no-overlay-service` の 7 page、全方向の 17／13 page
 - Evidence Package の disclosure、Manifest hash、parser version、evidence reference の保持
 - partial evidence、schema 不正、staging 失敗時に以前の公開済み成果物を維持すること
