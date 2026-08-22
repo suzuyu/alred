@@ -8,8 +8,10 @@ import pytest
 from alred.cli import (
     build_parser,
     cmd_operation_archive,
+    cmd_operation_close,
     cmd_operation_inspect,
     cmd_operation_status,
+    cmd_operation_restore,
     cmd_overlay_change_approve,
     cmd_overlay_change_accept_rollback_state_warn,
     cmd_overlay_change_qualify,
@@ -57,6 +59,8 @@ def test_operation_status_is_read_only_and_concise(tmp_path, capsys):
     assert "=== OPERATION STATUS ===" in output
     assert "Lifecycle      : created" in output
     assert "Lock           : not held" in output
+    assert "Idle age       :" in output
+    assert "Stale candidate:" in output
     assert (
         _sha256(workspace.metadata_path),
         _sha256(workspace.execution_path),
@@ -123,6 +127,21 @@ def test_operation_inspect_is_read_only_and_shows_hashes(tmp_path, capsys):
             ],
             cmd_operation_archive,
         ),
+        (
+            [
+                "operation",
+                "close",
+                "--change-id",
+                "CHG-1",
+                "--reason",
+                "cancelled by operator",
+            ],
+            cmd_operation_close,
+        ),
+        (
+            ["operation", "restore", "--change-id", "CHG-1"],
+            cmd_operation_restore,
+        ),
     ],
 )
 def test_operation_cli_dispatch(arguments, expected_function):
@@ -150,6 +169,26 @@ def test_operation_archive_help_exposes_explicit_retention_modes(capsys):
             "--keep-latest-archives",
             "10",
         ])
+
+
+def test_operation_close_cli_requires_reason_and_one_target():
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(
+            ["operation", "close", "--change-id", "CHG-1"]
+        )
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(
+            [
+                "operation",
+                "close",
+                "--change-id",
+                "CHG-1",
+                "--stale-older-than-days",
+                "7",
+                "--reason",
+                "invalid target combination",
+            ]
+        )
 
 
 def test_operation_status_reads_verified_archive_without_extracting(

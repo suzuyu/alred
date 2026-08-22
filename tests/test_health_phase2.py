@@ -412,6 +412,9 @@ def test_health_snapshot_cli_is_offline_and_writes_operation_artifacts(
     )
     assert resolved["spec"]["resolved"]["profile_names"] == ["network-baseline-nxos"]
     assert resolved["spec"]["requested"][0]["resolution_source"] == "default"
+    assert load_operation_metadata(operation_root)["spec"]["lifecycle"] == (
+        "waiting_for_user"
+    )
 
 
 def test_health_before_and_after_offline_wrappers_share_snapshot_path(
@@ -456,6 +459,10 @@ def test_health_before_and_after_offline_wrappers_share_snapshot_path(
     assert (operation / "before" / "snapshot.json").is_file()
     assert (operation / "after" / "snapshot.json").is_file()
     assert (operation / "report" / "health-result.json").is_file()
+    assert load_operation_metadata(operation.parent)["spec"]["lifecycle"] in {
+        "completed",
+        "completed_with_warnings",
+    }
 
 
 def _offline_before_args(
@@ -1024,6 +1031,10 @@ def test_health_inspection_records_purpose_without_active_change(
     ).read_text(encoding="utf-8")
     assert " | site-a | " in device_summary
     assert health["operation_gate"]["required"] is False
+    assert metadata["spec"]["lifecycle"] in {
+        "completed",
+        "completed_with_warnings",
+    }
     assert not (operations_root / ".state/active-change.yaml").exists()
 
 

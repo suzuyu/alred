@@ -20,6 +20,7 @@ from alred.operation import (
     archive_operation_workspace,
     archived_operation_retention_candidates,
     create_operation_workspace,
+    close_operation_workspace,
     delete_archived_operation,
     generate_attempt_id,
     generate_change_id,
@@ -34,6 +35,7 @@ from alred.operation import (
     read_operation_lock,
     resolve_active_change_for_after,
     resolve_timezone_name,
+    restore_operation_archive,
     save_active_change,
     transition_operation,
     transition_phase,
@@ -206,11 +208,213 @@ def test_terminal_operation_archive_is_verified_and_readable(tmp_path):
     assert metadata["spec"]["lifecycle"] == "completed"
     assert execution["lifecycle"] == "completed"
     assert manifest["metadata"]["change_id"] == workspace.change_id
+    assert manifest["spec"]["age_reference"] == "terminal_transition"
+    assert manifest["spec"]["age_reference_at"] == JST_NOW.isoformat()
     assert ".operation.lock" not in {
         item["path"] for item in manifest["spec"]["files"]
     }
     with pytest.raises(OperationArchivedError):
         open_operation_workspace(operations_root, workspace.change_id)
+
+
+def test_pre_apply_operation_can_be_closed_and_archived(tmp_path):
+    operations_root = tmp_path / "operations"
+    workspace = create_operation_workspace(
+        operations_root,
+        change_id="CHG-CLOSE-1",
+        now=JST_NOW,
+    )
+    with OperationLock(workspace, "test", now=JST_NOW) as lock:
+        transition_operation(workspace, "running", lock=lock, now=JST_NOW)
+        transition_operation(
+            workspace,
+            "waiting_for_user",
+            lock=lock,
+            now=JST_NOW,
+        )
+
+    preview = close_operation_workspace(
+        operations_root,
+        workspace.change_id,
+        reason="change was abandoned",
+        now=JST_NOW,
+        dry_run=True,
+    )
+    assert preview["status"] == "eligible"
+    assert load_operation_metadata(workspace.operation_root)["spec"][
+        "lifecycle"
+    ] == "waiting_for_user"
+
+    closed = close_operation_workspace(
+        operations_root,
+        workspace.change_id,
+        reason="change was abandoned",
+        now=JST_NOW,
+    )
+    assert closed["status"] == "cancelled"
+    metadata = load_operation_metadata(workspace.operation_root)
+    assert metadata["spec"]["lifecycle"] == "cancelled"
+    assert metadata["spec"]["last_transition"]["reason"] == (
+        "operator_closed:change was abandoned"
+    )
+
+    archived = archive_operation_workspace(
+        operations_root,
+        workspace.change_id,
+        older_than_days=0,
+        now=JST_NOW,
+    )
+    assert archived["status"] == "archived"
+
+
+def test_closed_stale_operation_uses_pre_close_activity_for_archive_age(
+    tmp_path,
+):
+    operations_root = tmp_path / "operations"
+    workspace = create_operation_workspace(
+        operations_root,
+        change_id="CHG-CLOSE-STALE",
+        now=JST_NOW,
+    )
+    with OperationLock(workspace, "test", now=JST_NOW) as lock:
+        transition_operation(workspace, "running", lock=lock, now=JST_NOW)
+        transition_operation(
+            workspace,
+            "waiting_for_user",
+            lock=lock,
+            now=JST_NOW,
+        )
+    closed_at = datetime.fromisoformat("2026-08-22T11:23:45+09:00")
+    close_operation_workspace(
+        operations_root,
+        workspace.change_id,
+        reason="stale pre-apply operation",
+        now=closed_at,
+    )
+
+    preview = archive_operation_workspace(
+        operations_root,
+        workspace.change_id,
+        older_than_days=14,
+        now=closed_at,
+        dry_run=True,
+    )
+    assert preview["closed_at"] == closed_at.isoformat()
+    assert preview["age_reference_at"] == JST_NOW.isoformat()
+    assert preview["age_reference"] == "pre_close_last_activity"
+
+    archived = archive_operation_workspace(
+        operations_root,
+        workspace.change_id,
+        older_than_days=14,
+        now=closed_at,
+    )
+    _metadata, _execution, manifest = load_archived_operation_documents(
+        operations_root,
+        workspace.change_id,
+    )
+    assert archived["age_reference"] == "pre_close_last_activity"
+    assert manifest["spec"]["closed_at"] == closed_at.isoformat()
+    assert manifest["spec"]["age_reference_at"] == JST_NOW.isoformat()
+
+
+def test_operation_close_rejects_workflow_after_apply_started(tmp_path):
+    operations_root = tmp_path / "operations"
+    workspace = create_operation_workspace(
+        operations_root,
+        change_id="CHG-CLOSE-UNSAFE",
+        now=JST_NOW,
+    )
+    with OperationLock(workspace, "test", now=JST_NOW) as lock:
+        transition_operation(workspace, "running", lock=lock, now=JST_NOW)
+        for state in (
+            "planned",
+            "before_running",
+            "before_completed",
+            "plan_ready",
+            "approved",
+            "apply_running",
+        ):
+            transition_workflow(workspace, state, lock=lock, now=JST_NOW)
+
+    with pytest.raises(OperationStateError, match="device mutation"):
+        close_operation_workspace(
+            operations_root,
+            workspace.change_id,
+            reason="unsafe close",
+            now=JST_NOW,
+        )
+
+
+def test_archived_operation_can_be_verified_and_restored(tmp_path):
+    operations_root = tmp_path / "operations"
+    workspace = create_operation_workspace(
+        operations_root,
+        change_id="CHG-RESTORE-1",
+        now=JST_NOW,
+    )
+    artifact = workspace.operation_root / "health/checklist.md"
+    artifact.parent.mkdir(parents=True)
+    artifact.write_text("verified evidence\n", encoding="utf-8")
+    with OperationLock(workspace, "test", now=JST_NOW) as lock:
+        transition_operation(workspace, "running", lock=lock, now=JST_NOW)
+        transition_operation(workspace, "completed", lock=lock, now=JST_NOW)
+    archived = archive_operation_workspace(
+        operations_root,
+        workspace.change_id,
+        older_than_days=0,
+        now=JST_NOW,
+    )
+
+    restored = restore_operation_archive(
+        operations_root,
+        workspace.change_id,
+    )
+
+    assert restored["status"] == "restored"
+    assert restored["lifecycle"] == "completed"
+    assert (restored["operation_root"] / "health/checklist.md").read_text(
+        encoding="utf-8"
+    ) == "verified evidence\n"
+    assert not archived["archive"].exists()
+    assert not archived["checksum"].exists()
+    assert load_operation_location(operations_root, workspace.change_id)["spec"][
+        "state"
+    ] == "live"
+    assert open_operation_workspace(
+        operations_root, workspace.change_id
+    ).operation_root == restored["operation_root"]
+
+
+def test_operation_restore_rejects_invalid_external_checksum(tmp_path):
+    operations_root = tmp_path / "operations"
+    workspace = create_operation_workspace(
+        operations_root,
+        change_id="CHG-RESTORE-CHECKSUM",
+        now=JST_NOW,
+    )
+    with OperationLock(workspace, "test", now=JST_NOW) as lock:
+        transition_operation(workspace, "running", lock=lock, now=JST_NOW)
+        transition_operation(workspace, "completed", lock=lock, now=JST_NOW)
+    archived = archive_operation_workspace(
+        operations_root,
+        workspace.change_id,
+        older_than_days=0,
+        now=JST_NOW,
+    )
+    archived["checksum"].write_text(
+        f"{'0' * 64}  {archived['archive'].name}\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(OperationPathError, match="checksum file is invalid"):
+        restore_operation_archive(operations_root, workspace.change_id)
+
+    assert not workspace.operation_root.exists()
+    assert archived["archive"].is_file()
+    assert load_operation_location(operations_root, workspace.change_id)["spec"][
+        "state"
+    ] == "archived"
 
 
 def test_operation_archive_retention_selects_age_or_latest_generations(tmp_path):

@@ -78,7 +78,9 @@ UNKNOWNは「異常がない」という意味ではありません。判定に�
 | `[-]` | NOT_APPLICABLE |
 
 Checklistは概要です。WARNやFAILの全証跡はhealth-result.jsonで確認します。
-完全なChecklistでは、先頭にprofile別件数を表示し、各deviceの配下をprofile単位に分けます。
+完全なChecklistでは、先頭に profile 別件数と `WARN`／`FAIL`／`UNKNOWN` の check ID・該当 hostname の
+summary を表示し、各 device の配下を profile 単位に分けます。summary で対象を絞り込み、詳細と全証跡は
+`Checks` と `health-result.json` で確認します。
 
 ## 5. health-result.json
 

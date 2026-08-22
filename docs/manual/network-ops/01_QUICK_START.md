@@ -67,6 +67,12 @@ less operations/live/2026/08/02/HC-20260802T091500-p1234-a1b2c3/health/before/ch
 |---|---:|---:|---:|---:|---:|
 | network-baseline-nxos | 28 | 2 | 0 | 0 | 2 |
 
+### WARN / FAIL / UNKNOWN Items
+
+| Profile | Result | Check | Hosts |
+|---|---|---|---|
+| network-baseline-nxos | WARN | logging_health | leaf01, leaf02 |
+
 ## Checks
 
 ### Device: `leaf01` (192.0.2.11)

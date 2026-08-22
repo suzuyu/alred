@@ -1071,6 +1071,11 @@ profile改訂の明示指定として必須とする。変更前後のeffective 
 維持する。初回before、実効profileに差分がない場合、plan／approval／apply後はrevisionを拒否する。
 profile差分があるのに`--revision-reason`がない場合も拒否する。
 
+`purpose: change` の before 正常公開後は Operation lifecycle を `waiting_for_user` とし、後続 Health／plan の
+開始時に `running` へ戻す。`purpose: inspection` は `completed` または `completed_with_warnings` とする。
+standalone after／rollback は全成果物の公開後に terminal state とする。放置された pre-apply Operation は
+`operation close` で理由付き `cancelled` にした後だけ archive 対象にできる。
+
 各attemptは`health/before/attempts/<attempt-id>/`へ不変保存し、`health/before/current.json`が最新の
 成功済みattemptを指す。既存CLIとの互換性のため、最新成功attemptの主要成果物を
 `health/before/snapshot.json`などの正本pathにもatomicに反映する。新attemptが失敗した場合は以前の

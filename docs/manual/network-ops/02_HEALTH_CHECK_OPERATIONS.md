@@ -479,6 +479,29 @@ archive 対象は`completed`、`completed_with_warnings`、`cancelled`かつ loc
 だけです。`failed`、`state_unknown`、進行中の operation は保存容量だけを理由に archive しません。
 出力は`operations/archive/YYYY/MM/DD/<change-id>.tar.gz`と checksum file です。
 
+Health `before` の後続作業待ちは `waiting_for_user` として表示されます。作業を中止した pre-apply Operation は、
+理由を記録して `cancelled` にしてから archive します。最初に stale 判定と close 対象を確認してください。
+
+```bash
+alred operation status --change-id CHG-2026-00123 --stale-after-days 7
+alred operation close \
+  --stale-older-than-days 7 \
+  --reason "stale pre-apply operation" \
+  --dry-run
+```
+
+確認後に同じ command から `--dry-run` を外します。1 件だけ close する場合は次を使用します。
+
+```bash
+alred operation close \
+  --change-id CHG-2026-00123 \
+  --reason "change cancelled by operator"
+```
+
+`apply_running` 以降、device state 不明、rollback 関連、lock 中の Operation は close できません。
+close した Operation の archive 経過日数は、close した日時ではなく close 直前の最終活動日時から判定されます。
+既に指定日数以上放置されていた Operation は、close 後の archive で追加の待機期間を必要としません。
+
 archive 自体は retention option を指定しない限り削除しません。archive 作成から 90 日以上経過したものを
 確認して削除する場合は次を使用します。
 
@@ -506,5 +529,12 @@ alred operation inspect --change-id CHG-2026-00123
 ```
 
 一方、archive 済み operation に対する phase 追加、apply、rollback、Support Bundle／Evidence Package 作成、
-reference state 利用は暗黙に展開せず`OPERATION_ARCHIVED`で停止します。現時点では restore CLI を
-提供していないため、後からこれらを利用する可能性がある operation は archive しないでください。
+reference state 利用は暗黙に展開せず`OPERATION_ARCHIVED`で停止します。必要な場合は、全 checksum を検証して
+元の live path へ戻します。
+
+```bash
+alred operation restore --change-id CHG-2026-00123
+```
+
+restore 後も lifecycle は terminal state のままです。restore は参照可能な live storage へ戻す処理であり、
+変更作業を暗黙に再開する処理ではありません。

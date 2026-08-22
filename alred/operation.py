@@ -174,6 +174,15 @@ ARCHIVABLE_OPERATION_STATES = {
     "cancelled",
 }
 
+PRE_APPLY_CLOSABLE_WORKFLOW_STATES = {
+    None,
+    "planned",
+    "before_running",
+    "before_completed",
+    "plan_ready",
+    "approved",
+}
+
 
 @dataclass(frozen=True)
 class OperationWorkspace:
@@ -825,6 +834,29 @@ def list_live_operation_ids(operations_root: str | Path) -> list[str]:
     return sorted(identifiers)
 
 
+def remove_missing_live_operation_index(
+    operations_root: str | Path,
+    change_id: str,
+) -> bool:
+    """Remove an unchanged live index whose operation directory is missing."""
+    root = Path(operations_root)
+    document = load_operation_location(root, change_id)
+    if document is None or document["spec"]["state"] != "live":
+        return False
+    operation_root = root / document["spec"]["relative_path"]
+    _assert_below_root(root, operation_root)
+    if operation_root.exists() or operation_root.is_symlink():
+        return False
+
+    # Re-read immediately before deletion so a concurrent archive/index update
+    # cannot be removed based on the stale document loaded above.
+    current = load_operation_location(root, change_id)
+    if current != document:
+        return False
+    _operation_index_path(root, change_id).unlink()
+    return True
+
+
 def list_archived_operation_ids(operations_root: str | Path) -> list[str]:
     """List indexed archived operation IDs without scanning archive data."""
     root = Path(operations_root)
@@ -978,6 +1010,24 @@ def read_operation_archive(
     return manifest, selected
 
 
+def _operation_archive_age_reference(
+    metadata: Mapping[str, Any],
+    execution: Mapping[str, Any],
+) -> tuple[datetime, str]:
+    """Resolve the activity timestamp used by archive age eligibility."""
+    last_transition = metadata["spec"]["last_transition"]
+    closed_at = datetime.fromisoformat(str(last_transition["at"]))
+    if (
+        metadata["spec"]["lifecycle"] == "cancelled"
+        and str(last_transition.get("reason", "")).startswith("operator_closed:")
+    ):
+        transitions = list(execution.get("transitions", []))
+        if len(transitions) >= 2:
+            previous_at = datetime.fromisoformat(str(transitions[-2]["at"]))
+            return previous_at, "pre_close_last_activity"
+    return closed_at, "terminal_transition"
+
+
 def archive_operation_workspace(
     operations_root: str | Path,
     change_id: str,
@@ -991,6 +1041,7 @@ def archive_operation_workspace(
         raise ValueError("older_than_days must be zero or greater")
     workspace = open_operation_workspace(operations_root, change_id)
     metadata = load_operation_metadata(workspace.operation_root)
+    execution = load_operation_execution(workspace.operation_root)
     lifecycle = metadata["spec"]["lifecycle"]
     if lifecycle not in ARCHIVABLE_OPERATION_STATES:
         raise OperationStateError(
@@ -1003,11 +1054,17 @@ def archive_operation_workspace(
     closed_at = datetime.fromisoformat(
         metadata["spec"]["last_transition"]["at"]
     )
+    age_reference_at, age_reference = _operation_archive_age_reference(
+        metadata,
+        execution,
+    )
     evaluated_at = now_in_timezone(workspace.timezone, now=now)
-    age_seconds = (evaluated_at - closed_at).total_seconds()
+    age_seconds = (evaluated_at - age_reference_at).total_seconds()
     if age_seconds < older_than_days * 86400:
         raise OperationStateError(
-            f"operation is newer than {older_than_days} day(s)"
+            f"operation is newer than {older_than_days} day(s) "
+            f"(age reference: {age_reference} at "
+            f"{age_reference_at.isoformat(timespec='seconds')})"
         )
     root = Path(operations_root)
     created_date = workspace.created_at
@@ -1027,6 +1084,8 @@ def archive_operation_workspace(
             "status": "eligible",
             "lifecycle": lifecycle,
             "closed_at": closed_at.isoformat(timespec="seconds"),
+            "age_reference_at": age_reference_at.isoformat(timespec="seconds"),
+            "age_reference": age_reference,
             "archive": archive_path,
         }
     archive_lock = OperationLock(
@@ -1052,6 +1111,10 @@ def archive_operation_workspace(
                 ).as_posix(),
                 "lifecycle": lifecycle,
                 "closed_at": closed_at.isoformat(timespec="seconds"),
+                "age_reference_at": age_reference_at.isoformat(
+                    timespec="seconds"
+                ),
+                "age_reference": age_reference,
                 "files": members,
             },
         }
@@ -1096,6 +1159,8 @@ def archive_operation_workspace(
             "status": "archived",
             "lifecycle": lifecycle,
             "closed_at": closed_at.isoformat(timespec="seconds"),
+            "age_reference_at": age_reference_at.isoformat(timespec="seconds"),
+            "age_reference": age_reference,
             "archive": archive_path,
             "checksum": checksum_path,
             "archive_sha256": archive_sha256,
@@ -1114,6 +1179,182 @@ def archive_operation_workspace(
             archive_lock.release()
         elif archive_lock.held:
             archive_lock._inode = None
+
+
+def close_operation_workspace(
+    operations_root: str | Path,
+    change_id: str,
+    *,
+    reason: str,
+    now: datetime | None = None,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    """Close one non-mutating pre-apply operation as cancelled."""
+    normalized_reason = str(reason).strip()
+    if not normalized_reason:
+        raise OperationStateError("operation close requires a non-empty reason")
+    workspace = open_operation_workspace(operations_root, change_id)
+    metadata = load_operation_metadata(workspace.operation_root)
+    lifecycle = metadata["spec"]["lifecycle"]
+    workflow_state = metadata["spec"]["workflow_state"]
+    if lifecycle not in {"created", "running", "waiting_for_user"}:
+        raise OperationStateError(
+            f"operation lifecycle cannot be closed: {lifecycle}"
+        )
+    if workflow_state not in PRE_APPLY_CLOSABLE_WORKFLOW_STATES:
+        raise OperationStateError(
+            "operation cannot be closed after device mutation may have started: "
+            f"workflow_state={workflow_state}"
+        )
+    if workspace.lock_path.exists():
+        raise OperationLockedError(
+            f"operation close requires no existing lock: {workspace.lock_path}"
+        )
+    closed_at = now_in_timezone(workspace.timezone, now=now)
+    if dry_run:
+        return {
+            "change_id": workspace.change_id,
+            "status": "eligible",
+            "lifecycle": lifecycle,
+            "workflow_state": workflow_state,
+            "closed_at": closed_at.isoformat(timespec="seconds"),
+        }
+    with OperationLock(workspace, "operation-close", now=closed_at) as lock:
+        transition_operation(
+            workspace,
+            "cancelled",
+            lock=lock,
+            reason=f"operator_closed:{normalized_reason}",
+            now=closed_at,
+        )
+    return {
+        "change_id": workspace.change_id,
+        "status": "cancelled",
+        "previous_lifecycle": lifecycle,
+        "workflow_state": workflow_state,
+        "closed_at": closed_at.isoformat(timespec="seconds"),
+    }
+
+
+def restore_operation_archive(
+    operations_root: str | Path,
+    change_id: str,
+) -> dict[str, Any]:
+    """Verify and restore one archived terminal operation to its live path."""
+    root = Path(operations_root)
+    location = load_operation_location(root, change_id)
+    if location is None or location["spec"]["state"] != "archived":
+        raise OperationPathError(f"archived operation does not exist: {change_id}")
+    archive_path = root / location["spec"]["relative_path"]
+    checksum_path = archive_path.with_suffix(archive_path.suffix + ".sha256")
+    if not checksum_path.is_file() or checksum_path.is_symlink():
+        raise OperationPathError(
+            f"operation archive checksum is missing or unsafe: {checksum_path}"
+        )
+    expected_archive_sha256 = str(location["spec"].get("archive_sha256", ""))
+    if checksum_path.read_text(encoding="utf-8").split() != [
+        expected_archive_sha256.removeprefix("sha256:"),
+        archive_path.name,
+    ]:
+        raise OperationPathError("operation archive checksum file is invalid")
+    manifest, _selected = read_operation_archive(
+        archive_path,
+        expected_sha256=expected_archive_sha256,
+        verify_files=True,
+    )
+    source_relative = Path(manifest["spec"]["source_relative_path"])
+    if source_relative.is_absolute() or ".." in source_relative.parts:
+        raise OperationPathError(
+            f"operation restore path is unsafe: {source_relative}"
+        )
+    target = root / source_relative
+    _assert_below_root(root, target)
+    if target.exists() or target.is_symlink():
+        raise OperationPathError(
+            f"operation restore target already exists: {target}"
+        )
+    _ensure_directory(target.parent)
+    staging = Path(
+        tempfile.mkdtemp(prefix=f".{change_id}.restore-", dir=target.parent)
+    )
+    published = False
+    try:
+        expected = {
+            str(item["path"]): item for item in manifest["spec"]["files"]
+        }
+        with tarfile.open(archive_path, mode="r:gz") as archive:
+            for relative, record in expected.items():
+                member_name = f"operation/{relative}"
+                try:
+                    member = archive.getmember(member_name)
+                except KeyError as exc:
+                    raise OperationPathError(
+                        f"operation archive member is missing: {member_name}"
+                    ) from exc
+                if not member.isfile():
+                    raise OperationPathError(
+                        f"operation archive member is not regular: {member_name}"
+                    )
+                stream = archive.extractfile(member)
+                if stream is None:
+                    raise OperationPathError(
+                        f"operation archive member is unreadable: {member_name}"
+                    )
+                content = stream.read()
+                if (
+                    len(content) != record["size"]
+                    or hashlib.sha256(content).hexdigest() != record["sha256"]
+                ):
+                    raise OperationPathError(
+                        f"operation archive member hash mismatch: {member_name}"
+                    )
+                destination = staging / relative
+                _assert_below_root(staging, destination)
+                _ensure_directory(destination.parent)
+                destination.write_bytes(content)
+                destination.chmod(int(record["mode"]) & 0o777)
+        metadata = load_operation_metadata(staging)
+        execution = load_operation_execution(staging)
+        if metadata["metadata"]["change_id"] != change_id:
+            raise OperationPathError("restored operation metadata ID mismatch")
+        if execution["change_id"] != change_id:
+            raise OperationPathError("restored operation execution ID mismatch")
+        if Path(metadata["spec"]["output_root"]).resolve() != target.resolve():
+            raise OperationPathError("restored operation output_root mismatch")
+        staging.rename(target)
+        published = True
+        restored_at = now_in_timezone(metadata["metadata"]["timezone"])
+        _write_operation_location(
+            root,
+            _operation_location_document(
+                change_id,
+                created_at=datetime.fromisoformat(
+                    metadata["metadata"]["created_at"]
+                ),
+                state="live",
+                layout=str(location["spec"]["layout"]),
+                relative_path=target.relative_to(root),
+                updated_at=restored_at,
+            ),
+        )
+        archive_path.unlink()
+        checksum_path.unlink(missing_ok=True)
+        return {
+            "change_id": change_id,
+            "status": "restored",
+            "lifecycle": metadata["spec"]["lifecycle"],
+            "operation_root": target,
+            "file_count": len(expected),
+        }
+    except Exception:
+        if published:
+            current = load_operation_location(root, change_id)
+            if current == location:
+                shutil.rmtree(target)
+        raise
+    finally:
+        if staging.exists():
+            shutil.rmtree(staging)
 
 
 def load_archived_operation_documents(
