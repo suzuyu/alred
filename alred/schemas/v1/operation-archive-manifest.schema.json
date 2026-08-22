@@ -27,6 +27,8 @@
         "source_relative_path": {"type": "string", "minLength": 1},
         "lifecycle": {"enum": ["completed", "completed_with_warnings", "cancelled"]},
         "closed_at": {"type": "string", "format": "date-time"},
+        "age_reference_at": {"type": "string", "format": "date-time"},
+        "age_reference": {"enum": ["terminal_transition", "pre_close_last_activity"]},
         "files": {
           "type": "array",
           "items": {

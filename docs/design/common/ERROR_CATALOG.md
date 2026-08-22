@@ -100,6 +100,13 @@ Support Bundle固有の`BUNDLE_CREATE_FAILED`、`BUNDLE_INCOMPLETE`、
 `BUNDLE_INVALID_SOURCE`、`BUNDLE_TOO_LARGE`も終了code `6`へ割り当てる。
 `evidence-package`のoption不足、source指定の排他違反、既存import先は`VALIDATION_ERROR`として終了code `2`、
 package safetyに関する失敗は上表の`EVIDENCE_*`として終了code `6`へ割り当てる。
+`--keep-latest-packages`／`ALRED_EVIDENCE_PACKAGE_KEEP_LATEST`／`ALRED_EVIDENCE_IMPORT_KEEP_LATEST` の負数・非整数は validation error、retention
+直前の再検証失敗または削除失敗は `EVIDENCE_INVALID_SOURCE`／`EVIDENCE_INTEGRITY_FAILED` として終了 code `6` にする。
+検証不能な既存 package pair または import directory は自動削除せず `SKIP` として報告する。
+
+`operation close` の lifecycle／workflow／lock／reason 不適格、および `operation restore` の checksum、Manifest、
+member hash、path、既存 target 不適格は `VALIDATION_ERROR` として終了 code `2` にする。archive 済み Operation を
+live 専用 command で参照した場合は従来どおり `OPERATION_ARCHIVED` とする。
 
 ## 4.1 名称の分類
 

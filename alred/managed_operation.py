@@ -30,6 +30,7 @@ from .operation import (
     atomic_write_bytes,
     atomic_write_json,
     load_operation_metadata,
+    transition_operation,
     transition_workflow,
 )
 from .qualification import (
@@ -1058,6 +1059,18 @@ def execute_approved_save(
         ),
         now=completed_at,
     )
+    if succeeded:
+        lifecycle = load_operation_metadata(workspace.operation_root)["spec"][
+            "lifecycle"
+        ]
+        if lifecycle == "running":
+            transition_operation(
+                workspace,
+                "completed",
+                lock=lock,
+                reason="approved_overlay_save_completed",
+                now=completed_at,
+            )
     return document
 
 

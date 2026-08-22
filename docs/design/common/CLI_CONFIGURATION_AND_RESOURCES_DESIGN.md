@@ -40,7 +40,8 @@ alred全用途に共通するCLI entry point、設定値の解決、既定path�
 | Common / inventory generation | `prepare-hosts`、`generate-tf`、`generate-sample-config`、`completion` |
 | Collection / read-only check | `collect`、`collect-list`、`collect-run-config`、`collect-run-diff`、`collect-run-diff-cmd`、`collect-all`、`collect-before-work`、`collect-after-work`、`check-logging` |
 | Direct Config Push | `push-config`、`push-config-dir`、`write-memory` |
-| Evidence transfer | `evidence-package create/inspect/verify/import` |
+| Evidence transfer | `evidence-package create/prune/inspect/verify/import/prune-imports` |
+| Operation lifecycle | `operation status/inspect/close/archive/restore` |
 | Network operations | `operation`、`health-check`、`overlay-check`、`overlay-change`、`support-bundle`、`generate-vni-map`、`generate-vni-config` |
 | Containerlab | `init-clab`、`collect-clab`、`clab-transform-config`、`clab-apply-config`、`check-clab-startup-config`、`clab-set-cmds`、`generate-clab` |
 | Topology | `normalize-links`、`generate-network-diagram`、`generate-mermaid`、`generate-graphviz`、`generate-drawio`、`generate-doc`、`csv-to-md` |

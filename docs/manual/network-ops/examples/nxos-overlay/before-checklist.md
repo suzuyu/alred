@@ -14,6 +14,10 @@
 | network-baseline-nxos | 136 | 0 | 0 | 0 | 24 |
 | nxos-overlay | 50 | 0 | 0 | 0 | 2 |
 
+### WARN / FAIL / UNKNOWN Items
+
+- None
+
 ## Checks
 
 ### Device: `adc-bgrt0101` (192.168.129.101)

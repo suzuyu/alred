@@ -65,6 +65,9 @@ alred evidence-package create --profile digital-twin
 source option 省略時は、live Operation の最新の正常公開済み current before attempt を自動選択する。表示された
 `source_change_id`、`source_attempt_id`、`source_completed_at`、`source_manifest` を搬送前に確認する。
 `--config-content` は `sanitized`、`--output-dir` は `evidence-packages` を既定とし、出力 directory は必要時に自動作成する。
+作成成功後は profile と通常／sensitive 区分ごとに最新 3 package を保持する。保持数は
+`--keep-latest-packages`／`ALRED_EVIDENCE_PACKAGE_KEEP_LATEST` で変更し、`0` で無効にする。削除前確認には
+`evidence-package prune --dry-run` を使用する。検証できない package pair は削除対象にしない。
 
 作成側でも搬送前に metadata と Secret Scan結果を確認する。
 
@@ -105,6 +108,16 @@ alred clab-transform-config \
 
 処理開始時に symbolic link を実体 package directory へ固定し、Manifest、import record、artifact hash を検証する。
 再現手順や監査記録では曖昧さを避けるため package ID を明示する。
+
+import 成功後は profile・通常／sensitive 区分ごとに import 日時が新しい 3 directory を保持する。
+保持数は `--keep-latest-packages` または `ALRED_EVIDENCE_IMPORT_KEEP_LATEST` で変更し、`0` で無効にする。
+`latest` の参照先と、Manifest、import record、全 member checksum を検証できない directory は削除しない。
+既存 directory の削除候補は次の command で確認できる。
+
+```bash
+alred evidence-package prune-imports --keep-latest-packages 3 --dry-run
+alred evidence-package prune-imports --keep-latest-packages 3
+```
 
 原文 config が必要な例外では、作成、import、Containerlab 変換の各境界で明示確認する。
 

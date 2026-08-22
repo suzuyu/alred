@@ -120,6 +120,36 @@ def render_health_checklist(result: Mapping[str, Any]) -> str:
             f"{counts['FAIL']} | {counts['UNKNOWN']} | {counts['NOT_APPLICABLE']} |"
         )
 
+    lines.extend(["", "### WARN / FAIL / UNKNOWN Items", ""])
+    finding_rows: list[tuple[str, str, str, list[str]]] = []
+    for profile in profile_order:
+        for status in ("WARN", "FAIL", "UNKNOWN"):
+            check_hosts: dict[str, set[str]] = {}
+            for check in result["checks"]:
+                check_profile = str(check.get("profile") or "unknown")
+                if check_profile != profile or check["result"] != status:
+                    continue
+                check_hosts.setdefault(str(check["check_id"]), set()).add(
+                    str(check["host"])
+                )
+            finding_rows.extend(
+                (profile, status, check_id, sorted(hosts))
+                for check_id, hosts in check_hosts.items()
+            )
+    if finding_rows:
+        lines.extend(
+            [
+                "| Profile | Result | Check | Hosts |",
+                "|---|---|---|---|",
+            ]
+        )
+        for profile, status, check_id, hosts in finding_rows:
+            values = (profile, status, check_id, ", ".join(hosts))
+            escaped = [str(value).replace("|", "\\|") for value in values]
+            lines.append("| " + " | ".join(escaped) + " |")
+    else:
+        lines.append("- None")
+
     lines.extend(["", "## Checks", ""])
     checks_by_host: dict[str, list[Mapping[str, Any]]] = {}
     for check in result["checks"]:

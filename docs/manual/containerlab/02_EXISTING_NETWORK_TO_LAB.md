@@ -98,7 +98,19 @@ alred evidence-package create --profile digital-twin
 ```
 
 `--config-content` の既定は `sanitized`、`--output-dir` の既定は `evidence-packages` である。出力 directory が
-存在しない場合は自動作成する。`digital-twin` の既定 disclosure は `protected-preserve` である。
+存在しない場合は自動作成する。作成成功後は profile と通常／sensitive 区分ごとに最新 3 package を保持し、
+それより古い検証済み archive／checksum pair を削除する。保持数は `--keep-latest-packages` または
+`ALRED_EVIDENCE_PACKAGE_KEEP_LATEST` で変更でき、`0` で自動削除を無効にできる。
+
+既存 package の削除候補は、先に dry-run で確認できる。
+
+```bash
+alred evidence-package prune --keep-latest-packages 3 --dry-run
+alred evidence-package prune --keep-latest-packages 3
+```
+
+checksum 不一致、archive／checksum の片方だけが存在する package、symlink、未知 file は自動削除しない。
+`digital-twin` の既定 disclosure は `protected-preserve` である。
 
 成功時に表示される次の項目を確認する。
 
@@ -173,6 +185,11 @@ archive hash が一致する場合は再利用する。hash が異なる場合�
 
 `--output-dir` の既定は `imported-evidence` である。展開せずに受領確認、監査、CI 検証だけを行う場合は、任意で
 `evidence-package verify` を使用する。
+
+import 成功後は profile・通常／sensitive 区分ごとに import 日時が新しい 3 directory を保持する。
+`--keep-latest-packages` または `ALRED_EVIDENCE_IMPORT_KEEP_LATEST` で保持数を変更でき、`0` で無効にできる。
+既存 directory は `evidence-package prune-imports --dry-run` で削除候補を確認してから整理できる。
+`latest` の参照先、不完全な directory、symlink、検証不能な手動配置物は削除しない。
 
 import 済み directory から pipeline を再開する場合は次とする。
 

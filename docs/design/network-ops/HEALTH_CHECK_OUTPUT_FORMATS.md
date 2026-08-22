@@ -294,6 +294,14 @@ No collection errors.
 |---|---:|---:|---:|---:|---:|
 | network-baseline-nxos | 2 | 2 | 1 | 0 | 0 |
 
+### WARN / FAIL / UNKNOWN Items
+
+| Profile | Result | Check | Hosts |
+|---|---|---|---|
+| network-baseline-nxos | WARN | cpu_utilization | leaf01 |
+| network-baseline-nxos | WARN | logging_health | leaf02 |
+| network-baseline-nxos | FAIL | bgp_ipv4_health | leaf02 |
+
 ## Checks
 
 ### Device: `leaf01` (192.0.2.11)
@@ -325,6 +333,10 @@ No collection errors.
 結果を 1 件以上持つ profile だけを resolved profile順に表示する。threshold、logging exclude、
 report policy などの override だけを提供し、check を持たない profile を全件 0 の結果行として
 表示しない。適用した全 profile と override provenance は `resolved-profiles.yaml` を正本とする。
+件数表の直後に `WARN / FAIL / UNKNOWN Items` を表示し、該当する check ID と hostname を profile、
+result ごとに集約する。同じ profile、result、check ID に該当する hostname は昇順で 1 行へまとめる。
+行は resolved profile 順、`WARN`、`FAIL`、`UNKNOWN` の順、各 result 内では check の出現順とする。
+該当項目がない場合も `None` を表示し、summary の生成漏れと区別する。
 `Checks` は機器名を昇順に並べ、device 見出しを ``hostname (management IP)`` 形式で表示する。
 management IP は収集時に使用した inventory の `ansible_host` を `CollectionManifest`、
 `HealthSnapshot`、`HealthResult` の順に引き継ぐ。inventory が指定されていない offline 入力、

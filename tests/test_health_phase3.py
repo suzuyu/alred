@@ -97,6 +97,87 @@ def test_health_checklist_groups_checks_by_device_then_profile():
     assert "leaf01 /" not in leaf01
 
 
+def test_health_checklist_summarizes_non_pass_checks_and_hosts():
+    result = {
+        "change_id": "CHG-1",
+        "phase": "before",
+        "started_at": "2026-08-02T10:00:00+09:00",
+        "completed_at": "2026-08-02T10:00:01+09:00",
+        "result": "FAIL",
+        "profiles": ["network-baseline-nxos", "nxos-overlay"],
+        "checks": [
+            {
+                "host": "leaf02",
+                "check_id": "logging_health",
+                "result": "WARN",
+                "message": "Log warning",
+                "profile": "network-baseline-nxos",
+            },
+            {
+                "host": "leaf01",
+                "check_id": "logging_health",
+                "result": "WARN",
+                "message": "Log warning",
+                "profile": "network-baseline-nxos",
+            },
+            {
+                "host": "leaf03",
+                "check_id": "bgp_ipv4_health",
+                "result": "FAIL",
+                "message": "BGP failure",
+                "profile": "network-baseline-nxos",
+            },
+            {
+                "host": "leaf04",
+                "check_id": "type5_propagation",
+                "result": "UNKNOWN",
+                "message": "Evidence missing",
+                "profile": "nxos-overlay",
+            },
+        ],
+    }
+
+    checklist = render_health_checklist(result)
+    summary = checklist.split("### WARN / FAIL / UNKNOWN Items", 1)[1].split(
+        "## Checks", 1
+    )[0]
+
+    assert "| Profile | Result | Check | Hosts |" in summary
+    assert (
+        "| network-baseline-nxos | WARN | logging_health | leaf01, leaf02 |"
+        in summary
+    )
+    assert "| network-baseline-nxos | FAIL | bgp_ipv4_health | leaf03 |" in summary
+    assert "| nxos-overlay | UNKNOWN | type5_propagation | leaf04 |" in summary
+
+
+def test_health_checklist_shows_no_non_pass_items() -> None:
+    result = {
+        "change_id": "CHG-1",
+        "phase": "before",
+        "started_at": "2026-08-02T10:00:00+09:00",
+        "completed_at": "2026-08-02T10:00:01+09:00",
+        "result": "PASS",
+        "profiles": ["network-baseline-nxos"],
+        "checks": [
+            {
+                "host": "leaf01",
+                "check_id": "system_identity",
+                "result": "PASS",
+                "message": "System is healthy",
+                "profile": "network-baseline-nxos",
+            }
+        ],
+    }
+
+    checklist = render_health_checklist(result)
+    summary = checklist.split("### WARN / FAIL / UNKNOWN Items", 1)[1].split(
+        "## Checks", 1
+    )[0]
+
+    assert "- None" in summary
+
+
 NXOS_FIXTURES = Path(__file__).parent / "fixtures" / "nxos"
 BASELINE_COMMAND_FIXTURES = {
     "show clock": (NXOS_FIXTURES / "show_clock" / "c9300v_10_5_4.txt"),

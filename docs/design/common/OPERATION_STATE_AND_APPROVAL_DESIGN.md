@@ -20,6 +20,11 @@ Operation metadataの`purpose`は少なくとも`change`、`inspection`、`initi
 持たない。問題修正後の`after`は明示Operation IDで同じworkspaceへ追加できる。inspection成果物を
 approval／applyの入力へ暗黙に昇格しない。
 
+`purpose: change` の Health `before` が正常公開された後は、後続の plan／after を待つ状態として Operation
+lifecycle を `waiting_for_user` にする。後続処理の開始時に `running` へ戻す。`purpose: inspection` は後続変更を
+待たないため、正常公開後に `completed` または `completed_with_warnings` とする。standalone Health の `after`／
+`rollback` も処理完了後に terminal state とする。これにより、実行中処理と利用者の後続操作待ちを区別する。
+
 ### 3.1 共通Operation lifecycle
 
 Health Checkだけ、offline compare、planだけ、外部投入、Overlay apply、rollback、support bundleの
@@ -141,7 +146,9 @@ alred operation archive --change-id CHG-2026-00123
 ```
 
 - 既定の経過日数は terminal transition から14日とし、`--older-than-days`、または
-  `ALRED_OPERATION_ARCHIVE_AFTER_DAYS`で変更できる。
+  `ALRED_OPERATION_ARCHIVE_AFTER_DAYS`で変更できる。ただし `operation close` による `cancelled` は、close 直前の
+  最終 activity から経過日数を判定する。cancel 日時は `closed_at` として保持し、Archive Manifest に
+  `age_reference_at` と `age_reference` を記録する。
 - 対象 state は`completed`、`completed_with_warnings`、`cancelled`だけとする。`failed`、
   `state_unknown`、実行中、lock 保有中は archive しない。
 - archive 開始時に専用 Operation lock を排他的に取得し、archive 作成・検証・index 更新・live directory 削除まで
@@ -153,8 +160,8 @@ alred operation archive --change-id CHG-2026-00123
   `metadata.yaml`と`execution.json`だけを読み取る。作成時は file 単位 hash も全件検証するが、読み取り専用表示で
   全 log を毎回展開・再 hash しない。
 - mutating command、Support Bundle／Evidence Package 作成、reference state 選択など live 成果物を必要とする
-  consumer は archive を透過展開せず、`OPERATION_ARCHIVED`で停止する。restore／archive 内の任意成果物を
-  直接読む共通 reader は将来拡張とする。
+  consumer は archive を透過展開せず、`OPERATION_ARCHIVED`で停止する。利用には Operation 全体を restore する。
+  archive 内の任意成果物を直接読む共通 reader は将来拡張とする。
 - 一括実行では不適格 Operation を`SKIP`して継続し、`--change-id`指定時は不適格を error にする。
 - archive 作成・検証・index 公開までに失敗した場合は live Operation を維持し、今回作成した未公開 archive を
   除去して同じ CLI を再実行可能にする。index 公開後の live directory 削除失敗は archive を破棄せず、
@@ -174,6 +181,49 @@ archive だけとし、archive 全体 hash、Manifest、checksum file、index pa
 この境界により、archive 形式や保存階層を変更しても consumer の CLI 契約を Operation ID 中心に維持できる。
 将来は`storage_version`別 adapter、index rebuild、selective restore を追加し、既存 archive を in-place で
 書き換えない。
+
+### 4.2.1 放置 Operation の close
+
+`running` または `waiting_for_user` を経過日数だけで直接 archive しない。作業を継続しない pre-apply Operation は、
+理由を明示して `cancelled` へ遷移させてから既存 archive を使用する。
+
+```bash
+alred operation close --change-id CHG-2026-00123 --reason "change cancelled"
+alred operation close --stale-older-than-days 7 --reason "stale pre-apply operation" --dry-run
+alred operation close --stale-older-than-days 7 --reason "stale pre-apply operation"
+```
+
+- `--change-id` と `--stale-older-than-days` は排他かつ一方を必須とする。
+- 空でない `--reason` を必須とし、Operation transition の reason へ保存する。
+- lifecycle は `created`、`running`、`waiting_for_user` だけを対象とする。
+- workflow state は device mutation 前の `null`、`planned`、`before_running`、`before_completed`、`plan_ready`、
+  `approved` だけを対象とする。`apply_running` 以降、`device_state_unknown`、rollback 関連 state は拒否する。
+- lock が存在する Operation は拒否する。close 自体も Operation lock を取得する。
+- `--dry-run` は候補表示だけを行い、state を変更しない。
+- active change が対象 Operation を指す場合は、close 成功後に active change state も `cancelled` とし、after の
+  暗黙継続対象から除外する。
+- close による cancel transition は stale age を 0 日へ戻さない。archive の経過日数は close 直前の
+  `last_transition.at` を使用するため、既に `--older-than-days` を満たす Operation は close 後すぐ archive できる。
+
+`operation status --stale-after-days DAYS` は最終 transition からの idle 日数と stale candidate 判定を表示する。
+これは診断表示であり、自動 close や lock 削除を行わない。
+
+### 4.2.2 Operation restore
+
+誤って archive した terminal Operation は、次の command で元の live path へ戻せる。
+
+```bash
+alred operation restore --change-id CHG-2026-00123
+```
+
+restore は index の archive SHA-256、外部 checksum、Archive Manifest、全 regular file の size／SHA-256 を検証し、
+path traversal、symlink、special file、既存 target を拒否する。staging directory へ展開して metadata／execution の
+schema、change ID、`output_root` を検証した後だけ atomic rename と index 更新を行う。live 公開後に元 archive と
+checksum を削除する。失敗時は archived index と archive を維持し、途中の live directory を公開しない。
+
+restore 後も lifecycle は archive 前の `completed`、`completed_with_warnings`、`cancelled` のままとし、暗黙に
+`running` へ戻さない。作業再開を可能にする `operation reopen` は別の将来機能とし、approval、Snapshot hash、
+inventory、profile、実機状態の再検証なしに terminal Operation を再開しない。
 
 ### 4.3 Lock
 

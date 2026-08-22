@@ -28,6 +28,7 @@ from .operation import (
     list_live_operation_ids,
     load_operation_location,
     open_operation_workspace,
+    remove_missing_live_operation_index,
 )
 from .inventory import load_inventory_data, load_inventory_map_from_list
 from .parsing import (
@@ -215,6 +216,7 @@ def _resolve_current_before_source(
     operations_root: str | Path,
     change_id: str,
 ) -> EvidenceCollectionSource:
+    remove_missing_live_operation_index(operations_root, change_id)
     workspace = open_operation_workspace(operations_root, change_id)
     current_path = workspace.operation_root / "health" / "before" / "current.json"
     if not current_path.exists():
@@ -322,6 +324,10 @@ def resolve_evidence_collection_source(
     candidates: list[tuple[datetime, str]] = []
     for operation_id in list_live_operation_ids(operations_root):
         location = load_operation_location(operations_root, operation_id)
+        if location is not None and remove_missing_live_operation_index(
+            operations_root, operation_id
+        ):
+            continue
         if location is None:
             legacy_current = (
                 Path(operations_root)
@@ -1329,6 +1335,163 @@ def inspect_evidence_package(bundle: str | Path) -> dict[str, Any]:
     }
 
 
+def _evidence_archive_package_id(path: Path) -> tuple[str, bool] | None:
+    for suffix, sensitive in (
+        (".sensitive.tar.gz", True),
+        (".tar.gz", False),
+    ):
+        if path.name.endswith(suffix):
+            return path.name.removesuffix(suffix), sensitive
+    return None
+
+
+def prune_evidence_packages(
+    output_dir: str | Path,
+    *,
+    keep_latest: int,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    """Prune verified package/checksum pairs by profile and sensitivity."""
+    if keep_latest < 0:
+        raise EvidencePackageError(
+            "EVIDENCE_INVALID_SOURCE: keep_latest must be zero or greater"
+        )
+    output = Path(output_dir)
+    if not output.exists():
+        return {
+            "keep_latest": keep_latest,
+            "dry_run": dry_run,
+            "verified": 0,
+            "deleted": [],
+            "skipped": [],
+            "released_bytes": 0,
+        }
+    if not output.is_dir() or output.is_symlink():
+        raise EvidencePackageError(
+            f"EVIDENCE_INVALID_SOURCE: unsafe evidence output directory: {output}"
+        )
+
+    groups: dict[tuple[str, bool], list[dict[str, Any]]] = {}
+    skipped: list[dict[str, str]] = []
+    managed_paths: set[Path] = set()
+    for archive in sorted(output.glob("*.tar.gz")):
+        identity = _evidence_archive_package_id(archive)
+        if identity is None:
+            continue
+        filename_package_id, sensitive = identity
+        checksum = output / f"{filename_package_id}.sha256"
+        managed_paths.update({archive, checksum})
+        if (
+            not archive.is_file()
+            or archive.is_symlink()
+            or not checksum.is_file()
+            or checksum.is_symlink()
+        ):
+            skipped.append(
+                {
+                    "archive": str(archive),
+                    "reason": "archive/checksum pair is missing or unsafe",
+                }
+            )
+            continue
+        try:
+            checksum_tokens = checksum.read_text(encoding="utf-8").split()
+            if len(checksum_tokens) != 2 or checksum_tokens[1] != archive.name:
+                raise EvidencePackageError(
+                    "EVIDENCE_INTEGRITY_FAILED: external checksum filename mismatch"
+                )
+            verification = verify_evidence_package(
+                archive,
+                checksum_file=checksum,
+            )
+            inspection = inspect_evidence_package(archive)
+            if verification["package_id"] != filename_package_id:
+                raise EvidencePackageError(
+                    "EVIDENCE_INTEGRITY_FAILED: package ID does not match filename"
+                )
+            created_at = datetime.fromisoformat(str(inspection["created_at"]))
+            if created_at.tzinfo is None:
+                raise EvidencePackageError(
+                    "EVIDENCE_INTEGRITY_FAILED: package created_at has no timezone"
+                )
+        except (EvidencePackageError, OSError, UnicodeDecodeError, ValueError) as exc:
+            skipped.append({"archive": str(archive), "reason": str(exc)})
+            continue
+        record = {
+            "package_id": filename_package_id,
+            "profile": str(verification["profile"]),
+            "sensitive": sensitive,
+            "created_at": created_at,
+            "archive": archive,
+            "checksum": checksum,
+            "archive_sha256": str(verification["archive_sha256"]),
+            "size": archive.stat().st_size + checksum.stat().st_size,
+        }
+        groups.setdefault((record["profile"], sensitive), []).append(record)
+
+    for path in sorted(output.iterdir()):
+        if path.name.startswith(".") or path in managed_paths:
+            continue
+        skipped.append(
+            {
+                "archive": str(path),
+                "reason": "unrecognized file is not managed by Evidence retention",
+            }
+        )
+
+    candidates: list[dict[str, Any]] = []
+    if keep_latest > 0:
+        for records in groups.values():
+            records.sort(
+                key=lambda item: (item["created_at"], item["package_id"]),
+                reverse=True,
+            )
+            candidates.extend(records[keep_latest:])
+    candidates.sort(key=lambda item: (item["created_at"], item["package_id"]))
+
+    deleted: list[dict[str, Any]] = []
+    released_bytes = 0
+    for candidate in candidates:
+        archive = candidate["archive"]
+        checksum = candidate["checksum"]
+        if not dry_run:
+            verification = verify_evidence_package(
+                archive,
+                checksum_file=checksum,
+            )
+            if verification["archive_sha256"] != candidate["archive_sha256"]:
+                raise EvidencePackageError(
+                    f"EVIDENCE_INTEGRITY_FAILED: package changed before retention: {archive}"
+                )
+            try:
+                archive.unlink()
+                checksum.unlink()
+            except OSError as exc:
+                raise EvidencePackageError(
+                    f"EVIDENCE_INVALID_SOURCE: package retention deletion failed: {archive}"
+                ) from exc
+        released_bytes += int(candidate["size"])
+        deleted.append(
+            {
+                "package_id": candidate["package_id"],
+                "profile": candidate["profile"],
+                "sensitive": candidate["sensitive"],
+                "created_at": candidate["created_at"].isoformat(),
+                "archive": str(archive),
+                "checksum": str(checksum),
+                "bytes": candidate["size"],
+            }
+        )
+    return {
+        "keep_latest": keep_latest,
+        "dry_run": dry_run,
+        "verified": sum(len(records) for records in groups.values()),
+        "deleted": deleted,
+        "skipped": skipped,
+        "released_bytes": released_bytes,
+    }
+
+
 def import_evidence_package(
     bundle: str | Path,
     *,
@@ -1399,6 +1562,248 @@ def import_evidence_package(
         "external_checksum_verified": verification["external_checksum_verified"],
         "external_checksum_selection": verification["external_checksum_selection"],
         "external_checksum_file": verification["external_checksum_file"],
+    }
+
+
+def _inspect_imported_evidence_directory(import_dir: Path) -> dict[str, Any]:
+    """Verify a published import directory and return retention metadata."""
+    if not import_dir.is_dir() or import_dir.is_symlink():
+        raise EvidencePackageError(
+            f"EVIDENCE_INVALID_SOURCE: unsafe imported Evidence directory: {import_dir}"
+        )
+    manifest_path = import_dir / "package-manifest.yaml"
+    checksums_path = import_dir / "checksums.sha256"
+    record_path = import_dir / "import-record.yaml"
+    for required in (manifest_path, checksums_path, record_path):
+        if not required.is_file() or required.is_symlink():
+            raise EvidencePackageError(
+                f"EVIDENCE_INCOMPLETE: imported Evidence file missing or unsafe: {required}"
+            )
+    try:
+        manifest_bytes = manifest_path.read_bytes()
+        manifest = yaml.safe_load(manifest_bytes.decode("utf-8", errors="strict")) or {}
+        record = yaml.safe_load(record_path.read_text(encoding="utf-8")) or {}
+        checksum_lines = checksums_path.read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeDecodeError, yaml.YAMLError) as exc:
+        raise EvidencePackageError(
+            f"EVIDENCE_INTEGRITY_FAILED: invalid imported Evidence metadata: {import_dir}"
+        ) from exc
+    _validate_package_manifest(manifest)
+    package_id = str(manifest["metadata"]["package_id"])
+    if package_id != import_dir.name:
+        raise EvidencePackageError(
+            "EVIDENCE_INTEGRITY_FAILED: imported package ID does not match directory name"
+        )
+    if record.get("kind") != "EvidenceImportRecord":
+        raise EvidencePackageError("EVIDENCE_INTEGRITY_FAILED: invalid import record kind")
+    record_metadata = record.get("metadata", {})
+    record_spec = record.get("spec", {})
+    if record_metadata.get("package_id") != package_id:
+        raise EvidencePackageError(
+            "EVIDENCE_INTEGRITY_FAILED: import record package ID mismatch"
+        )
+    if record_spec.get("package_manifest_sha256") != _sha256_bytes(manifest_bytes):
+        raise EvidencePackageError(
+            "EVIDENCE_INTEGRITY_FAILED: imported package Manifest hash mismatch"
+        )
+    try:
+        imported_at = datetime.fromisoformat(str(record_metadata["imported_at"]))
+    except (KeyError, TypeError, ValueError) as exc:
+        raise EvidencePackageError(
+            "EVIDENCE_INTEGRITY_FAILED: invalid import timestamp"
+        ) from exc
+    if imported_at.tzinfo is None:
+        raise EvidencePackageError(
+            "EVIDENCE_INTEGRITY_FAILED: import timestamp has no timezone"
+        )
+
+    expected: dict[Path, str] = {}
+    for line in checksum_lines:
+        digest, separator, relative_text = line.partition("  ")
+        relative = PurePosixPath(relative_text)
+        if (
+            not separator
+            or len(digest) != 64
+            or any(character not in "0123456789abcdef" for character in digest)
+            or relative.is_absolute()
+            or not relative.parts
+            or ".." in relative.parts
+        ):
+            raise EvidencePackageError(
+                "EVIDENCE_INTEGRITY_FAILED: invalid imported checksum line"
+            )
+        path = import_dir.joinpath(*relative.parts)
+        if path in expected:
+            raise EvidencePackageError(
+                "EVIDENCE_INTEGRITY_FAILED: duplicate imported checksum path"
+            )
+        expected[path] = digest
+
+    actual: set[Path] = set()
+    try:
+        for path in import_dir.rglob("*"):
+            if path.is_symlink():
+                raise EvidencePackageError(
+                    f"EVIDENCE_INVALID_SOURCE: imported Evidence contains symlink: {path}"
+                )
+            if path.is_file():
+                actual.add(path)
+            elif not path.is_dir():
+                raise EvidencePackageError(
+                    f"EVIDENCE_INVALID_SOURCE: imported Evidence contains unsafe entry: {path}"
+                )
+    except OSError as exc:
+        raise EvidencePackageError(
+            f"EVIDENCE_INVALID_SOURCE: cannot inspect imported Evidence: {import_dir}"
+        ) from exc
+    allowed = set(expected) | {checksums_path, record_path}
+    if actual != allowed:
+        raise EvidencePackageError(
+            "EVIDENCE_INTEGRITY_FAILED: imported Evidence member set mismatch"
+        )
+    try:
+        for path, digest in expected.items():
+            if (
+                not path.is_file()
+                or path.is_symlink()
+                or _sha256_bytes(path.read_bytes()) != digest
+            ):
+                raise EvidencePackageError(
+                    f"EVIDENCE_INTEGRITY_FAILED: imported Evidence member hash mismatch: {path}"
+                )
+        size = sum(path.stat().st_size for path in actual)
+    except OSError as exc:
+        raise EvidencePackageError(
+            f"EVIDENCE_INVALID_SOURCE: cannot verify imported Evidence: {import_dir}"
+        ) from exc
+    return {
+        "package_id": package_id,
+        "profile": str(manifest["spec"]["profile"]),
+        "sensitive": bool(manifest["spec"]["contains_verbatim_config"]),
+        "imported_at": imported_at,
+        "manifest_sha256": _sha256_bytes(manifest_bytes),
+        "size": size,
+    }
+
+
+def prune_imported_evidence(
+    output_dir: str | Path,
+    *,
+    keep_latest: int,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    """Prune verified imported directories by profile and sensitivity."""
+    if keep_latest < 0:
+        raise EvidencePackageError(
+            "EVIDENCE_INVALID_SOURCE: keep_latest must be zero or greater"
+        )
+    output = Path(output_dir)
+    if not output.exists():
+        return {
+            "keep_latest": keep_latest,
+            "dry_run": dry_run,
+            "verified": 0,
+            "deleted": [],
+            "skipped": [],
+            "released_bytes": 0,
+        }
+    if not output.is_dir() or output.is_symlink():
+        raise EvidencePackageError(
+            f"EVIDENCE_INVALID_SOURCE: unsafe Evidence import root: {output}"
+        )
+
+    latest_target: Path | None = None
+    latest = output / "latest"
+    if latest.is_symlink():
+        try:
+            resolved = latest.resolve(strict=True)
+            if resolved.parent != output.resolve() or not resolved.is_dir():
+                raise ValueError
+            latest_target = resolved
+        except (OSError, ValueError):
+            latest_target = None
+
+    groups: dict[tuple[str, bool], list[dict[str, Any]]] = {}
+    skipped: list[dict[str, str]] = []
+    if latest.exists() and not latest.is_symlink():
+        skipped.append(
+            {
+                "import_dir": str(latest),
+                "reason": "latest is not a managed symbolic link",
+            }
+        )
+    elif latest.is_symlink() and latest_target is None:
+        skipped.append(
+            {
+                "import_dir": str(latest),
+                "reason": "latest symbolic link is broken or unsafe",
+            }
+        )
+    for path in sorted(output.iterdir()):
+        if path.name.startswith(".") or path == latest:
+            continue
+        try:
+            metadata = _inspect_imported_evidence_directory(path)
+        except EvidencePackageError as exc:
+            skipped.append({"import_dir": str(path), "reason": str(exc)})
+            continue
+        metadata["import_dir"] = path
+        metadata["protected"] = latest_target is not None and path.resolve() == latest_target
+        groups.setdefault((metadata["profile"], metadata["sensitive"]), []).append(metadata)
+
+    candidates: list[dict[str, Any]] = []
+    if keep_latest > 0:
+        for records in groups.values():
+            records.sort(
+                key=lambda item: (item["imported_at"], item["package_id"]),
+                reverse=True,
+            )
+            for record in records[keep_latest:]:
+                if record["protected"]:
+                    skipped.append(
+                        {
+                            "import_dir": str(record["import_dir"]),
+                            "reason": "latest import target is protected",
+                        }
+                    )
+                else:
+                    candidates.append(record)
+    candidates.sort(key=lambda item: (item["imported_at"], item["package_id"]))
+
+    deleted: list[dict[str, Any]] = []
+    released_bytes = 0
+    for candidate in candidates:
+        import_dir = candidate["import_dir"]
+        if not dry_run:
+            current = _inspect_imported_evidence_directory(import_dir)
+            if current["manifest_sha256"] != candidate["manifest_sha256"]:
+                raise EvidencePackageError(
+                    f"EVIDENCE_INTEGRITY_FAILED: import changed before retention: {import_dir}"
+                )
+            try:
+                shutil.rmtree(import_dir)
+            except OSError as exc:
+                raise EvidencePackageError(
+                    f"EVIDENCE_INVALID_SOURCE: import retention deletion failed: {import_dir}"
+                ) from exc
+        released_bytes += int(candidate["size"])
+        deleted.append(
+            {
+                "package_id": candidate["package_id"],
+                "profile": candidate["profile"],
+                "sensitive": candidate["sensitive"],
+                "imported_at": candidate["imported_at"].isoformat(),
+                "import_dir": str(import_dir),
+                "bytes": candidate["size"],
+            }
+        )
+    return {
+        "keep_latest": keep_latest,
+        "dry_run": dry_run,
+        "verified": sum(len(records) for records in groups.values()),
+        "deleted": deleted,
+        "skipped": skipped,
+        "released_bytes": released_bytes,
     }
 
 

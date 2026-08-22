@@ -33,6 +33,9 @@ flowchart LR
 `health/before/current.json` が指す正常公開済み attempt を候補にする。候補の `completed_at` が最も新しいものを
 自動選択し、単なる directory／file 更新時刻、Operation metadata の `current_attempt`、失敗 attempt は使用しない。
 最新の `completed_at` が同じ候補が複数ある場合は自動選択せず、`--change-id` による明示選択を要求する。
+live index が参照する Operation directory が存在しない場合は、index を再読込して同じ live entry であることを確認後、
+その stale index を削除する。自動選択では残りの候補を評価し、`--change-id` で明示した欠損 Operation は index を削除後に
+従来どおり error とする。不正な index、unsafe path、directory 以外の実体は削除せず fail closed とする。
 
 legacy flat layout の top-level directory は、`health/before/current.json` が存在する場合だけ自動選択候補として開く。
 raw-only copy、途中生成 directory など current pointer がないものはスキップする。current pointer が存在する場合は、
@@ -446,9 +449,10 @@ alred evidence-package create \
   --profile <digital-twin|ai-analysis|support> \
   [--disclosure-preset <protected-preserve|pseudonymized|minimal> | \
    --disclosure-policy <path>] \
-  [--config-content <sanitized|verbatim|exclude>] \
-  [--acknowledge-sensitive-config] \
-  [--output-dir <directory>]
+   [--config-content <sanitized|verbatim|exclude>] \
+   [--acknowledge-sensitive-config] \
+   [--output-dir <directory>] \
+   [--keep-latest-packages <count>]
 ```
 
 - Operation source と legacy collection source は排他的に一つだけ指定する。source option をすべて省略した場合は、
@@ -465,14 +469,31 @@ alred evidence-package create \
   `--acknowledge-sensitive-config`の不足をvalidation errorとする。
 - `--output-dir`の既定は`evidence-packages/`とする。既存fileを上書きせず、staging directoryで選択、
   sanitize、secret scan、Manifest生成、checksum検証を完了してからatomicに公開する。
+- `--keep-latest-packages` は作成成功後に同じ output directory の世代を整理する。CLI 指定、
+  `ALRED_EVIDENCE_PACKAGE_KEEP_LATEST`、既定値 `3` の順で解決し、`0` は自動削除を無効にする。
+  保持数は profile と通常／sensitive package の組ごとに数え、archive と外部 `.sha256` を 1 package とする。
+  Manifest の `created_at` が新しい package を保持し、同時刻は package ID で決定的に並べる。
+- retention 対象は外部 checksum、archive hash、内部 Manifest、全 member checksum を検証でき、package ID と
+  filename が一致する regular file pair だけとする。片方だけの file、symlink、未知 file、検証失敗 package は
+  削除せず warning とする。新規 package の公開・検証に失敗した場合は retention を開始しない。削除失敗時は
+  新規 package を維持し、retention error として終了する。
 - 最新の current before を `digital-twin` の既定値で Package 化する最小 command は
   `alred evidence-package create --profile digital-twin` とする。source、開示 preset、config content、出力先を
   default から変更する場合だけ対応 option を指定する。
 - 成功時は通常`<package-id>.tar.gz`、`verbatim`時は`<package-id>.sensitive.tar.gz`とarchive外checksumを生成する。package ID、archive path、
   archive SHA-256、profile、開示policy hash、source IDをmachine-readable resultと標準出力へ返す。
 - 必須capability不足、source hash不一致、未完了attempt、開示変換後の高信頼secret候補ではfail closedとし、
-  partial archiveを公開しない。size超過時も暗黙のfile省略や分割を行わず失敗する。上限はsite policyで
-  指定し、未指定時は500 MiBとする。
+partial archiveを公開しない。size超過時も暗黙のfile省略や分割を行わず失敗する。上限はsite policyで
+指定し、未指定時は500 MiBとする。
+
+既存 output directory は create と同じ retention 処理を共有する command で整理できる。
+
+```bash
+alred evidence-package prune --keep-latest-packages 3 --dry-run
+alred evidence-package prune --keep-latest-packages 3
+```
+
+`--dry-run` は削除候補、profile、通常／sensitive 区分、解放予定 byte 数を表示するだけで file を変更しない。
 
 ### 9.3 `inspect`
 
@@ -508,7 +529,8 @@ checksum file を同じ directory へ搬送する。checksum file を別名ま�
 alred evidence-package import \
   --bundle <archive> \
   [--checksum-file <path>] \
-  [--output-dir <directory>]
+  [--output-dir <directory>] \
+  [--keep-latest-packages <count>]
 ```
 
 `verify`と同じ検証をすべて通過した後、`--output-dir`（既定`imported-evidence/`）配下の
@@ -520,6 +542,23 @@ atomic に更新する。verify、secret scan、展開、`import-record.yaml` �
 場合は以前の `latest` を維持する。`latest` は利用者向けの到達経路であり、offline consumer は解決後も
 `package-manifest.yaml`、`import-record.yaml`、package ID、archive hash を検証する。同名 package の再利用は
 import ではないため `latest` の世代を変更しない。
+
+import 成功後は、同じ profile・通常／sensitive 区分ごとに import 日時が新しい 3 directory を保持し、
+それより古い検証済み directory を削除する。保持数は `--keep-latest-packages`、未指定時は
+`ALRED_EVIDENCE_IMPORT_KEEP_LATEST`、環境変数も未指定なら `3` とし、`0` は自動整理を無効にする。
+`latest` の参照先は削除しない。削除対象は `package-manifest.yaml`、`import-record.yaml`、Manifest hash、
+全展開 member checksum、package ID を再検証できる通常 directory に限定する。不完全な directory、symlink、
+不明な手動配置物は削除せず warning とする。import の検証または公開に失敗した場合は retention を開始しない。
+削除失敗時は新規 import と `latest` を維持し、retention error として終了する。
+
+既存 import root は同じ処理を共有する command で整理できる。
+
+```text
+alred evidence-package prune-imports --keep-latest-packages 3 --dry-run
+alred evidence-package prune-imports --keep-latest-packages 3
+```
+
+`--output-dir` の既定は `imported-evidence/` である。`--dry-run` は候補と解放予定 byte 数だけを表示する。
 
 `import` は `verify` の全検証を内部で必ず実行するため、単独の `verify` を事前条件としない。標準の受領・展開手順は
 archive と `<package-id>.sha256` を同じ directory に配置し、`import --bundle <archive>` とする。単独の `verify` は、

@@ -4,12 +4,21 @@ from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 from pathlib import Path
+import shutil
 import tarfile
 
 import yaml
 import pytest
 
-from alred.cli import build_parser, cmd_evidence_package_create
+from alred.cli import (
+    build_parser,
+    cmd_evidence_package_create,
+    cmd_evidence_package_import,
+    cmd_evidence_package_prune,
+    cmd_evidence_package_prune_imports,
+    get_evidence_import_keep_latest,
+    get_evidence_package_keep_latest,
+)
 from alred.portable_evidence import (
     EvidencePackageError,
     _is_secret_bearing_line,
@@ -18,6 +27,8 @@ from alred.portable_evidence import (
     create_evidence_package,
     import_evidence_package,
     inspect_evidence_package,
+    prune_imported_evidence,
+    prune_evidence_packages,
     resolve_imported_digital_twin,
     resolve_evidence_collection_source,
     verify_evidence_package,
@@ -419,6 +430,52 @@ def test_resolve_evidence_source_uses_latest_published_before_by_default(
     assert source.collection_manifest == latest_manifest
 
 
+def test_resolve_evidence_source_removes_missing_live_operation_index(
+    tmp_path: Path,
+) -> None:
+    operations_root = tmp_path / "operations"
+    stale_manifest, _raw = _published_before_operation(
+        operations_root,
+        change_id="CHG-STALE",
+        completed_at=NOW + timedelta(minutes=1),
+    )
+    expected_manifest, _raw = _published_before_operation(
+        operations_root,
+        change_id="CHG-AVAILABLE",
+        completed_at=NOW,
+    )
+    stale_operation_root = stale_manifest.parents[4]
+    shutil.rmtree(stale_operation_root)
+
+    source = resolve_evidence_collection_source(
+        operations_root=operations_root,
+    )
+
+    assert source.change_id == "CHG-AVAILABLE"
+    assert source.collection_manifest == expected_manifest
+    assert not (operations_root / ".index" / "CHG-STALE.yaml").exists()
+
+
+def test_resolve_explicit_evidence_source_removes_missing_live_operation_index(
+    tmp_path: Path,
+) -> None:
+    operations_root = tmp_path / "operations"
+    stale_manifest, _raw = _published_before_operation(
+        operations_root,
+        change_id="CHG-STALE",
+        completed_at=NOW,
+    )
+    shutil.rmtree(stale_manifest.parents[4])
+
+    with pytest.raises(OperationPathError, match="operation does not exist"):
+        resolve_evidence_collection_source(
+            operations_root=operations_root,
+            change_id="CHG-STALE",
+        )
+
+    assert not (operations_root / ".index" / "CHG-STALE.yaml").exists()
+
+
 def test_resolve_evidence_source_change_id_overrides_latest(
     tmp_path: Path,
 ) -> None:
@@ -630,8 +687,441 @@ def test_evidence_create_parser_keeps_manual_source_pair_optional() -> None:
     assert automatic.input is None
     assert automatic.config_content == "sanitized"
     assert automatic.output_dir == "evidence-packages"
+    assert automatic.keep_latest_packages is None
     assert explicit.collection_manifest == "collection-manifest.yaml"
     assert explicit.input == "raw"
+
+
+def test_evidence_package_retention_keeps_latest_per_profile(tmp_path: Path) -> None:
+    manifest, raw = _collection(tmp_path)
+    output = tmp_path / "packages"
+    digital_packages = [
+        create_evidence_package(
+            collection_manifest=manifest,
+            raw_root=raw,
+            profile="digital-twin",
+            output_dir=output,
+            created_at=NOW + timedelta(minutes=index),
+        )
+        for index in range(4)
+    ]
+    ai_package = create_evidence_package(
+        collection_manifest=manifest,
+        raw_root=raw,
+        profile="ai-analysis",
+        output_dir=output,
+        created_at=NOW + timedelta(minutes=4),
+    )
+    sensitive_package = create_evidence_package(
+        collection_manifest=manifest,
+        raw_root=raw,
+        profile="digital-twin",
+        output_dir=output,
+        disclosure_preset="protected-preserve",
+        config_content="verbatim",
+        acknowledge_sensitive_config=True,
+        created_at=NOW + timedelta(minutes=5),
+    )
+
+    preview = prune_evidence_packages(output, keep_latest=3, dry_run=True)
+
+    assert [item["package_id"] for item in preview["deleted"]] == [
+        digital_packages[0]["package_id"]
+    ]
+    assert digital_packages[0]["archive"].is_file()
+    assert preview["released_bytes"] > 0
+
+    result = prune_evidence_packages(output, keep_latest=3)
+
+    assert [item["package_id"] for item in result["deleted"]] == [
+        digital_packages[0]["package_id"]
+    ]
+    assert not digital_packages[0]["archive"].exists()
+    assert not digital_packages[0]["checksum"].exists()
+    assert all(item["archive"].is_file() for item in digital_packages[1:])
+    assert ai_package["archive"].is_file()
+    assert sensitive_package["archive"].is_file()
+
+
+def test_evidence_create_cli_applies_retention_after_success(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    manifest, raw = _collection(tmp_path)
+    output = tmp_path / "packages"
+    existing = [
+        create_evidence_package(
+            collection_manifest=manifest,
+            raw_root=raw,
+            profile="digital-twin",
+            output_dir=output,
+            created_at=NOW - timedelta(days=3 - index),
+        )
+        for index in range(3)
+    ]
+    args = build_parser().parse_args(
+        [
+            "evidence-package",
+            "create",
+            "--collection-manifest",
+            str(manifest),
+            "--input",
+            str(raw),
+            "--profile",
+            "digital-twin",
+            "--output-dir",
+            str(output),
+            "--keep-latest-packages",
+            "3",
+        ]
+    )
+
+    cmd_evidence_package_create(args)
+
+    rendered = yaml.safe_load(capsys.readouterr().out)
+    assert rendered["retention"]["keep_latest"] == 3
+    assert rendered["retention"]["deleted"][0]["package_id"] == (
+        existing[0]["package_id"]
+    )
+    assert not existing[0]["archive"].exists()
+    assert not existing[0]["checksum"].exists()
+
+
+def test_evidence_package_retention_skips_invalid_pair(tmp_path: Path) -> None:
+    manifest, raw = _collection(tmp_path)
+    output = tmp_path / "packages"
+    packages = [
+        create_evidence_package(
+            collection_manifest=manifest,
+            raw_root=raw,
+            profile="digital-twin",
+            output_dir=output,
+            created_at=NOW + timedelta(minutes=index),
+        )
+        for index in range(2)
+    ]
+    packages[0]["checksum"].write_text(
+        f"{'0' * 64}  {packages[0]['archive'].name}\n",
+        encoding="utf-8",
+    )
+
+    result = prune_evidence_packages(output, keep_latest=1)
+
+    assert result["deleted"] == []
+    assert len(result["skipped"]) == 1
+    assert packages[0]["archive"].is_file()
+    assert packages[0]["checksum"].is_file()
+    assert packages[1]["archive"].is_file()
+
+
+def test_evidence_package_prune_cli_dry_run(tmp_path: Path, capsys) -> None:
+    manifest, raw = _collection(tmp_path)
+    output = tmp_path / "packages"
+    packages = [
+        create_evidence_package(
+            collection_manifest=manifest,
+            raw_root=raw,
+            profile="digital-twin",
+            output_dir=output,
+            created_at=NOW + timedelta(minutes=index),
+        )
+        for index in range(2)
+    ]
+    args = build_parser().parse_args(
+        [
+            "evidence-package",
+            "prune",
+            "--output-dir",
+            str(output),
+            "--keep-latest-packages",
+            "1",
+            "--dry-run",
+        ]
+    )
+
+    cmd_evidence_package_prune(args)
+
+    rendered = capsys.readouterr().out
+    assert f"DELETE-ELIGIBLE {packages[0]['package_id']}" in rendered
+    assert "eligible=1" in rendered
+    assert all(item["archive"].is_file() for item in packages)
+
+
+def test_evidence_package_keep_latest_uses_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ALRED_EVIDENCE_PACKAGE_KEEP_LATEST", "5")
+
+    assert get_evidence_package_keep_latest() == 5
+
+
+def test_evidence_create_rejects_invalid_retention_environment_before_publish(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manifest, raw = _collection(tmp_path)
+    output = tmp_path / "packages"
+    monkeypatch.setenv("ALRED_EVIDENCE_PACKAGE_KEEP_LATEST", "invalid")
+    args = build_parser().parse_args(
+        [
+            "evidence-package",
+            "create",
+            "--collection-manifest",
+            str(manifest),
+            "--input",
+            str(raw),
+            "--profile",
+            "digital-twin",
+            "--output-dir",
+            str(output),
+        ]
+    )
+
+    with pytest.raises(
+        EvidencePackageError,
+        match="ALRED_EVIDENCE_PACKAGE_KEEP_LATEST must be an integer",
+    ):
+        cmd_evidence_package_create(args)
+
+    assert not output.exists()
+
+
+def test_prune_imported_evidence_keeps_latest_per_profile_and_sensitivity(
+    tmp_path: Path,
+) -> None:
+    manifest, raw = _collection(tmp_path)
+    packages = tmp_path / "packages"
+    imports = tmp_path / "imports"
+    imported_ids: list[str] = []
+    for offset in range(4):
+        created = create_evidence_package(
+            collection_manifest=manifest,
+            raw_root=raw,
+            profile="digital-twin",
+            output_dir=packages,
+            created_at=NOW + timedelta(minutes=offset),
+        )
+        imported = import_evidence_package(
+            created["archive"],
+            output_dir=imports,
+            imported_at=NOW + timedelta(hours=offset),
+        )
+        imported_ids.append(imported["package_id"])
+
+    ai_created = create_evidence_package(
+        collection_manifest=manifest,
+        raw_root=raw,
+        profile="ai-analysis",
+        output_dir=packages,
+        created_at=NOW + timedelta(minutes=10),
+    )
+    ai_imported = import_evidence_package(
+        ai_created["archive"],
+        output_dir=imports,
+        imported_at=NOW + timedelta(hours=10),
+    )
+    sensitive_created = create_evidence_package(
+        collection_manifest=manifest,
+        raw_root=raw,
+        profile="digital-twin",
+        config_content="verbatim",
+        acknowledge_sensitive_config=True,
+        output_dir=packages,
+        created_at=NOW + timedelta(minutes=20),
+    )
+    sensitive_imported = import_evidence_package(
+        sensitive_created["archive"],
+        output_dir=imports,
+        acknowledge_sensitive_config=True,
+        imported_at=NOW + timedelta(hours=20),
+    )
+
+    result = prune_imported_evidence(imports, keep_latest=3)
+
+    assert [item["package_id"] for item in result["deleted"]] == [imported_ids[0]]
+    assert not (imports / imported_ids[0]).exists()
+    assert all((imports / package_id).is_dir() for package_id in imported_ids[1:])
+    assert (imports / ai_imported["package_id"]).is_dir()
+    assert (imports / sensitive_imported["package_id"]).is_dir()
+    assert (imports / "latest").resolve() == (imports / sensitive_imported["package_id"]).resolve()
+
+
+def test_prune_imported_evidence_skips_invalid_and_unknown_directories(
+    tmp_path: Path,
+) -> None:
+    manifest, raw = _collection(tmp_path)
+    created = create_evidence_package(
+        collection_manifest=manifest,
+        raw_root=raw,
+        profile="digital-twin",
+        output_dir=tmp_path / "packages",
+        created_at=NOW,
+    )
+    imports = tmp_path / "imports"
+    imported = import_evidence_package(
+        created["archive"], output_dir=imports, imported_at=NOW
+    )
+    corrupt = imported["import_dir"] / "inventory" / "hosts.resolved.yaml"
+    corrupt.write_text("changed\n", encoding="utf-8")
+    unknown = imports / "manual-data"
+    unknown.mkdir()
+
+    result = prune_imported_evidence(imports, keep_latest=1)
+
+    assert result["verified"] == 0
+    assert result["deleted"] == []
+    assert len(result["skipped"]) == 2
+    assert corrupt.is_file()
+    assert unknown.is_dir()
+
+
+def test_prune_imported_evidence_never_deletes_latest_target(tmp_path: Path) -> None:
+    manifest, raw = _collection(tmp_path)
+    packages = tmp_path / "packages"
+    imports = tmp_path / "imports"
+    imported_ids: list[str] = []
+    for offset in range(3):
+        created = create_evidence_package(
+            collection_manifest=manifest,
+            raw_root=raw,
+            profile="digital-twin",
+            output_dir=packages,
+            created_at=NOW + timedelta(minutes=offset),
+        )
+        imported = import_evidence_package(
+            created["archive"],
+            output_dir=imports,
+            imported_at=NOW + timedelta(hours=offset),
+        )
+        imported_ids.append(imported["package_id"])
+    latest = imports / "latest"
+    latest.unlink()
+    latest.symlink_to(imported_ids[0], target_is_directory=True)
+
+    result = prune_imported_evidence(imports, keep_latest=1)
+
+    assert (imports / imported_ids[0]).is_dir()
+    assert (imports / imported_ids[2]).is_dir()
+    assert not (imports / imported_ids[1]).exists()
+    assert any("latest import target is protected" in item["reason"] for item in result["skipped"])
+
+
+def test_evidence_import_applies_retention_after_success(tmp_path: Path) -> None:
+    manifest, raw = _collection(tmp_path)
+    packages = tmp_path / "packages"
+    imports = tmp_path / "imports"
+    archives: list[Path] = []
+    for offset in range(2):
+        created = create_evidence_package(
+            collection_manifest=manifest,
+            raw_root=raw,
+            profile="digital-twin",
+            output_dir=packages,
+            created_at=NOW + timedelta(minutes=offset),
+        )
+        archives.append(created["archive"])
+
+    for archive in archives:
+        args = build_parser().parse_args(
+            [
+                "evidence-package",
+                "import",
+                "--bundle",
+                str(archive),
+                "--output-dir",
+                str(imports),
+                "--keep-latest-packages",
+                "1",
+            ]
+        )
+        cmd_evidence_package_import(args)
+
+    package_dirs = [
+        path for path in imports.iterdir() if path.is_dir() and not path.is_symlink()
+    ]
+    assert len(package_dirs) == 1
+    assert (imports / "latest").resolve() == package_dirs[0].resolve()
+
+
+def test_evidence_prune_imports_cli_dry_run(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    manifest, raw = _collection(tmp_path)
+    packages = tmp_path / "packages"
+    imports = tmp_path / "imports"
+    for offset in range(2):
+        created = create_evidence_package(
+            collection_manifest=manifest,
+            raw_root=raw,
+            profile="digital-twin",
+            output_dir=packages,
+            created_at=NOW + timedelta(minutes=offset),
+        )
+        import_evidence_package(
+            created["archive"],
+            output_dir=imports,
+            imported_at=NOW + timedelta(hours=offset),
+        )
+    args = build_parser().parse_args(
+        [
+            "evidence-package",
+            "prune-imports",
+            "--output-dir",
+            str(imports),
+            "--keep-latest-packages",
+            "1",
+            "--dry-run",
+        ]
+    )
+
+    cmd_evidence_package_prune_imports(args)
+
+    output = capsys.readouterr().out
+    assert "DELETE-ELIGIBLE" in output
+    assert "eligible=1" in output
+    assert len(
+        [path for path in imports.iterdir() if path.is_dir() and not path.is_symlink()]
+    ) == 2
+
+
+def test_evidence_import_retention_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ALRED_EVIDENCE_IMPORT_KEEP_LATEST", "5")
+    assert get_evidence_import_keep_latest() == 5
+
+
+def test_evidence_import_rejects_invalid_retention_environment_before_publish(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manifest, raw = _collection(tmp_path)
+    created = create_evidence_package(
+        collection_manifest=manifest,
+        raw_root=raw,
+        profile="digital-twin",
+        output_dir=tmp_path / "packages",
+        created_at=NOW,
+    )
+    output = tmp_path / "imports"
+    monkeypatch.setenv("ALRED_EVIDENCE_IMPORT_KEEP_LATEST", "invalid")
+    args = build_parser().parse_args(
+        [
+            "evidence-package",
+            "import",
+            "--bundle",
+            str(created["archive"]),
+            "--output-dir",
+            str(output),
+        ]
+    )
+
+    with pytest.raises(
+        EvidencePackageError,
+        match="ALRED_EVIDENCE_IMPORT_KEEP_LATEST must be an integer",
+    ):
+        cmd_evidence_package_import(args)
+
+    assert not output.exists()
 
 
 def test_create_verify_inspect_and_import_digital_twin(tmp_path: Path) -> None:

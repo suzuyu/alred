@@ -198,6 +198,7 @@ from .operation import (
     atomic_write_bytes,
     atomic_write_json,
     atomic_write_yaml,
+    close_operation_workspace,
     create_operation_workspace,
     delete_archived_operation,
     generate_attempt_id,
@@ -213,6 +214,7 @@ from .operation import (
     publish_latest_operation_link,
     record_operation_error,
     resolve_timezone_name,
+    restore_operation_archive,
     assess_operation_lock,
     transition_operation,
     transition_phase,
@@ -387,6 +389,8 @@ from .portable_evidence import (
     create_evidence_package,
     import_evidence_package,
     inspect_evidence_package,
+    prune_imported_evidence,
+    prune_evidence_packages,
     load_collection_link_inputs,
     load_collection_command_inputs,
     resolve_evidence_collection_source,
@@ -5669,6 +5673,18 @@ def cmd_transform_config(args: argparse.Namespace) -> None:
 
 def cmd_evidence_package_create(args: argparse.Namespace) -> None:
     """Create a manifest-selected portable evidence archive without device access."""
+    try:
+        keep_latest_packages = (
+            get_evidence_package_keep_latest()
+            if args.keep_latest_packages is None
+            else int(args.keep_latest_packages)
+        )
+    except ValueError as exc:
+        raise EvidencePackageError(f"EVIDENCE_INVALID_SOURCE: {exc}") from exc
+    if keep_latest_packages < 0:
+        raise EvidencePackageError(
+            "EVIDENCE_INVALID_SOURCE: --keep-latest-packages must be zero or greater"
+        )
     source = resolve_evidence_collection_source(
         operations_root=args.operations_root,
         change_id=args.change_id,
@@ -5685,12 +5701,17 @@ def cmd_evidence_package_create(args: argparse.Namespace) -> None:
         acknowledge_sensitive_config=args.acknowledge_sensitive_config,
         created_at=datetime.now().astimezone(),
     )
+    retention = prune_evidence_packages(
+        args.output_dir,
+        keep_latest=keep_latest_packages,
+    )
     output = {
         **result,
         "archive": str(result["archive"]),
         "checksum": str(result["checksum"]),
         "source_selection": source.selection,
         "source_manifest": str(source.collection_manifest),
+        "retention": retention,
     }
     if source.change_id is not None:
         output["source_change_id"] = source.change_id
@@ -5699,6 +5720,106 @@ def cmd_evidence_package_create(args: argparse.Namespace) -> None:
     if source.completed_at is not None:
         output["source_completed_at"] = source.completed_at.isoformat()
     print(yaml.safe_dump(output, sort_keys=False).rstrip())
+
+
+def get_evidence_package_keep_latest() -> int:
+    """Resolve Evidence Package retention from environment or default."""
+    raw = os.environ.get("ALRED_EVIDENCE_PACKAGE_KEEP_LATEST", "3")
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise ValueError(
+            "ALRED_EVIDENCE_PACKAGE_KEEP_LATEST must be an integer"
+        ) from exc
+    if value < 0:
+        raise ValueError(
+            "ALRED_EVIDENCE_PACKAGE_KEEP_LATEST must be zero or greater"
+        )
+    return value
+
+
+def get_evidence_import_keep_latest() -> int:
+    """Resolve imported Evidence retention from environment or default."""
+    raw = os.environ.get("ALRED_EVIDENCE_IMPORT_KEEP_LATEST", "3")
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise ValueError(
+            "ALRED_EVIDENCE_IMPORT_KEEP_LATEST must be an integer"
+        ) from exc
+    if value < 0:
+        raise ValueError(
+            "ALRED_EVIDENCE_IMPORT_KEEP_LATEST must be zero or greater"
+        )
+    return value
+
+
+def cmd_evidence_package_prune(args: argparse.Namespace) -> None:
+    """Prune verified Evidence Package generations without device access."""
+    try:
+        keep_latest_packages = (
+            get_evidence_package_keep_latest()
+            if args.keep_latest_packages is None
+            else int(args.keep_latest_packages)
+        )
+    except ValueError as exc:
+        raise EvidencePackageError(f"EVIDENCE_INVALID_SOURCE: {exc}") from exc
+    result = prune_evidence_packages(
+        args.output_dir,
+        keep_latest=keep_latest_packages,
+        dry_run=args.dry_run,
+    )
+    action = "DELETE-ELIGIBLE" if args.dry_run else "DELETED"
+    for item in result["deleted"]:
+        print(
+            f"{action} {item['package_id']}: profile={item['profile']} "
+            f"sensitive={str(item['sensitive']).lower()} bytes={item['bytes']}"
+        )
+    for item in result["skipped"]:
+        print(f"SKIP {item['archive']}: {item['reason']}")
+    print(
+        "Evidence retention summary: "
+        f"verified={result['verified']} "
+        f"deleted={0 if args.dry_run else len(result['deleted'])} "
+        f"eligible={len(result['deleted']) if args.dry_run else 0} "
+        f"skipped={len(result['skipped'])} "
+        f"releasable_bytes={result['released_bytes']} "
+        f"released_bytes={0 if args.dry_run else result['released_bytes']}"
+    )
+
+
+def cmd_evidence_package_prune_imports(args: argparse.Namespace) -> None:
+    """Prune verified imported Evidence directories without device access."""
+    try:
+        keep_latest_packages = (
+            get_evidence_import_keep_latest()
+            if args.keep_latest_packages is None
+            else int(args.keep_latest_packages)
+        )
+    except ValueError as exc:
+        raise EvidencePackageError(f"EVIDENCE_INVALID_SOURCE: {exc}") from exc
+    result = prune_imported_evidence(
+        args.output_dir,
+        keep_latest=keep_latest_packages,
+        dry_run=args.dry_run,
+    )
+    action = "DELETE-ELIGIBLE" if args.dry_run else "DELETED"
+    for item in result["deleted"]:
+        print(
+            f"{action} {item['package_id']}: profile={item['profile']} "
+            f"sensitive={str(item['sensitive']).lower()} bytes={item['bytes']}"
+        )
+    for item in result["skipped"]:
+        print(f"SKIP {item['import_dir']}: {item['reason']}")
+    print(
+        "Evidence import retention summary: "
+        f"verified={result['verified']} "
+        f"deleted={0 if args.dry_run else len(result['deleted'])} "
+        f"eligible={len(result['deleted']) if args.dry_run else 0} "
+        f"skipped={len(result['skipped'])} "
+        f"releasable_bytes={result['released_bytes']} "
+        f"released_bytes={0 if args.dry_run else result['released_bytes']}"
+    )
 
 
 def _print_evidence_result(result: Mapping[str, Any], output_format: str) -> None:
@@ -5732,6 +5853,18 @@ def cmd_evidence_package_verify(args: argparse.Namespace) -> None:
 
 def cmd_evidence_package_import(args: argparse.Namespace) -> None:
     """Safely import a verified portable evidence archive."""
+    try:
+        keep_latest_packages = (
+            get_evidence_import_keep_latest()
+            if args.keep_latest_packages is None
+            else int(args.keep_latest_packages)
+        )
+    except ValueError as exc:
+        raise EvidencePackageError(f"EVIDENCE_INVALID_SOURCE: {exc}") from exc
+    if keep_latest_packages < 0:
+        raise EvidencePackageError(
+            "EVIDENCE_INVALID_SOURCE: --keep-latest-packages must be zero or greater"
+        )
     result = import_evidence_package(
         args.bundle,
         output_dir=args.output_dir,
@@ -5739,7 +5872,11 @@ def cmd_evidence_package_import(args: argparse.Namespace) -> None:
         acknowledge_sensitive_config=args.acknowledge_sensitive_config,
         imported_at=datetime.now().astimezone(),
     )
-    _print_evidence_result(result, "text")
+    retention = prune_imported_evidence(
+        args.output_dir,
+        keep_latest=keep_latest_packages,
+    )
+    _print_evidence_result({**result, "retention": retention}, "text")
 
 
 def cmd_import_running_config(args: argparse.Namespace) -> None:
@@ -11242,6 +11379,25 @@ def cmd_operation_status(args: argparse.Namespace) -> None:
         f"{last_transition['from'] or '-'} -> {last_transition['to']} "
         f"at {last_transition['at']}"
     )
+    if not archived:
+        stale_after_days = int(getattr(args, "stale_after_days", 7))
+        if stale_after_days < 0:
+            _operation_cli_error(
+                ValueError("--stale-after-days must be zero or greater")
+            )
+        transitioned_at = datetime.fromisoformat(last_transition["at"])
+        observed_at = now_in_timezone(metadata["metadata"]["timezone"])
+        idle_seconds = max(0, int((observed_at - transitioned_at).total_seconds()))
+        stale = (
+            metadata["spec"]["lifecycle"]
+            in {"created", "running", "waiting_for_user"}
+            and idle_seconds >= stale_after_days * 86400
+        )
+        print(f"Idle age       : {idle_seconds // 86400} day(s)")
+        print(
+            "Stale candidate: "
+            f"{'yes' if stale else 'no'} (threshold={stale_after_days} day(s))"
+        )
     print(f"Transitions    : {len(execution['transitions'])}")
     if archived:
         print(
@@ -11329,6 +11485,106 @@ def cmd_operation_inspect(args: argparse.Namespace) -> None:
     print(f"Errors: {len(execution['errors'])}")
 
 
+def _mark_active_change_cancelled(
+    operations_root: str | Path,
+    change_id: str,
+    *,
+    closed_at: str,
+) -> None:
+    try:
+        active = load_active_change(operations_root)
+    except OperationError:
+        return
+    if active["spec"]["change_id"] != change_id:
+        return
+    active["metadata"]["updated_at"] = closed_at
+    active["spec"]["state"] = "cancelled"
+    save_active_change(operations_root, active)
+
+
+def cmd_operation_close(args: argparse.Namespace) -> None:
+    """Close explicit or stale pre-apply operations without device access."""
+    if args.stale_older_than_days is not None and args.stale_older_than_days < 0:
+        _operation_cli_error(
+            ValueError("--stale-older-than-days must be zero or greater")
+        )
+    identifiers = (
+        [args.change_id]
+        if args.change_id
+        else list_live_operation_ids(args.operations_root)
+    )
+    closed = 0
+    eligible = 0
+    skipped = 0
+    now = datetime.now().astimezone()
+    for change_id in identifiers:
+        if args.stale_older_than_days is not None:
+            try:
+                workspace = open_operation_workspace(args.operations_root, change_id)
+                metadata = load_operation_metadata(workspace.operation_root)
+                transitioned_at = datetime.fromisoformat(
+                    metadata["spec"]["last_transition"]["at"]
+                )
+                if (now - transitioned_at).total_seconds() < (
+                    args.stale_older_than_days * 86400
+                ):
+                    skipped += 1
+                    continue
+            except OperationError as exc:
+                skipped += 1
+                print(f"SKIP {change_id}: {exc}")
+                continue
+        try:
+            result = close_operation_workspace(
+                args.operations_root,
+                change_id,
+                reason=args.reason,
+                now=now,
+                dry_run=args.dry_run,
+            )
+        except OperationError as exc:
+            if args.change_id:
+                _operation_cli_error(exc)
+            skipped += 1
+            print(f"SKIP {change_id}: {exc}")
+            continue
+        if args.dry_run:
+            eligible += 1
+            print(
+                f"CLOSE-ELIGIBLE {change_id}: "
+                f"lifecycle={result['lifecycle']}"
+            )
+        else:
+            closed += 1
+            _mark_active_change_cancelled(
+                args.operations_root,
+                change_id,
+                closed_at=result["closed_at"],
+            )
+            print(f"CLOSED {change_id}: lifecycle=cancelled")
+    print(
+        "Close summary: "
+        f"closed={closed} eligible={eligible} skipped={skipped}"
+    )
+
+
+def cmd_operation_restore(args: argparse.Namespace) -> None:
+    """Restore one verified archived operation to its original live path."""
+    try:
+        result = restore_operation_archive(
+            args.operations_root,
+            args.change_id,
+        )
+    except (OperationError, OSError, tarfile.TarError) as exc:
+        _operation_cli_error(exc)
+        return
+    print("=== OPERATION RESTORED ===")
+    print(f"Change ID : {result['change_id']}")
+    print(f"Lifecycle : {result['lifecycle']}")
+    print(f"Files     : {result['file_count']}")
+    print(f"Output    : {result['operation_root']}")
+
+
 def get_operation_archive_after_days() -> int:
     """Resolve the manual archive age default from environment or code default."""
     raw = os.environ.get("ALRED_OPERATION_ARCHIVE_AFTER_DAYS", "14")
@@ -11394,12 +11650,15 @@ def cmd_operation_archive(args: argparse.Namespace) -> None:
             eligible += 1
             print(
                 f"ELIGIBLE {change_id}: lifecycle={result['lifecycle']} "
+                f"age_reference={result['age_reference']} "
+                f"age_reference_at={result['age_reference_at']} "
                 f"archive={result['archive']}"
             )
         else:
             archived += 1
             print(
                 f"ARCHIVED {change_id}: files={result['file_count']} "
+                f"age_reference={result['age_reference']} "
                 f"archive={result['archive']}"
             )
     print(
@@ -13188,6 +13447,15 @@ def cmd_overlay_change_plan(args: argparse.Namespace) -> None:
         started_at = now_in_timezone(workspace.timezone)
         with OperationLock(workspace, "overlay-change-plan") as lock:
             metadata = load_operation_metadata(workspace.operation_root)
+            if metadata["spec"]["lifecycle"] == "waiting_for_user":
+                transition_operation(
+                    workspace,
+                    "running",
+                    lock=lock,
+                    reason="overlay_plan_resumed_after_before",
+                    now=started_at,
+                )
+                metadata = load_operation_metadata(workspace.operation_root)
             if metadata["spec"]["workflow_state"] is None:
                 transition_workflow(
                     workspace,
@@ -13659,12 +13927,23 @@ def cmd_health_check_snapshot(args: argparse.Namespace) -> int:
                 raise OperationStateError(
                     f"operation preflight failed: {details}"
                 )
-            if metadata["spec"]["lifecycle"] == "created":
+            current_lifecycle = load_operation_metadata(
+                workspace.operation_root
+            )["spec"]["lifecycle"]
+            if current_lifecycle == "created":
                 transition_operation(
                     workspace,
                     "running",
                     lock=lock,
                     reason="health_snapshot_started",
+                    now=started_at,
+                )
+            elif current_lifecycle == "waiting_for_user":
+                transition_operation(
+                    workspace,
+                    "running",
+                    lock=lock,
+                    reason="health_work_resumed",
                     now=started_at,
                 )
             transition_phase(
@@ -13901,6 +14180,42 @@ def cmd_health_check_snapshot(args: argparse.Namespace) -> int:
                     reason="offline_snapshot_completed",
                     now=completed_at,
                 )
+                if args.phase == "before":
+                    target_lifecycle = (
+                        "completed_with_warnings"
+                        if (
+                            getattr(args, "purpose", "change") == "inspection"
+                            and phase_result == "completed_with_warnings"
+                        )
+                        else (
+                            "completed"
+                            if getattr(args, "purpose", "change") == "inspection"
+                            else "waiting_for_user"
+                        )
+                    )
+                    transition_operation(
+                        workspace,
+                        target_lifecycle,
+                        lock=lock,
+                        reason=(
+                            "inspection_completed"
+                            if getattr(args, "purpose", "change") == "inspection"
+                            else "before_completed_waiting_for_followup"
+                        ),
+                        now=completed_at,
+                    )
+                elif getattr(args, "health_check_command", None) == "snapshot":
+                    transition_operation(
+                        workspace,
+                        (
+                            "completed_with_warnings"
+                            if phase_result == "completed_with_warnings"
+                            else "completed"
+                        ),
+                        lock=lock,
+                        reason="standalone_after_snapshot_completed",
+                        now=completed_at,
+                    )
             except Exception as exc:
                 failed_at = now_in_timezone(workspace.timezone)
                 transition_phase(
@@ -15660,6 +15975,21 @@ def cmd_health_check_phase(args: argparse.Namespace) -> int:
                 else 4
             ),
         )
+    metadata = load_operation_metadata(workspace.operation_root)
+    if (
+        phase in {"after", "rollback"}
+        and metadata["spec"]["workflow_state"] is None
+        and metadata["spec"]["lifecycle"] == "running"
+    ):
+        completed_at = now_in_timezone(workspace.timezone)
+        with OperationLock(workspace, f"health-check-{phase}-complete") as lock:
+            transition_operation(
+                workspace,
+                "completed_with_warnings" if result else "completed",
+                lock=lock,
+                reason=f"standalone_{phase}_completed",
+                now=completed_at,
+            )
     publish_latest_operation_link(workspace)
     return result
 
@@ -16479,7 +16809,53 @@ def build_parser() -> argparse.ArgumentParser:
             default=DEFAULT_OPERATIONS_ROOT,
             help=f"Operation root directory (default: {DEFAULT_OPERATIONS_ROOT})",
         )
+        if operation_name == "status":
+            operation_parser.add_argument(
+                "--stale-after-days",
+                type=int,
+                default=7,
+                help="Show nonterminal operations idle for DAYS as stale (default: 7)",
+            )
         operation_parser.set_defaults(func=handler)
+    p_operation_close = operation_subparsers.add_parser(
+        "close",
+        help="Cancel a safe pre-apply operation explicitly or by stale age",
+    )
+    close_target = p_operation_close.add_mutually_exclusive_group(required=True)
+    close_target.add_argument("--change-id", help="Close one operation ID")
+    close_target.add_argument(
+        "--stale-older-than-days",
+        type=int,
+        metavar="DAYS",
+        help="Close eligible live operations idle for at least DAYS",
+    )
+    p_operation_close.add_argument(
+        "--reason",
+        required=True,
+        help="Auditable operator reason for closing the operation",
+    )
+    p_operation_close.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="List eligible operations without changing lifecycle state",
+    )
+    p_operation_close.add_argument(
+        "--operations-root",
+        default=DEFAULT_OPERATIONS_ROOT,
+        help=f"Operation root directory (default: {DEFAULT_OPERATIONS_ROOT})",
+    )
+    p_operation_close.set_defaults(func=cmd_operation_close)
+    p_operation_restore = operation_subparsers.add_parser(
+        "restore",
+        help="Verify and restore one archived operation to live storage",
+    )
+    p_operation_restore.add_argument("--change-id", required=True)
+    p_operation_restore.add_argument(
+        "--operations-root",
+        default=DEFAULT_OPERATIONS_ROOT,
+        help=f"Operation root directory (default: {DEFAULT_OPERATIONS_ROOT})",
+    )
+    p_operation_restore.set_defaults(func=cmd_operation_restore)
     p_operation_archive = operation_subparsers.add_parser(
         "archive",
         help="Manually archive eligible terminal operation directories",
@@ -17450,7 +17826,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_evidence = subparsers.add_parser(
         "evidence-package",
-        help="Create, inspect, verify, and safely import portable evidence archives",
+        help=(
+            "Create, prune, inspect, verify, safely import, and prune imported portable "
+            "evidence archives"
+        ),
     )
     evidence_subparsers = p_evidence.add_subparsers(
         dest="evidence_package_command",
@@ -17503,7 +17882,70 @@ def build_parser() -> argparse.ArgumentParser:
         default="evidence-packages",
         help="Output directory (default: evidence-packages)",
     )
+    p_evidence_create.add_argument(
+        "--keep-latest-packages",
+        type=int,
+        default=None,
+        metavar="COUNT",
+        help=(
+            "Keep latest COUNT verified packages per profile and sensitivity; "
+            "0 disables pruning (default: "
+            "ALRED_EVIDENCE_PACKAGE_KEEP_LATEST or 3)"
+        ),
+    )
     p_evidence_create.set_defaults(func=cmd_evidence_package_create)
+
+    p_evidence_prune = evidence_subparsers.add_parser(
+        "prune",
+        help="Verify and prune old Evidence Package generations",
+    )
+    p_evidence_prune.add_argument(
+        "--output-dir",
+        default="evidence-packages",
+        help="Evidence Package directory (default: evidence-packages)",
+    )
+    p_evidence_prune.add_argument(
+        "--keep-latest-packages",
+        type=int,
+        default=None,
+        metavar="COUNT",
+        help=(
+            "Keep latest COUNT verified packages per profile and sensitivity; "
+            "0 disables pruning"
+        ),
+    )
+    p_evidence_prune.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="List deletion candidates without removing package files",
+    )
+    p_evidence_prune.set_defaults(func=cmd_evidence_package_prune)
+
+    p_evidence_prune_imports = evidence_subparsers.add_parser(
+        "prune-imports",
+        help="Verify and prune old imported Evidence directories",
+    )
+    p_evidence_prune_imports.add_argument(
+        "--output-dir",
+        default="imported-evidence",
+        help="Evidence import root (default: imported-evidence)",
+    )
+    p_evidence_prune_imports.add_argument(
+        "--keep-latest-packages",
+        type=int,
+        default=None,
+        metavar="COUNT",
+        help=(
+            "Keep latest COUNT verified imports per profile and sensitivity; "
+            "0 disables pruning (default: ALRED_EVIDENCE_IMPORT_KEEP_LATEST or 3)"
+        ),
+    )
+    p_evidence_prune_imports.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="List deletion candidates without removing imported directories",
+    )
+    p_evidence_prune_imports.set_defaults(func=cmd_evidence_package_prune_imports)
 
     p_evidence_inspect = evidence_subparsers.add_parser("inspect")
     p_evidence_inspect.add_argument("--bundle", required=True)
@@ -17535,6 +17977,16 @@ def build_parser() -> argparse.ArgumentParser:
         "--acknowledge-sensitive-config", action="store_true"
     )
     p_evidence_import.add_argument("--output-dir", default="imported-evidence")
+    p_evidence_import.add_argument(
+        "--keep-latest-packages",
+        type=int,
+        default=None,
+        metavar="COUNT",
+        help=(
+            "Keep latest COUNT verified imports per profile and sensitivity; "
+            "0 disables pruning (default: ALRED_EVIDENCE_IMPORT_KEEP_LATEST or 3)"
+        ),
+    )
     p_evidence_import.set_defaults(func=cmd_evidence_package_import)
 
     p_import_run = subparsers.add_parser(

@@ -47,7 +47,7 @@
           "const": "generated"
         },
         "state": {
-          "enum": ["before_completed", "after_failed", "completed"]
+          "enum": ["before_completed", "after_failed", "completed", "cancelled"]
         },
         "output_root": {
           "type": "string",
