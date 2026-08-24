@@ -22,6 +22,7 @@ from .constants import (
     DRAWIO_STYLE_LEAF_CONTAINER,
     DRAWIO_STYLE_NIC,
     DRAWIO_STYLE_NODE,
+    DRAWIO_STYLE_NOTICE,
     DRAWIO_VERSION,
 )
 
@@ -161,6 +162,39 @@ def graphviz_escape(value: str) -> str:
     return value.replace("\r\n", "\n").replace("\r", "\n").replace("\n", "\\n").replace('"', '\\"')
 
 
+def link_diagnostic_label(link: Dict[str, Any], newline: str = "\n") -> str:
+    """Return a concise, deterministic edge diagnostic label."""
+    diagnostics = sorted(
+        list(link.get("diagnostics", [])),
+        key=lambda item: (str(item.get("code", "")), str(item.get("diagnostic_id", ""))),
+    )
+    parts: List[str] = []
+    for item in diagnostics[:2]:
+        marker = "⚠" if item.get("classification") in {"conflict", "warning"} else "?"
+        detail = ""
+        observed = item.get("observed_endpoint")
+        configured = item.get("configured_endpoint")
+        if observed and configured:
+            observed_text = f"{observed['node']}:{observed['interface']}" if observed.get("interface") else observed["node"]
+            configured_text = f"{configured['node']}:{configured['interface']}" if configured.get("interface") else configured["node"]
+            detail = f" LLDP={observed_text} DESC={configured_text}"
+        elif configured:
+            configured_text = f"{configured['node']}:{configured['interface']}" if configured.get("interface") else configured["node"]
+            detail = f" DESC→{configured_text}"
+        classification = str(item.get("classification", "unknown")).upper()
+        parts.append(
+            f"{marker} {classification}: {item.get('code', 'LINK_DIAGNOSTIC')}{detail}"
+        )
+    if len(diagnostics) > 2:
+        parts.append(f"+{len(diagnostics) - 2} more")
+    return newline.join(parts)
+
+
+def mermaid_escape_label(value: str) -> str:
+    """Escape generated text placed inside a Mermaid quoted edge label."""
+    return value.replace("&", "&amp;").replace('"', "&quot;").replace("|", "&#124;")
+
+
 def drawio_modified_timestamp() -> str:
     """
     Build draw.io-compatible modified timestamp in UTC.
@@ -255,10 +289,10 @@ def build_mermaid_link_line(
             if evidence
             else f"{left_if} ? {right_if}"
         )
-        return f'  {left_id} -.->|"{label}"| {right_id}'
+        return f'  {left_id} -.->|"{mermaid_escape_label(label)}"| {right_id}'
 
     label = label_override or f"{left_if} ↔ {right_if}"
-    return f'  {left_id} -->|"{label}"| {right_id}'
+    return f'  {left_id} -->|"{mermaid_escape_label(label)}"| {right_id}'
 
 
 def render_mermaid_graph_lines(
@@ -415,6 +449,7 @@ def render_mermaid_graph_lines(
     lines.append("")
 
     current_left_node = None
+    edge_index = 0
     for link in rendered_links:
         ep1, ep2 = link["endpoints"]
         left_node, left_if = ep1.split(":", 1)
@@ -428,6 +463,13 @@ def render_mermaid_graph_lines(
 
         link_key = f"{left_node}|{left_if}|{right_node}|{right_if}"
         label_override = (link_label_map or {}).get(link_key, "")
+        diagnostic_label = link_diagnostic_label(link, "<br/>")
+        if diagnostic_label:
+            label_override = (
+                f"{label_override}<br/>{diagnostic_label}"
+                if label_override
+                else f"{left_if} ↔ {right_if}<br/>{diagnostic_label}"
+            )
         lines.append(
             build_mermaid_link_line(
                 left_node,
@@ -438,6 +480,20 @@ def render_mermaid_graph_lines(
                 label_override=label_override,
             )
         )
+        diagnostic_state = str(link.get("diagnostic_state", ""))
+        if diagnostic_state == "conflict":
+            lines.append(
+                f"  linkStyle {edge_index} stroke:#dc2626,stroke-width:3px,color:#b91c1c"
+            )
+        elif diagnostic_state == "warning":
+            lines.append(
+                f"  linkStyle {edge_index} stroke:#d97706,stroke-width:2px,color:#b45309"
+            )
+        elif diagnostic_state == "unknown":
+            lines.append(
+                f"  linkStyle {edge_index} stroke:#d97706,stroke-width:2px,stroke-dasharray:2 4,color:#b45309"
+            )
+        edge_index += 1
 
     if candidate_links:
         lines.append("")
@@ -451,6 +507,10 @@ def render_mermaid_graph_lines(
             label_override = str(link.get("label", "")) or (
                 link_label_map or {}
             ).get(link_key, "")
+            diagnostic_label = link_diagnostic_label(link, "<br/>")
+            if diagnostic_label:
+                base_label = label_override or f"{left_if} ? {right_if}"
+                label_override = f"{base_label}<br/>{diagnostic_label}"
             lines.append(
                 build_mermaid_link_line(
                     left_node,
@@ -462,6 +522,20 @@ def render_mermaid_graph_lines(
                     label_override=label_override,
                 )
             )
+            diagnostic_state = str(link.get("diagnostic_state", ""))
+            if diagnostic_state == "conflict":
+                lines.append(
+                    f"  linkStyle {edge_index} stroke:#dc2626,stroke-width:3px,color:#b91c1c"
+                )
+            elif diagnostic_state == "warning":
+                lines.append(
+                    f"  linkStyle {edge_index} stroke:#d97706,stroke-width:2px,color:#b45309"
+                )
+            elif diagnostic_state == "unknown":
+                lines.append(
+                    f"  linkStyle {edge_index} stroke:#d97706,stroke-width:2px,stroke-dasharray:2 4,color:#b45309"
+                )
+            edge_index += 1
 
     return lines
 
@@ -746,11 +820,22 @@ def render_graphviz_dot_lines(
 
         link_key = f"{left_node}|{left_if}|{right_node}|{right_if}"
         label = (link_label_map or {}).get(link_key, "") or f"{left_if} ↔ {right_if}"
+        diagnostic_label = link_diagnostic_label(link)
+        if diagnostic_label:
+            label = f"{label}\n{diagnostic_label}"
         operator = "->" if directed_graph else "--"
         direction_attr = "" if link.get("directed") else ", dir=none" if directed_graph else ""
+        diagnostic_state = str(link.get("diagnostic_state", ""))
+        diagnostic_attrs = ""
+        if diagnostic_state == "conflict":
+            diagnostic_attrs = ', color="#dc2626", fontcolor="#b91c1c", penwidth=3'
+        elif diagnostic_state == "warning":
+            diagnostic_attrs = ', color="#d97706", fontcolor="#b45309", penwidth=2'
+        elif diagnostic_state == "unknown":
+            diagnostic_attrs = ', color="#d97706", fontcolor="#b45309", penwidth=2, style=dotted'
         lines.append(
             f'  {left_id} {operator} {right_id} '
-            f'[label="{graphviz_escape(label)}"{direction_attr}];'
+            f'[label="{graphviz_escape(label)}"{diagnostic_attrs}{direction_attr}];'
         )
 
     if candidate_links:
@@ -767,13 +852,32 @@ def render_graphviz_dot_lines(
             ).get(link_key, "") or f"{left_if} ? {right_if}"
             if evidence:
                 label = f"{label}\n{evidence}"
+            diagnostic_label = link_diagnostic_label(link)
+            if diagnostic_label:
+                label = f"{label}\n{diagnostic_label}"
             left_id = mermaid_safe_node_id(left_node)
             right_id = mermaid_safe_node_id(right_node)
             operator = "->" if directed_graph else "--"
             direction_attr = "" if link.get("directed") else ", dir=none" if directed_graph else ""
+            diagnostic_state = str(link.get("diagnostic_state", ""))
+            color = (
+                "#dc2626"
+                if diagnostic_state == "conflict"
+                else "#d97706"
+                if diagnostic_state in {"warning", "unknown"}
+                else "gray50"
+            )
+            fontcolor = (
+                ', fontcolor="#b91c1c", penwidth=3'
+                if diagnostic_state == "conflict"
+                else ', fontcolor="#b45309", penwidth=2'
+                if diagnostic_state in {"warning", "unknown"}
+                else ""
+            )
+            edge_style = "dotted" if diagnostic_state == "unknown" else "dashed"
             lines.append(
                 f'  {left_id} {operator} {right_id} '
-                f'[label="{graphviz_escape(label)}", style=dashed, color=gray50{direction_attr}];'
+                f'[label="{graphviz_escape(label)}", style={edge_style}, color="{color}"{fontcolor}{direction_attr}];'
             )
 
     lines.append("}")
@@ -804,6 +908,7 @@ def render_drawio_xml_lines(
     sites: Optional[Dict[str, Any]] = None,
     group_by_site: bool = False,
     align_role_nodes_with_direction: bool = False,
+    page_notice: str = "",
 ) -> List[str]:
     """
     Render draw.io XML lines.
@@ -833,6 +938,7 @@ def render_drawio_xml_lines(
         group_by_site: Whether to use site containers.
         align_role_nodes_with_direction: Whether nodes within one role follow
             the page direction instead of the normal cross-axis role layout.
+        page_notice: Optional warning text rendered at the top of the page.
 
     Returns:
         draw.io XML lines.
@@ -2020,6 +2126,7 @@ def render_drawio_xml_lines(
         dashed: bool = False,
         directed: bool = False,
         state: str = "",
+        diagnostic_state: str = "",
         source_side: str = "",
         target_side: str = "",
         lane: float = 0.5,
@@ -2030,7 +2137,13 @@ def render_drawio_xml_lines(
             style += DRAWIO_STYLE_EDGE_DASHED_SUFFIX
         if directed:
             style = style.replace("endArrow=none;", "endArrow=block;endFill=1;")
-        if state == "degraded":
+        if diagnostic_state == "conflict":
+            style += "strokeColor=#dc2626;fontColor=#b91c1c;strokeWidth=3;"
+        elif diagnostic_state in {"warning", "unknown"}:
+            style += "strokeColor=#d97706;fontColor=#b45309;strokeWidth=2;"
+            if diagnostic_state == "unknown":
+                style += "dashed=1;dashPattern=1 3;"
+        elif state == "degraded":
             style += "strokeColor=#dc2626;fontColor=#b91c1c;"
         elif state == "conflict":
             style += "strokeColor=#d97706;fontColor=#b45309;"
@@ -2068,6 +2181,9 @@ def render_drawio_xml_lines(
             edge_label = (link_label_map or {}).get(link_key, "")
         if not edge_label:
             edge_label = build_drawio_edge_label(left_node, left_if, right_node, right_if)
+        diagnostic_label = link_diagnostic_label(link)
+        if diagnostic_label:
+            edge_label = f"{edge_label}\n{diagnostic_label}" if edge_label else diagnostic_label
         add_edge(
             source_id,
             target_id,
@@ -2075,6 +2191,7 @@ def render_drawio_xml_lines(
             dashed=False,
             directed=bool(link.get("directed")),
             state=str(link.get("state", "")),
+            diagnostic_state=str(link.get("diagnostic_state", "")),
             source_side=source_side,
             target_side=target_side,
             lane=reciprocal_lane(left_node, right_node),
@@ -2102,6 +2219,9 @@ def render_drawio_xml_lines(
             ).get(link_key, "") or build_drawio_edge_label(
                 left_node, left_if, right_node, right_if
             )
+            diagnostic_label = link_diagnostic_label(link)
+            if diagnostic_label:
+                label = f"{label}\n{diagnostic_label}" if label else diagnostic_label
             add_edge(
                 source_id,
                 target_id,
@@ -2109,6 +2229,7 @@ def render_drawio_xml_lines(
                 dashed=True,
                 directed=bool(link.get("directed")),
                 state=str(link.get("state", "")),
+                diagnostic_state=str(link.get("diagnostic_state", "")),
                 source_side=source_side,
                 target_side=target_side,
                 lane=reciprocal_lane(left_node, right_node),
@@ -2167,6 +2288,22 @@ def render_drawio_xml_lines(
             spec["y"] = int(spec["y"]) + offset_y
 
     center_vertices_vertically()
+
+    if page_notice:
+        page_width = int(DRAWIO_MODEL_ATTRIBUTES.get("pageWidth", "1920"))
+        cell_specs.append(
+            {
+                "kind": "vertex",
+                "id": alloc_id(),
+                "value": page_notice,
+                "style": DRAWIO_STYLE_NOTICE,
+                "parent": "1",
+                "x": origin_x,
+                "y": 20,
+                "width": max(page_width - (origin_x * 2), node_width),
+                "height": 44,
+            }
+        )
 
     mxfile = ET.Element(
         "mxfile",

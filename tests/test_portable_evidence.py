@@ -1174,6 +1174,18 @@ def test_create_verify_inspect_and_import_digital_twin(tmp_path: Path) -> None:
         output_dir=tmp_path / "imports",
         imported_at=NOW,
     )
+    package_manifest = yaml.safe_load(
+        (imported["import_dir"] / "package-manifest.yaml").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert any(
+        resource["resource_id"] == "canonical_link_diagnostics"
+        for resource in package_manifest["spec"]["resources"]
+    )
+    assert (
+        imported["import_dir"] / "canonical" / "link-diagnostics.yaml"
+    ).is_file()
     assert (imported["import_dir"] / "package-manifest.yaml").is_file()
     assert (imported["import_dir"] / "import-record.yaml").is_file()
     assert imported["external_checksum_verified"] is True
@@ -1490,6 +1502,8 @@ def test_digital_twin_package_regenerates_and_verifies_canonical_links(
     assert verification["status"] == "VERIFIED"
     assert (tmp_path / "links" / "links_confirmed.csv").is_file()
     assert (tmp_path / "links" / "links_candidates.csv").is_file()
+    assert (tmp_path / "links" / "link-diagnostics.yaml").is_file()
+    assert (tmp_path / "links" / "mismatch-links.md").is_file()
 
 
 def test_legacy_link_hash_is_verified_before_direction_neutral_comparison(

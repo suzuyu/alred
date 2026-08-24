@@ -172,6 +172,10 @@ def test_topology_quick_start_manifest_schema_and_hashes() -> None:
         TOPOLOGY_SAMPLE / "network-diagram-manifest.example.yaml"
     )
     validate_document(manifest, kind="NetworkDiagramManifest")
+    validate_document(
+        _load_yaml(TOPOLOGY_SAMPLE / "link-diagnostics.example.yaml"),
+        kind="LinkDiagnostics",
+    )
 
     for item in manifest["spec"]["inputs"] + manifest["spec"]["artifacts"]:
         assert source_sha256(REPOSITORY_ROOT / item["path"]) == item["sha256"]
@@ -604,5 +608,9 @@ def test_single_site_fabric_diagrams_are_reproducible(tmp_path: Path) -> None:
         SINGLE_SITE_TOPOLOGY_SAMPLE / "network-diagram-manifest.yaml"
     )
     validate_document(sample_manifest, kind="NetworkDiagramManifest")
+    validate_document(
+        _load_yaml(SINGLE_SITE_TOPOLOGY_SAMPLE / "link-diagnostics.yaml"),
+        kind="LinkDiagnostics",
+    )
     for item in sample_manifest["spec"]["inputs"] + sample_manifest["spec"]["artifacts"]:
         assert source_sha256(REPOSITORY_ROOT / item["path"]) == item["sha256"]

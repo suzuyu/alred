@@ -68,6 +68,20 @@
             {"enum": ["alred-collect", "nxos-transcript"]}
           ]
         },
+        "transcript_import": {
+          "oneOf": [
+            {"type": "null"},
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["duplicate_policy", "file_order"],
+              "properties": {
+                "duplicate_policy": {"enum": ["reject", "safe-latest"]},
+                "file_order": {"enum": ["reject", "mtime", "filename"]}
+              }
+            }
+          ]
+        },
         "collection": {
           "oneOf": [
             {"type": "null"},
@@ -131,6 +145,7 @@
             "properties": {
               "inventory": {"$ref": "#/$defs/sourceFile"},
               "input_format": {"type": "null"},
+              "transcript_import": {"type": "null"},
               "collection": {"type": "object"}
             }
           }
@@ -146,6 +161,24 @@
               },
               "collection": {"type": "null"}
             }
+          }
+        },
+        {
+          "if": {
+            "properties": {"input_format": {"const": "nxos-transcript"}},
+            "required": ["input_format"]
+          },
+          "then": {
+            "properties": {"transcript_import": {"type": "object"}}
+          }
+        },
+        {
+          "if": {
+            "properties": {"input_format": {"const": "alred-collect"}},
+            "required": ["input_format"]
+          },
+          "then": {
+            "properties": {"transcript_import": {"type": "null"}}
           }
         }
       ]

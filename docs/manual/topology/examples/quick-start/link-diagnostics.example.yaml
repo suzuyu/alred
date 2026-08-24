@@ -1,0 +1,29 @@
+api_version: alred/v1
+kind: LinkDiagnostics
+metadata:
+  normalizer_version: sample
+  parser_versions:
+    lldp: sample
+    description: sample
+  source: imported-evidence/digital-twin-sample
+spec:
+  evaluation_status: partial
+  result: unknown
+  coverage:
+    inventory_hosts:
+    - site1-leaf01
+    - site1-leaf02
+    - site1-spine01
+    - site1-spine02
+    running_config_hosts:
+    - site1-leaf01
+    - site1-leaf02
+    - site1-spine01
+    - site1-spine02
+    lldp_hosts: []
+    confirmed_link_count: 4
+    candidate_link_count: 0
+  diagnostics: []
+  unevaluated_claims: []
+  affected_devices: []
+  unresolved_peer_references: []

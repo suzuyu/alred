@@ -817,6 +817,8 @@ afterはSnapshot単体判定に続けてbefore/after共通compareを自動実行
 - 解決済み`link_health` policy、`exclude_interfaces`、SVI descriptionを含めるか
 - Link Evidence parser／normalizer version
 - offline入力の`input_format`。before input path自体はafter / rollbackへ流用しない
+- offline 入力の`transcript_duplicate_policy`と`transcript_file_order`。
+  `nxos-transcript`以外では`null`とする
 - transport、target hosts、workers、read / connect timeout
 - username、credentials file path、password再入力要否
 
@@ -851,6 +853,7 @@ spec:
     path: /home/user/alred/description_rules.yaml
     sha256: sha256:...
   input_format: null
+  transcript_import: null
   collection:
     transport: ssh
     target_hosts: []
@@ -876,7 +879,14 @@ contextを持たない旧operationでは暗黙推測せず、従来どおりafte
 |---|---|---|---:|---:|---|
 | `--input <path>` | alred collect成果物、外部ログファイル、または外部ログディレクトリ | 必須 | yes | なし | 省略時は`PLAN_ERROR` |
 | `--input-format <format>` | 入力adapterを`alred-collect`または`nxos-transcript`から選択 | 必須 | no | なし | 誤認防止のため`auto`判定しない |
+| `--transcript-duplicate-policy <policy>` | `nxos-transcript`で同一 host・command を複数検出したときの解決方針 | no | no | あり | `safe-latest`。`reject`は全重複を曖昧とする |
+| `--transcript-file-order <order>` | `safe-latest`で異なる file の出力が異なる場合の順序根拠 | no | no | あり | `reject`。`mtime`または`filename`を明示した場合だけ file 間を選択する |
 | `--phase <before\|after>` | 生成するSnapshotのphase | 必須 | no | なし | 省略時は`PLAN_ERROR` |
+
+transcript 用 option は`health-check before / after / rollback`の offline 入力でも同じとする。
+before execution context には両 option を固定し、after / rollback で省略した場合は
+before の値を継承する。`alred-collect`とともに transcript 用 option を明示した場合は
+`VALIDATION_ERROR`とし、使われない option を黙って無視しない。
 
 #### 8.2.5 `compare` option
 
@@ -1169,6 +1179,30 @@ alred health-check snapshot \
 ```
 
 `--input`は複数回指定可能とする。同じ実体ファイルが複数の入力経路から見つかった場合はSHA-256と正規化済み絶対パスで重複排除する。
+
+同一 host・同一正規化 command の区間を複数検出した場合、
+`--transcript-duplicate-policy safe-latest`は次の順で候補を解決する。
+
+1. prompt 行を除く command 出力を改行と行末空白について正規化し、SHA-256 がすべて同じなら内容が同一として重複排除する。
+2. 出力が異なり、候補がすべて同じ file にある場合は、開始行が最も後ろの区間を採用する。
+3. 出力が異なる file 間重複は`--transcript-file-order`で解決する。`reject`は曖昧のままとする。`mtime`は最新の filesystem modification time、`filename`は名前から得た phase と timestamp を使う。
+
+`filename`の phase 順位は`after > work > before > phaseなし`とする。phase token は
+file 名または直近の directory 名を`.`、`_`、`-`などの非英数字で分割して
+大文字小文字を区別せず検出する。部分文字列は phase token として扱わない。
+timestamp は`YYYYMMDDTHHMMSS`、`YYYYMMDD_HHMMSS`、`YYYYMMDD-HHMMSS`を認識し、
+同一 phase でのみ最新 timestamp を選択する。最上位候補が複数あり、timestamp 不明、
+同一 timestamp、または`mtime`が同一で出力が異なる場合は曖昧とし、
+path の辞書順など根拠のない tie-break は行わない。`COLLECTED_AT:`は外部
+transcript の必須条件とせず、duplicate 選択の主根拠にも使用しない。
+
+`--transcript-duplicate-policy reject`は出力が同一であっても従来どおり全重複を
+曖昧とする。`safe-latest`で選択した候補、非選択候補、出力 hash、行範囲、
+選択根拠は`transcript-import-manifest.yaml`に残す。未解決の重複はCollection Manifestで
+`failed` / `low`とし、Snapshotは`UNKNOWN`とする。
+
+`filename`の phase 順位は Snapshot の`--phase`に応じた filter ではない。そのため before と after を
+別々生成する場合は、対象 phase 以外のログを含まない入力 directory を指定する。
 
 `--input-format`の初期値は次とする。`auto`は誤認を防ぐため初期実装では採用しない。
 

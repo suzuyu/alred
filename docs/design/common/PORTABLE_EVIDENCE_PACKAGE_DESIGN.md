@@ -131,6 +131,7 @@ output range、範囲外、decode不能は`EVIDENCE_INVALID_SOURCE`としてfail
 | `sites.resolved.yaml` | conditional | site定義を使用した場合 | site identityとaddressへpolicy適用 |
 | collection／Health／lab profile resolved copy | conditional | 収集、正規化、lab生成で実際に使用したprofile | credential参照除外、その他はpolicy適用 |
 | `links_confirmed.csv`／`links_candidates.csv` | required | running config description と任意 raw LLDP、rules から生成した Canonical Link Evidence | endpoint identity／address へ policy 適用 |
+| `link-diagnostics.yaml` | optional | Canonical Link Evidence 生成時の LLDP／description 両端照合結果 | 正規化済み endpoint、diagnostic、未評価 claim だけを保持し raw description を含めない |
 | `health-snapshot.json` | conditional | package sourceで正常公開済みの場合 | identity／address／log fieldへpolicy適用 |
 | node map、cables／design CSV | conditional |生成または変換で実際に使用した場合 | node、interface、addressをrawと同じmapで変換 |
 | 原文running config | conditional | 5.5の全条件を満たす場合だけ | `raw/verbatim/`へ原文のまま格納しsensitive packageとして扱う |
@@ -413,6 +414,11 @@ endpoint の観測方向と `remote_mgmt_ip` を semantic 比較から除外し�
 evidence、rule、warning を比較する。field がない既存 Manifest は version 1 として宣言 hash を検証してから
 version 2 の比較表現へ変換し、archive の完全性検証と後方互換性を両立する。candidate は片方向 evidence のため
 方向を保持する。
+
+新規 package は `link-diagnostics.yaml` を独立した optional resource として格納し、diagnostic と `unevaluated_claims` を含む
+document 全体について Canonical Link Evidence とは別の semantic hash を記録する。既存`links_confirmed.csv`／`links_candidates.csv`の`warning`とsemantic hashの意味を
+診断model追加だけで変更しない。旧packageにdiagnostic resourceがない場合は完全性検証を失敗させず、consumerは
+`diagnostic_coverage: legacy`、`evaluation_status: not-evaluated`として扱う。旧packageからmismatchなしを推測しない。
 
 展開時はpath traversal、absolute path、重複member、symlink、special file、checksum不一致を拒否する。
 未対応schema majorは変換を推測せず`SCHEMA_UNSUPPORTED`とする。

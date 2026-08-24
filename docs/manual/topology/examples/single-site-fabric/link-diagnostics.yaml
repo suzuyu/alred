@@ -1,0 +1,21 @@
+api_version: alred/v1
+kind: LinkDiagnostics
+metadata:
+  normalizer_version: sample
+  parser_versions:
+    lldp: sample
+    description: sample
+  source: docs/manual/containerlab/examples/single-site-fabric/topology.clab.example.yaml
+spec:
+  evaluation_status: not-evaluated
+  result: unknown
+  coverage:
+    inventory_hosts: []
+    running_config_hosts: []
+    lldp_hosts: []
+    confirmed_link_count: 0
+    candidate_link_count: 0
+  diagnostics: []
+  unevaluated_claims: []
+  affected_devices: []
+  unresolved_peer_references: []

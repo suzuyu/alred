@@ -1,0 +1,171 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://alred.local/schemas/v1/link-diagnostics.schema.json",
+  "title": "LinkDiagnostics",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["api_version", "kind", "metadata", "spec"],
+  "properties": {
+    "api_version": {"const": "alred/v1"},
+    "kind": {"const": "LinkDiagnostics"},
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["normalizer_version", "parser_versions"],
+      "properties": {
+        "normalizer_version": {"type": "string", "minLength": 1},
+        "parser_versions": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["lldp", "description"],
+          "properties": {
+            "lldp": {"type": "string", "minLength": 1},
+            "description": {"type": "string", "minLength": 1}
+          }
+        },
+        "policy_hashes": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "mappings": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+            "description_rules": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+          }
+        },
+        "source": {"type": "string"}
+      }
+    },
+    "spec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "evaluation_status", "result", "coverage", "diagnostics",
+        "unevaluated_claims", "affected_devices", "unresolved_peer_references"
+      ],
+      "properties": {
+        "evaluation_status": {"enum": ["complete", "partial", "not-evaluated"]},
+        "result": {"enum": ["pass", "warning", "conflict", "unknown"]},
+        "coverage": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["inventory_hosts", "running_config_hosts", "lldp_hosts", "confirmed_link_count", "candidate_link_count"],
+          "properties": {
+            "inventory_hosts": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
+            "running_config_hosts": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
+            "lldp_hosts": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
+            "confirmed_link_count": {"type": "integer", "minimum": 0},
+            "candidate_link_count": {"type": "integer", "minimum": 0}
+          }
+        },
+        "diagnostics": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/diagnostic"}
+        },
+        "unevaluated_claims": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/unevaluated_claim"}
+        },
+        "affected_devices": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "unresolved_peer_references": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/unresolved_peer"}
+        }
+      }
+    }
+  },
+  "$defs": {
+    "endpoint": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["node", "interface"],
+      "properties": {
+        "node": {"type": "string", "minLength": 1},
+        "interface": {"type": "string"}
+      }
+    },
+    "diagnostic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "diagnostic_id", "group_id", "code", "classification", "link_state",
+        "link_endpoints", "local_endpoint", "observed_endpoint",
+        "configured_endpoint", "affected_devices", "message"
+      ],
+      "properties": {
+        "diagnostic_id": {"type": "string", "pattern": "^linkdiag-[0-9a-f]{16}$"},
+        "group_id": {"type": "string", "pattern": "^linkgroup-[0-9a-f]{16}$"},
+        "code": {"type": "string", "minLength": 1},
+        "classification": {"enum": ["conflict", "warning", "unknown"]},
+        "link_state": {"enum": ["confirmed", "candidate", "claim", "unresolved"]},
+        "link_endpoints": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {"$ref": "#/$defs/endpoint"}
+        },
+        "local_endpoint": {"$ref": "#/$defs/endpoint"},
+        "observed_endpoint": {"$ref": "#/$defs/endpoint"},
+        "configured_endpoint": {"$ref": "#/$defs/endpoint"},
+        "candidate_endpoints": {
+          "type": "array",
+          "minItems": 2,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/endpoint"}
+        },
+        "affected_devices": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "message": {"type": "string", "minLength": 1}
+      }
+    },
+    "unevaluated_claim": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "claim_id", "source", "reason", "link_endpoints",
+        "local_endpoint", "claimed_endpoint", "affected_devices", "message"
+      ],
+      "properties": {
+        "claim_id": {"type": "string", "pattern": "^linkclaim-[0-9a-f]{16}$"},
+        "source": {"enum": ["lldp", "description"]},
+        "reason": {
+          "enum": [
+            "peer-not-in-inventory",
+            "peer-evidence-not-collected",
+            "peer-link-evidence-not-found"
+          ]
+        },
+        "link_endpoints": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {"$ref": "#/$defs/endpoint"}
+        },
+        "local_endpoint": {"$ref": "#/$defs/endpoint"},
+        "claimed_endpoint": {"$ref": "#/$defs/endpoint"},
+        "affected_devices": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "message": {"type": "string", "minLength": 1}
+      }
+    },
+    "unresolved_peer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["peer", "local_endpoint", "source", "diagnostic_id"],
+      "properties": {
+        "peer": {"type": "string", "minLength": 1},
+        "local_endpoint": {"$ref": "#/$defs/endpoint"},
+        "source": {"enum": ["lldp", "description"]},
+        "diagnostic_id": {"type": "string", "pattern": "^linkdiag-[0-9a-f]{16}$"}
+      }
+    }
+  }
+}

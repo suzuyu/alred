@@ -90,9 +90,16 @@ candidateから削除しない。
 | 双方向LLDPが一致し、descriptionがない | `PASS`。欠落を補足情報へ記録 |
 | 同じlocal interfaceのLLDPとdescriptionが異なる | `WARN`。policyで`FAIL`へ厳格化可能 |
 | 両端を正常収集済みだがLLDPが片方向だけ | `WARN` |
+| 対向が inventory 外、または対向の LLDP／description link record がない片方向 claim | `UNKNOWN`／`N/A`。mismatch として扱わない |
 | LLDP command取得失敗、破損、対応parserで解釈不能 | `UNKNOWN` |
 | description ruleに一致しない | `N/A`。不一致と推測しない |
 | Health対象外endpoint | `N/A`。除外理由を記録 |
+
+Topologyの`LinkDiagnostics`はevidence間の客観的な整合性を表し、Health resultとは分離する。diagram上の
+`CONFLICT`は常にHealth `FAIL`を意味しない。Health evaluatorは同じ診断IDを参照し、既定policyでは
+`LLDP_DESC_DEVICE_CONFLICT`、`LLDP_DESC_INTERFACE_CONFLICT`、`DESCRIPTION_NOT_RECIPROCAL`、`ONE_WAY_LLDP`を
+`WARN`とし、`mismatch: fail`の場合だけ`FAIL`へ厳格化する。`UNKNOWN`と`NOT_APPLICABLE`をmismatchとして再分類しない。
+`DESCRIPTION_NOT_RECIPROCAL` は両端 running config、`ONE_WAY_LLDP` は両端 LLDP output の正常収集を前提とする。
 
 afterではneighbor消失、接続先／interface変更、新規不整合をbeforeからの差分として記録する。一時的な
 LLDP未収束は既存のafter convergence待ちを適用し、timeout後の残存差分だけを最終判定する。

@@ -1,5 +1,6 @@
 from datetime import datetime
 import json
+import os
 from pathlib import Path
 import shutil
 
@@ -8,6 +9,7 @@ import yaml
 
 from alred.cli import (
     _archive_legacy_rollback_attempt,
+    _apply_health_followup_execution_context,
     _direct_health_collect,
     _publish_rollback_attempt,
     _snapshot_workspace,
@@ -223,7 +225,9 @@ def test_external_transcript_matches_inventory_alias_and_same_state(tmp_path):
     )
 
 
-def test_external_transcript_tracks_preamble_and_duplicate_as_unknown(tmp_path):
+def test_external_transcript_deduplicates_identical_output_and_tracks_preamble(
+    tmp_path,
+):
     transcript = tmp_path / "duplicate.log"
     version = COMMAND_FIXTURES["show version"].read_text(encoding="utf-8")
     transcript.write_text(
@@ -245,7 +249,43 @@ def test_external_transcript_tracks_preamble_and_duplicate_as_unknown(tmp_path):
 
     summary = import_manifest["spec"]["summary"]
     assert summary["unresolved_segments"] == 1
+    assert summary["ambiguous_segments"] == 0
+    assert summary["duplicate_groups"] == 1
+    assert summary["resolved_duplicate_groups"] == 1
+    duplicate = import_manifest["spec"]["duplicate_groups"][0]
+    assert duplicate["selection_basis"] == "identical-output"
+    assert [candidate["selected"] for candidate in duplicate["candidates"]] == [
+        False,
+        True,
+    ]
+    command = collection_manifest["spec"]["hosts"]["leaf01"]["commands"]["show_version"]
+    assert command["status"] == "success"
+    assert command["start_line"] > 1
+
+
+def test_external_transcript_reject_policy_keeps_duplicate_unknown(tmp_path):
+    transcript = tmp_path / "duplicate.log"
+    version = COMMAND_FIXTURES["show version"].read_text(encoding="utf-8")
+    transcript.write_text(
+        f"leaf01# show version\n{version}\n"
+        f"leaf01# show version\n{version}\n",
+        encoding="utf-8",
+    )
+
+    import_manifest, collection_manifest = import_nxos_transcripts(
+        [transcript],
+        collection_id="CHG-1-before-003-reject",
+        change_id="CHG-1",
+        phase="before",
+        profiles=["baseline"],
+        imported_at=JST_NOW,
+        timezone="Asia/Tokyo",
+        duplicate_policy="reject",
+    )
+
+    summary = import_manifest["spec"]["summary"]
     assert summary["ambiguous_segments"] == 2
+    assert summary["ambiguous_duplicate_groups"] == 1
     command = collection_manifest["spec"]["hosts"]["leaf01"]["commands"]["show_version"]
     assert command["status"] == "failed"
     assert command["confidence"] == "low"
@@ -260,6 +300,213 @@ def test_external_transcript_tracks_preamble_and_duplicate_as_unknown(tmp_path):
         snapshot["hosts"]["leaf01"]["sources"]["show_version"]["parse_status"]
         == "unknown"
     )
+
+
+def test_external_transcript_uses_later_line_for_different_same_file_output(
+    tmp_path,
+):
+    transcript = tmp_path / "duplicate.log"
+    transcript.write_text(
+        "leaf01# show version\nold output\n"
+        "leaf01# show version\nnew output\n",
+        encoding="utf-8",
+    )
+
+    import_manifest, collection_manifest = import_nxos_transcripts(
+        [transcript],
+        collection_id="CHG-1-before-later-line",
+        change_id="CHG-1",
+        phase="before",
+        profiles=["baseline"],
+        imported_at=JST_NOW,
+        timezone="Asia/Tokyo",
+    )
+
+    duplicate = import_manifest["spec"]["duplicate_groups"][0]
+    assert duplicate["selection_basis"] == "later-line"
+    command = collection_manifest["spec"]["hosts"]["leaf01"]["commands"]["show_version"]
+    assert command["start_line"] == 3
+
+
+def test_external_transcript_mtime_selects_newest_file(tmp_path):
+    old = tmp_path / "old.log"
+    new = tmp_path / "new.log"
+    old.write_text("leaf01# show version\nold output\n", encoding="utf-8")
+    new.write_text("leaf01# show version\nnew output\n", encoding="utf-8")
+    os.utime(old, ns=(1_000_000_000, 1_000_000_000))
+    os.utime(new, ns=(2_000_000_000, 2_000_000_000))
+
+    import_manifest, collection_manifest = import_nxos_transcripts(
+        [tmp_path],
+        collection_id="CHG-1-before-mtime",
+        change_id="CHG-1",
+        phase="before",
+        profiles=["baseline"],
+        imported_at=JST_NOW,
+        timezone="Asia/Tokyo",
+        file_order="mtime",
+    )
+
+    duplicate = import_manifest["spec"]["duplicate_groups"][0]
+    assert duplicate["selection_basis"] == "file-mtime"
+    command = collection_manifest["spec"]["hosts"]["leaf01"]["commands"]["show_version"]
+    assert command["file"] == str(new.resolve())
+
+
+def test_external_transcript_deduplicates_combined_and_split_collect_logs(
+    tmp_path,
+):
+    combined = tmp_path / "leaf01_shows.log"
+    commands = tmp_path / "leaf01" / "commands"
+    commands.mkdir(parents=True)
+    split = commands / "show_version.txt"
+    metadata = (
+        "### COMMAND: show version\n"
+        "### COLLECTED_AT: 2026-08-25T02:11:52+09:00\n"
+        "### STATUS: OK\n"
+        "### TRANSPORT: ssh\n"
+    )
+    split.write_text(
+        f"{metadata}leaf01# show version\nversion output\n",
+        encoding="utf-8",
+    )
+    combined.write_text(
+        f"{metadata}leaf01# show version\nversion output\n"
+        "### COMMAND: show clock\n"
+        "### COLLECTED_AT: 2026-08-25T02:11:53+09:00\n"
+        "### STATUS: OK\n"
+        "### TRANSPORT: ssh\n"
+        "leaf01# show clock\n02:11:53 JST\n",
+        encoding="utf-8",
+    )
+
+    import_manifest, collection_manifest = import_nxos_transcripts(
+        [tmp_path],
+        collection_id="CHG-1-before-combined-split",
+        change_id="CHG-1",
+        phase="before",
+        profiles=["baseline"],
+        imported_at=JST_NOW,
+        timezone="Asia/Tokyo",
+    )
+
+    duplicate = import_manifest["spec"]["duplicate_groups"][0]
+    assert duplicate["selection_basis"] == "identical-output"
+    assert import_manifest["spec"]["summary"]["ambiguous_segments"] == 0
+    assert import_manifest["spec"]["summary"]["unresolved_segments"] == 0
+    commands_manifest = collection_manifest["spec"]["hosts"]["leaf01"]["commands"]
+    assert set(commands_manifest) == {"clock", "show_version"}
+
+
+def test_external_transcript_filename_prefers_phase_then_timestamp(tmp_path):
+    before = tmp_path / "20260825T010000_before.log"
+    work = tmp_path / "20260825T020000_work.log"
+    after_old = tmp_path / "20260825T030000_after.log"
+    after_new = tmp_path / "20260825T040000_after.log"
+    for path, output in (
+        (before, "before"),
+        (work, "work"),
+        (after_old, "after old"),
+        (after_new, "after new"),
+    ):
+        path.write_text(
+            f"leaf01# show version\n{output}\n",
+            encoding="utf-8",
+        )
+
+    import_manifest, collection_manifest = import_nxos_transcripts(
+        [tmp_path],
+        collection_id="CHG-1-after-filename",
+        change_id="CHG-1",
+        phase="after",
+        profiles=["baseline"],
+        imported_at=JST_NOW,
+        timezone="Asia/Tokyo",
+        file_order="filename",
+    )
+
+    duplicate = import_manifest["spec"]["duplicate_groups"][0]
+    assert duplicate["selection_basis"] == "filename-timestamp"
+    command = collection_manifest["spec"]["hosts"]["leaf01"]["commands"]["show_version"]
+    assert command["file"] == str(after_new.resolve())
+
+
+def test_transcript_options_are_pinned_and_inherited_by_phase_wrapper(tmp_path):
+    operations_root = tmp_path / "operations"
+    transcript = tmp_path / "before.log"
+    transcript.write_text(
+        "leaf01# show version\nNXOS: version 10.4(1)\n",
+        encoding="utf-8",
+    )
+    before = build_parser().parse_args(
+        [
+            "health-check",
+            "before",
+            "--purpose",
+            "inspection",
+            "--input",
+            str(transcript),
+            "--input-format",
+            "nxos-transcript",
+            "--transcript-file-order",
+            "filename",
+            "--operations-root",
+            str(operations_root),
+        ]
+    )
+
+    cmd_health_check_phase(before)
+
+    workspace = open_operation_workspace(operations_root, before.change_id)
+    context = yaml.safe_load(
+        (workspace.operation_root / "health/execution-context.yaml").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert context["spec"]["transcript_import"] == {
+        "duplicate_policy": "safe-latest",
+        "file_order": "filename",
+    }
+    after = build_parser().parse_args(
+        [
+            "health-check",
+            "after",
+            "--change-id",
+            before.change_id,
+            "--input",
+            str(transcript),
+            "--operations-root",
+            str(operations_root),
+        ]
+    )
+    _apply_health_followup_execution_context(after, workspace)
+    assert after.input_format == "nxos-transcript"
+    assert after.transcript_duplicate_policy == "safe-latest"
+    assert after.transcript_file_order == "filename"
+
+
+def test_transcript_options_reject_alred_collect_input(tmp_path, capsys):
+    args = build_parser().parse_args(
+        [
+            "health-check",
+            "snapshot",
+            "--input",
+            str(COLLECT_FIXTURE),
+            "--input-format",
+            "alred-collect",
+            "--transcript-file-order",
+            "mtime",
+            "--phase",
+            "before",
+            "--operations-root",
+            str(tmp_path / "operations"),
+        ]
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        cmd_health_check_snapshot(args)
+    assert exc_info.value.code == 2
+    assert "nxos-transcript" in capsys.readouterr().err
 
 
 def test_inventory_alias_collision_fails_closed(tmp_path):

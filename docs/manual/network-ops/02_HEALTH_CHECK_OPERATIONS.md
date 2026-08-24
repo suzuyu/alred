@@ -140,6 +140,104 @@ alred health-check snapshot \
 
 transcript内のprompt、hostname、実行コマンドを解析します。複数機器が1ファイルに含まれる場合も、
 区間が明確なら機器・コマンド単位に分割します。曖昧な区間は正常と推測せずUNKNOWNにします。
+
+同じ hostname と command を複数回検出した場合の既定値は
+`--transcript-duplicate-policy safe-latest --transcript-file-order reject`です。出力が同一な
+候補は自動で重複排除し、同一ファイルで出力が異なる場合はより下の行を採用します。
+異なるファイル間で出力が異なる場合は、既定値のままでは曖昧として `UNKNOWN` にします。
+`COLLECTED_AT:`は必須ではありません。
+
+alred が取得した`health/<phase>/raw/`をそのまま再解析する場合は、
+`config/*_run.txt`や LLDP などの専用 artifact も利用できる
+`--input-format alred-collect`を優先してください。`nxos-transcript`は、外部 tool や手動取得で
+prompt と command 入力を含むログ用です。alred の一括 show log と command 別ファイルが両方
+含まれる場合も同一出力は自動 dedup しますが、prompt のない専用 artifact は
+`nxos-transcript`では解析対象になりません。
+
+#### 2.3.1 modification time で最新ファイルを選択する
+
+事前・事後ログの各フォルダーをそのまま読み込ませ、フォルダー内で後から更新された
+ファイルを最新世代と扱える場合は`mtime`を指定します。
+
+```bash
+# 事前ログフォルダー
+alred health-check snapshot \
+  --input ./transcripts/CHG-2026-00123/before \
+  --input-format nxos-transcript \
+  --transcript-duplicate-policy safe-latest \
+  --transcript-file-order mtime \
+  --phase before \
+  --change-id CHG-2026-00123 \
+  --hosts ./hosts.lab.yaml \
+  --profile network-baseline-nxos
+
+# 事後ログフォルダー
+alred health-check snapshot \
+  --input ./transcripts/CHG-2026-00123/after \
+  --input-format nxos-transcript \
+  --transcript-duplicate-policy safe-latest \
+  --transcript-file-order mtime \
+  --phase after \
+  --change-id CHG-2026-00123 \
+  --hosts ./hosts.lab.yaml
+```
+
+`mtime`は copy、展開、同期 tool によって変わることがあります。元の取得順を `mtime` が保っている
+フォルダーでのみ使用してください。`mtime`が同じで出力が異なる候補は自動選択しません。
+
+#### 2.3.2 ファイル名とフォルダー名で最新世代を選択する
+
+ファイル名または直近のフォルダー名に`before`、`work`、`after`がある場合は
+`after > work > before`の順に優先します。同じ phase の候補は、次のような
+timestamp が最新のファイルを採用します。
+
+- `leaf01_20260825T021152_after.log`
+- `leaf01_20260825_021152_after.log`
+- `leaf01_20260825-021152-after.log`
+
+`before`は `before` フォルダーだけを入力します。
+
+```bash
+alred health-check snapshot \
+  --input ./transcripts/CHG-2026-00123/before \
+  --input-format nxos-transcript \
+  --transcript-duplicate-policy safe-latest \
+  --transcript-file-order filename \
+  --phase before \
+  --change-id CHG-2026-00123 \
+  --hosts ./hosts.lab.yaml \
+  --profile network-baseline-nxos
+```
+
+`after`は、例えば次のフォルダーをまとめた親フォルダーを入力できます。
+
+```text
+transcripts/CHG-2026-00123/
+├── 20260825T010000_before/
+├── 20260825T020000_work/
+└── 20260825T030000_after/
+```
+
+```bash
+alred health-check snapshot \
+  --input ./transcripts/CHG-2026-00123 \
+  --input-format nxos-transcript \
+  --transcript-duplicate-policy safe-latest \
+  --transcript-file-order filename \
+  --phase after \
+  --change-id CHG-2026-00123 \
+  --hosts ./hosts.lab.yaml
+```
+
+`filename`の phase 優先は`--phase`に応じてファイルを除外する機能ではありません。
+before Snapshot に上記の親フォルダーを指定すると`after`が優先されるため、`before`では
+`before`専用フォルダーを指定してください。同一 phase の上位候補に timestamp のないファイルが
+複数ある場合、または同一 timestamp で出力が異なる場合も自動選択しません。
+
+選択結果は`transcript-import-manifest.yaml`の`duplicate_groups`で確認できます。
+`--transcript-duplicate-policy reject`を指定すると、出力が同一でも従来どおり重複を
+曖昧として扱えます。
+
 transcript解析の端末出力例:
 
 ```text

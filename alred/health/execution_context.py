@@ -41,6 +41,7 @@ def build_health_execution_context(
     inventory_path: str | Path | None,
     policy_path: str | Path | None,
     input_format: str | None,
+    transcript_import: Mapping[str, str] | None,
     collection: Mapping[str, Any] | None,
     authentication: Mapping[str, Any],
     purpose: str = "change",
@@ -84,6 +85,9 @@ def build_health_execution_context(
                 else None
             ),
             "input_format": input_format,
+            "transcript_import": (
+                dict(transcript_import) if transcript_import is not None else None
+            ),
             "collection": dict(collection) if collection is not None else None,
             "authentication": dict(authentication),
         },

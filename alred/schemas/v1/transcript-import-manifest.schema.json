@@ -22,6 +22,7 @@
         "change_id": {"type": "string", "minLength": 1},
         "phase": {"enum": ["before", "after", "rollback"]},
         "source": {"const": "external_transcript"},
+        "importer_version": {"type": "string", "minLength": 1},
         "imported_at": {"type": "string", "format": "date-time"},
         "timezone": {"type": "string", "minLength": 1}
       }
@@ -38,6 +39,8 @@
       ],
       "properties": {
         "input_format": {"const": "nxos-transcript"},
+        "duplicate_policy": {"enum": ["reject", "safe-latest"]},
+        "file_order": {"enum": ["reject", "mtime", "filename"]},
         "inputs": {
           "type": "array",
           "items": {"$ref": "#/$defs/input"}
@@ -49,6 +52,10 @@
         "unresolved_segments": {
           "type": "array",
           "items": {"$ref": "#/$defs/unresolved"}
+        },
+        "duplicate_groups": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/duplicateGroup"}
         },
         "summary": {
           "type": "object",
@@ -65,7 +72,10 @@
             "hosts_detected": {"type": "integer", "minimum": 0},
             "commands_detected": {"type": "integer", "minimum": 0},
             "unresolved_segments": {"type": "integer", "minimum": 0},
-            "ambiguous_segments": {"type": "integer", "minimum": 0}
+            "ambiguous_segments": {"type": "integer", "minimum": 0},
+            "duplicate_groups": {"type": "integer", "minimum": 0},
+            "resolved_duplicate_groups": {"type": "integer", "minimum": 0},
+            "ambiguous_duplicate_groups": {"type": "integer", "minimum": 0}
           }
         }
       }
@@ -78,7 +88,8 @@
       "required": ["path", "sha256"],
       "properties": {
         "path": {"type": "string", "minLength": 1},
-        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "mtime_ns": {"type": "integer", "minimum": 0}
       }
     },
     "segment": {
@@ -105,7 +116,9 @@
         "output_start_line": {"type": "integer", "minimum": 1},
         "output_end_line": {"type": "integer", "minimum": 1},
         "confidence": {"enum": ["high", "medium", "low"]},
-        "ambiguous": {"type": "boolean"}
+        "ambiguous": {"type": "boolean"},
+        "selected": {"type": "boolean"},
+        "output_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
       }
     },
     "host": {
@@ -149,6 +162,63 @@
         "confidence": {"enum": ["high", "medium", "low"]},
         "detected_prompt": {"type": "string"},
         "command": {"type": "string"}
+      }
+    },
+    "duplicateCandidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_file",
+        "start_line",
+        "end_line",
+        "output_sha256",
+        "mtime_ns",
+        "selected"
+      ],
+      "properties": {
+        "source_file": {"type": "string", "minLength": 1},
+        "start_line": {"type": "integer", "minimum": 1},
+        "end_line": {"type": "integer", "minimum": 1},
+        "output_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "mtime_ns": {"type": "integer", "minimum": 0},
+        "filename_phase": {"enum": ["before", "work", "after"]},
+        "filename_timestamp": {"type": "string", "pattern": "^[0-9]{14}$"},
+        "selected": {"type": "boolean"}
+      }
+    },
+    "duplicateGroup": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "host",
+        "command_id",
+        "resolution",
+        "selection_basis",
+        "candidates"
+      ],
+      "properties": {
+        "host": {"type": "string", "minLength": 1},
+        "command_id": {"type": "string", "minLength": 1},
+        "resolution": {"enum": ["selected", "ambiguous"]},
+        "selection_basis": {
+          "enum": [
+            "identical-output",
+            "later-line",
+            "file-mtime",
+            "file-mtime-tie",
+            "filename-phase",
+            "filename-timestamp",
+            "filename-timestamp-missing",
+            "filename-timestamp-tie",
+            "file-order-reject",
+            "reject"
+          ]
+        },
+        "candidates": {
+          "type": "array",
+          "minItems": 2,
+          "items": {"$ref": "#/$defs/duplicateCandidate"}
+        }
       }
     }
   }

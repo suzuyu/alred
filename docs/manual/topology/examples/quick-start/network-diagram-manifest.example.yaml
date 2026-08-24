@@ -32,6 +32,12 @@ spec:
     drawio_directions:
       - TD
       - LR
+    link_diagnostics:
+      evaluation_status: partial
+      result: unknown
+      diagnostic_count: 0
+      unevaluated_claim_count: 0
+      affected_device_count: 0
   inputs:
     - path: docs/manual/topology/examples/quick-start/links_confirmed.example.csv
       sha256: sha256:3b23277155cb28954be68f6aac62e67bb79928eb2a21ebf709dc97b8b65eede7
@@ -42,6 +48,10 @@ spec:
     - path: docs/manual/containerlab/examples/quick-start/roles.example.yaml
       sha256: sha256:9eb5b7581011b690d79b2d249733d6974799a68ac174b7ca68de585be6498f1e
   artifacts:
+    - path: docs/manual/topology/examples/quick-start/link-diagnostics.example.yaml
+      sha256: sha256:ccfaaf984ca3c7af870e37172630d9a460467d317fe5883c69dff2434f99bfbb
+    - path: docs/manual/topology/examples/quick-start/mismatch-links.example.md
+      sha256: sha256:1ab54136343bd2923c192faa5dd611fdab05ada341de755da4f0473aec0136eb
     - path: docs/manual/topology/examples/quick-start/topology-graph.example.md
       sha256: sha256:704f33f76880e64ebc65b096f1d31342d0876d4a0aaf48eda0e48a03cce1848b
     - path: docs/manual/topology/examples/quick-start/topology_underlay.example.md

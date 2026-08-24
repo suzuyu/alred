@@ -48,6 +48,7 @@ from .schema import (
     source_sha256,
     validate_document,
 )
+from .link_diagnostics import build_link_diagnostics
 from .secret_scan import (
     CATALOG_SHA256,
     SecretFinding,
@@ -989,6 +990,7 @@ def create_evidence_package(
     inventory_map = load_inventory_map_from_list(load_inventory_data(inventory))
     lldp_records: list[dict[str, str]] = []
     description_records: list[dict[str, str]] = []
+    description_ambiguities: list[dict[str, Any]] = []
     for hostname, command_outputs in sorted(exported_commands.items()):
         device_type = str(inventory_map.get(hostname, {}).get("device_type", "nxos"))
         if "lldp_neighbors_detail" in command_outputs:
@@ -1008,6 +1010,7 @@ def create_evidence_package(
                     running_config.decode("utf-8"),
                     mappings,
                     description_rules,
+                    ambiguity_records=description_ambiguities,
                 )
             )
     lldp_records = normalize_link_records(lldp_records, mappings, inventory_map)
@@ -1017,12 +1020,39 @@ def create_evidence_package(
     confirmed_links, candidate_links = merge_lldp_and_description_links(
         lldp_records, description_records
     )
+    link_diagnostics = build_link_diagnostics(
+        lldp_records=lldp_records,
+        description_records=description_records,
+        confirmed_links=confirmed_links,
+        candidate_links=candidate_links,
+        inventory_hosts=inventory_map,
+        running_config_hosts={
+            hostname
+            for hostname, outputs in exported_commands.items()
+            if "running_config" in outputs
+        },
+        lldp_hosts={
+            hostname
+            for hostname, outputs in exported_commands.items()
+            if "lldp_neighbors_detail" in outputs
+        },
+        normalizer_version=__version__,
+        source="evidence-package",
+        policy_hashes={
+            "mappings": canonical_sha256(mappings),
+            "description_rules": canonical_sha256(description_rules),
+        },
+        description_ambiguities=description_ambiguities,
+    )
     canonical_files = {
         "canonical/links_confirmed.csv": confirmed_links,
         "canonical/links_candidates.csv": candidate_links,
     }
     for relative, records in canonical_files.items():
         files[f"alred-evidence/{relative}"] = _links_csv_bytes(records)
+    files["alred-evidence/canonical/link-diagnostics.yaml"] = yaml.safe_dump(
+        link_diagnostics, sort_keys=False, allow_unicode=True
+    ).encode()
 
     resource_ids = {
         "inventory/hosts.resolved.yaml": "resolved_inventory",
@@ -1032,12 +1062,14 @@ def create_evidence_package(
         "policy/sites.resolved.yaml": "resolved_sites",
         "canonical/links_confirmed.csv": "canonical_links_confirmed",
         "canonical/links_candidates.csv": "canonical_links_candidates",
+        "canonical/link-diagnostics.yaml": "canonical_link_diagnostics",
     }
     semantic_hashes = {
         "canonical/links_confirmed.csv": canonical_confirmed_links_sha256(
             confirmed_links
         ),
         "canonical/links_candidates.csv": canonical_links_sha256(candidate_links),
+        "canonical/link-diagnostics.yaml": canonical_sha256(link_diagnostics),
     }
     resources = []
     for relative, resource_id in resource_ids.items():
@@ -1048,7 +1080,9 @@ def create_evidence_package(
         }
         if relative in semantic_hashes:
             resource["semantic_sha256"] = semantic_hashes[relative]
-            resource["semantic_version"] = 2
+            resource["semantic_version"] = (
+                1 if relative == "canonical/link-diagnostics.yaml" else 2
+            )
         resources.append(resource)
     scan_findings, files_scanned = _scan_package_members(files, entries)
     _enforce_scan_result(scan_findings, entries)

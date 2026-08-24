@@ -6,6 +6,8 @@
 | 内容 | Sample |
 |---|---|
 | Mermaid topology | [topology-graph.md](topology-graph.md) |
+| LinkDiagnostics | [link-diagnostics.yaml](link-diagnostics.yaml) |
+| link mismatch report | [mismatch-links.md](mismatch-links.md) |
 | Mermaid Underlay | [topology_underlay.md](topology_underlay.md) |
 | Mermaid EVPN | [topology_evpn.md](topology_evpn.md) |
 | EVPN control-plane model | [evpn-control-plane-model.yaml](evpn-control-plane-model.yaml) |
@@ -23,6 +25,9 @@
 Mermaid source で上から出力する。
 `network-functions` と `server` は同じ priority とし、draw.io の `TD` page では同じ高さに横並びで配置する。
 Mermaid は同一 priority の source 順だけを固定し、横並びは保証しない。
+
+本 sample は Containerlab YAML を直接入力しており、LLDP／description の diagnostic evidence を指定していない。このため
+LinkDiagnostics は `not-evaluated`／`UNKNOWN` とし、構成図の link が不整合なしとは判定しない。
 
 通常 topology は server／Kind node を含む全 40 link を表示する。Underlay は target role である Spine／Leaf と、
 address を解決できた 8 link だけを表示し、server／Kind node など片方向の対向機器は描画しない。

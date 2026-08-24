@@ -75,6 +75,18 @@
               "minItems": 1,
               "uniqueItems": true,
               "items": {"enum": ["TD", "LR", "BT", "RL"]}
+            },
+            "link_diagnostics": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["evaluation_status", "result", "diagnostic_count", "unevaluated_claim_count", "affected_device_count"],
+              "properties": {
+                "evaluation_status": {"enum": ["complete", "partial", "not-evaluated"]},
+                "result": {"enum": ["pass", "warning", "conflict", "unknown"]},
+                "diagnostic_count": {"type": "integer", "minimum": 0},
+                "unevaluated_claim_count": {"type": "integer", "minimum": 0},
+                "affected_device_count": {"type": "integer", "minimum": 0}
+              }
             }
           }
         },

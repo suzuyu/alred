@@ -639,6 +639,38 @@ def parse_interface_descriptions_from_run(text: str) -> List[Dict[str, str]]:
     return results
 
 
+def parse_remote_candidates_from_description(
+    description: str,
+    rules: List[Dict[str, str]],
+) -> List[Dict[str, str]]:
+    """Return every distinct rule match for an interface description."""
+    candidates: List[Dict[str, str]] = []
+    seen = set()
+    for rule in rules:
+        pattern = rule.get("regex")
+        if not pattern:
+            continue
+        rule_matched = False
+        for match in re.finditer(pattern, description, re.IGNORECASE):
+            remote_host = str(match.groupdict().get("remote_host") or "").strip()
+            remote_if = str(match.groupdict().get("remote_if") or "").strip()
+            key = (remote_host, remote_if)
+            if not remote_host or key in seen:
+                continue
+            rule_matched = True
+            seen.add(key)
+            candidates.append(
+                {
+                    "remote_host": remote_host,
+                    "remote_if": remote_if,
+                    "rule_name": rule.get("name", "unknown"),
+                }
+            )
+        if rule_matched:
+            break
+    return candidates
+
+
 def parse_remote_from_description(description: str, rules: List[Dict[str, str]]) -> Optional[Dict[str, str]]:
     """
     Parse remote endpoint from description using regex rules.
@@ -650,24 +682,8 @@ def parse_remote_from_description(description: str, rules: List[Dict[str, str]])
     Returns:
         Parsed remote endpoint info or None.
     """
-    for rule in rules:
-        pattern = rule.get("regex")
-        if not pattern:
-            continue
-
-        m = re.search(pattern, description, re.IGNORECASE)
-        if m:
-            remote_host = m.groupdict().get("remote_host", "").strip()
-            remote_if = m.groupdict().get("remote_if", "").strip()
-
-            if remote_host:
-                return {
-                    "remote_host": remote_host,
-                    "remote_if": remote_if,
-                    "rule_name": rule.get("name", "unknown"),
-                }
-
-    return None
+    candidates = parse_remote_candidates_from_description(description, rules)
+    return candidates[0] if candidates else None
 
 
 def build_description_records(
@@ -676,6 +692,7 @@ def build_description_records(
     mappings: Dict[str, Any],
     description_rules: List[Dict[str, str]],
     include_svi: bool = False,
+    ambiguity_records: Optional[List[Dict[str, Any]]] = None,
 ) -> List[Dict[str, str]]:
     """
     Build directional records from interface descriptions.
@@ -686,6 +703,7 @@ def build_description_records(
         mappings: Mapping config.
         description_rules: Regex rules.
         include_svi: Whether to include SVI (interface Vlan*) descriptions.
+        ambiguity_records: Optional output list for descriptions matching multiple endpoints.
 
     Returns:
         Directional description-based records.
@@ -699,14 +717,50 @@ def build_description_records(
         if not include_svi and local_if.lower().startswith("vlan"):
             continue
 
-        parsed = parse_remote_from_description(desc, description_rules)
-        if not parsed:
-            continue
-
         if is_excluded_interface(local_if, mappings):
             continue
-        if parsed["remote_if"] and is_excluded_interface(parsed["remote_if"], mappings):
+
+        parsed_candidates = []
+        seen_endpoints = set()
+        for parsed in parse_remote_candidates_from_description(desc, description_rules):
+            remote_host = normalize_hostname(parsed["remote_host"], mappings)
+            remote_if = normalize_interface_name(parsed["remote_if"], mappings)
+            if remote_if and is_excluded_interface(remote_if, mappings):
+                continue
+            endpoint = (remote_host, remote_if)
+            if endpoint in seen_endpoints:
+                continue
+            seen_endpoints.add(endpoint)
+            parsed_candidates.append(
+                {
+                    **parsed,
+                    "remote_host": remote_host,
+                    "remote_if": remote_if,
+                }
+            )
+        if not parsed_candidates:
             continue
+        if len(parsed_candidates) > 1:
+            if ambiguity_records is not None:
+                ambiguity_records.append(
+                    {
+                        "local_node": normalize_hostname(local_hostname, mappings),
+                        "local_if": normalize_interface_name(local_if, mappings),
+                        "candidate_endpoints": [
+                            {
+                                "node": item["remote_host"],
+                                "interface": item["remote_if"],
+                            }
+                            for item in parsed_candidates
+                        ],
+                        "rule_names": [
+                            str(item.get("rule_name", "unknown"))
+                            for item in parsed_candidates
+                        ],
+                    }
+                )
+            continue
+        parsed = parsed_candidates[0]
 
         records.append({
             "src_node": normalize_hostname(local_hostname, mappings),

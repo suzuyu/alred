@@ -36,6 +36,12 @@ spec:
     - underlay
     - evpn
     - overlay-service
+    link_diagnostics:
+      evaluation_status: not-evaluated
+      result: unknown
+      diagnostic_count: 0
+      unevaluated_claim_count: 0
+      affected_device_count: 0
   inputs:
   - path: docs/manual/containerlab/examples/single-site-fabric/topology.clab.example.yaml
     sha256: sha256:34047c951059ce98a38d5acf7235440e9dca24a109f81e3ce9e6637b351206ab
@@ -60,6 +66,10 @@ spec:
   - path: docs/manual/containerlab/examples/single-site-fabric/labconfig/adc-spsw0102_run.txt
     sha256: sha256:dd6bf23952c3c5896def7542f69ecd57f2897cb3bc3a4d86956cc5e00cf4cec5
   artifacts:
+  - path: docs/manual/topology/examples/single-site-fabric/link-diagnostics.yaml
+    sha256: sha256:bd0f7f310fa82db05c8d6ac2fd951d35966704e03fb6689b46ef9919ab1ee887
+  - path: docs/manual/topology/examples/single-site-fabric/mismatch-links.md
+    sha256: sha256:df3f6828cb46f67dfd08d0191088190fdbc5f5ebb7bb3df70fece53e6cd189cc
   - path: docs/manual/topology/examples/single-site-fabric/topology-graph.md
     sha256: sha256:724374496074b123c4a877015456b68a5325c26f2902259ea74219545de2aff9
   - path: docs/manual/topology/examples/single-site-fabric/topology_underlay.md

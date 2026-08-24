@@ -71,6 +71,33 @@ Mermaid の方向は、縦長の構成を上から下へ追いやすい `TD` を
 `generate-network-diagram`、`generate-doc` で統一する。横方向が必要な場合は `--direction LR` を明示する。
 Graphviz と単体 draw.io renderer の既定方向も `TD` とする。
 
+### 3.0.1 Physical link diagnostics
+
+rendererはschema検証済み`LinkDiagnostics`を共通render modelへ関連付け、Physical／Underlayの表示対象linkへ次のstyleを
+適用する。自由形式のCSV `warning`をformatごとに再解析しない。
+
+| 状態 | 色／線種 | label |
+|---|---|---|
+| conflict confirmed | `#dc2626`の太い実線 | interface label、`⚠ CONFLICT`、短い診断IDと差分 |
+| conflict candidate／description claim | `#dc2626`の破線と有向矢印 | `⚠ CONFLICT`、主張したremote endpoint |
+| 通常candidate | grayの破線 | evidence |
+| peer が inventory 外、または対向の同種 link record がない片方向 claim | grayの破線 | evidence。赤線にせず report で `not evaluated` と表示 |
+| unknown | grayまたはamberの点線 | `? UNKNOWN` |
+
+色だけへ依存せず、線種、太さ、矢印、`⚠`、診断IDを併用する。線上labelは最大2診断までを決定的な順序で表示し、
+残りは`+N more`とする。raw description全文は表示しない。Mermaid、Graphviz、draw.ioでnode／link集合と診断の意味を
+一致させ、format固有のescapeを適用する。
+
+Physicalはconfirmedと表示対象candidateの診断を描画する。Underlayは既存filter後に残る物理linkだけへ診断を付与する。
+`Topology Confirmed Links <direction>` は confirmed conflict を赤い実線で表示し、candidate claim を含めない。
+candidate／claim／filter 対象外のため表示しない診断が 1 件以上ある場合は、page 上部に amber の警告欄を表示し、
+非表示診断の総数、`CONFLICT`／`WARNING`／`UNKNOWN` 別件数、および `mismatch-links.md` への参照を記載する。
+警告欄は link を confirmed へ昇格せず、diagram 内の node／link 集合にも含めない。EVPN と
+Overlay Service は物理 LLDP／description 診断を混在させない。render filter で図へ出なかった診断も
+`mismatch-links.md` から削除せず、`rendered: false` と skip 理由を記録する。
+`unevaluated_claims` は diagnostic style を付与せず、通常 candidate と同じ線種を維持する。confirmed-only page の
+非表示診断警告には含めず、`mismatch-links.md` には件数だけ、詳細は `link-diagnostics.yaml` に記録する。
+
 draw.io `--all-graph` は、`TD` と `LR` について Physical、Underlay、EVPN、Overlay Service を作成し、
 candidate を除外した `Topology Confirmed Links TD` を加えた計 9 page を
 1 file へ格納する。page 名と順序は `Topology TD`、`Topology Confirmed Links TD`、`Topology LR`、
@@ -112,6 +139,8 @@ inventory、mapping、role、site を使って diagram を生成する。
 | `topology_overlay_service.md` | Overlay Service Summary の Mermaid diagram |
 | `overlay-services/` | selector／上限に従う service Detail |
 | `topology-graph.drawio` | topology の draw.io XML |
+| `link-diagnostics.yaml` | LLDP／description 整合性の machine-readable な診断と未評価 claim |
+| `mismatch-links.md` | mismatch、warning、未評価 claim、原因、affected device の review report |
 | `network-diagram-manifest.yaml` | source、実効 option、入力・成果物 hash |
 
 `--all-graph` 指定時は `topology-graph.drawio` の代わりに `topology-graph-all.drawio` を生成する。既定は 9 page、
@@ -134,10 +163,16 @@ Overlay Service view の service identity、selector、route leak、Detail 上�
 既存の公開済み diagram を維持し、Manifest は全 artifact の公開完了後にだけ更新する。正規化済み link artifact は共通
 normalizer の publish 規則に従う。
 
+`link-diagnostics.yaml`と`mismatch-links.md`も同じstaging attemptで生成し、Manifestへhashを記録してdiagramとatomicに
+公開する。直接CSV／Containerlab入力で診断入力がない場合もreportを生成するが、`not-evaluated`とし、mismatchなしと
+表示しない。同じdirectoryの診断fileを暗黙探索せず、直接file sourceでは明示された診断入力だけを使用する。
+
 `generate-network-diagram` は atomic publish 完了後、stdout の最後に `Diagrams`、生成された場合の
-`Overlay Service details`、`Status` だけを含む結果 summary を表示する。model が完全なら `Status: SUCCESS`、artifact は公開したが
+`Overlay Service details`、`Link diagnostics`、`Status`だけを含む結果summaryを表示する。modelが完全なら`Status: SUCCESS`、artifactは公開したが
 EVPN または Overlay Service model が `partial` なら `Status: PARTIAL` とし、従来どおり終了 code `1` を返す。publish 前の例外では
 成功または partial summary を表示しない。詳細な model、CSV、Manifest は summary に列挙せず、既存 log と Manifest を正本とする。
+link conflictはdiagram生成の成否と分離し、`Status: SUCCESS`を変更せず、`Link diagnostics: CONFLICT`とreport pathを表示する。
+既定終了codeは`0`とし、将来の明示的なstrict optionなしにlink conflictだけでautomationを失敗させない。
 
 output directory の表示は command に指定された `--output-dir` を `Path` として正規化した表示文字列で判定する。root anchor と `.` を
 階層数から除き、次の両方を満たす場合は各 diagram path と Detail directory に output directory を付ける。
@@ -193,3 +228,8 @@ Containerlab YAML を生成しない diagram 専用 command であり、`generat
 - role/site groupingとunderlay address欠落
 - Underlay／EVPN view の責務分離と model parity
 - malformed CSV/YAMLのcode付きerrorとpartial file非公開
+- Physical／Underlay の conflict confirmed 赤実線、candidate／claim 赤破線、confirmed-only page の境界と
+  非表示診断の警告欄
+- filterで非表示のdiagnosticがreportに残り、render skip理由を持つこと
+- mismatch 0件、partial、not-evaluatedのreportとaffected device集計
+- Mermaid／DOT／draw.ioのlabel escape、診断順序、`+N more`
