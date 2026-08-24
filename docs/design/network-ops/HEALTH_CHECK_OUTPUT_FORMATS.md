@@ -704,14 +704,18 @@ metadata:
   change_id: CHG-2026-00123
   phase: before
   source: external_transcript
+  importer_version: "1.1"
   imported_at: "2026-07-25T10:05:00+09:00"
   timezone: Asia/Tokyo
 
 spec:
   input_format: nxos-transcript
+  duplicate_policy: safe-latest
+  file_order: reject
   inputs:
     - path: external-before-logs/all-leafs.log
       sha256: 8616873432e9cc50d373f2b4fd7343e8315a27e1c34473b42f801c9c65d6b621
+      mtime_ns: 1784941200000000000
 
   hosts:
     leaf01:
@@ -729,6 +733,8 @@ spec:
           end_line: 48
           output_start_line: 2
           output_end_line: 48
+          output_sha256: 5b0c000000000000000000000000000000000000000000000000000000000000
+          selected: true
           confidence: high
         - command: show processes cpu
           normalized_command: show processes cpu
@@ -738,6 +744,8 @@ spec:
           end_line: 62
           output_start_line: 50
           output_end_line: 62
+          output_sha256: 7c110000000000000000000000000000000000000000000000000000000000
+          selected: true
           confidence: high
 
     leaf02:
@@ -755,6 +763,8 @@ spec:
           end_line: 91
           output_start_line: 64
           output_end_line: 91
+          output_sha256: 91ad000000000000000000000000000000000000000000000000000000000000
+          selected: true
           confidence: high
 
   unresolved_segments:
@@ -764,15 +774,25 @@ spec:
       reason: command_prompt_not_detected
       confidence: low
 
+  duplicate_groups: []
+
   summary:
     files_scanned: 1
     hosts_detected: 2
     commands_detected: 3
     unresolved_segments: 1
     ambiguous_segments: 0
+    duplicate_groups: 0
+    resolved_duplicate_groups: 0
+    ambiguous_duplicate_groups: 0
 ```
 
 `source_file`と行番号により、正規化後のSnapshot値から元ログまで追跡できるようにする。入力が外部ログであっても、このmanifestから生成したCollection Manifest以外をSnapshot Builderが直接走査しない。
+
+duplicate がある場合は`duplicate_groups`へ host、`command_id`、全候補の
+`source_file`・行範囲・`output_sha256`・`mtime_ns`・ filename から検出した phase / timestamp、
+`selected`、`selection_basis`を記録する。後方互換のため旧 manifest でこれらの
+field がない場合も schema validation は受理するが、新規 import では常に出力する。
 
 ## 11. discovered-changes.yaml
 

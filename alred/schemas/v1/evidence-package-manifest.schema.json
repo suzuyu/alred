@@ -159,7 +159,7 @@
           "enum": [
             "resolved_inventory", "resolved_mappings", "resolved_description_rules",
             "resolved_roles", "resolved_sites", "canonical_links_confirmed",
-            "canonical_links_candidates"
+            "canonical_links_candidates", "canonical_link_diagnostics"
           ]
         },
         "path": {"type": "string", "minLength": 1},

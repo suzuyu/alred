@@ -1350,7 +1350,19 @@ class GenerateNetworkDiagramTests(unittest.TestCase):
             self.assertTrue(manifest["spec"]["options"]["group_by_role"])
             self.assertTrue(manifest["spec"]["options"]["group_by_site"])
             self.assertEqual(manifest["spec"]["options"]["direction"], "TD")
-            self.assertEqual(len(manifest["spec"]["artifacts"]), 9)
+            self.assertEqual(len(manifest["spec"]["artifacts"]), 11)
+            self.assertTrue((output / "link-diagnostics.yaml").is_file())
+            self.assertTrue((output / "mismatch-links.md").is_file())
+            self.assertEqual(
+                manifest["spec"]["options"]["link_diagnostics"]["result"],
+                "unknown",
+            )
+            self.assertEqual(
+                manifest["spec"]["options"]["link_diagnostics"][
+                    "unevaluated_claim_count"
+                ],
+                0,
+            )
             self.assertEqual(
                 manifest["spec"]["options"]["views"],
                 ["physical", "underlay", "evpn", "overlay-service"],

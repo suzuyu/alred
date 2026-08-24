@@ -7,6 +7,8 @@ documentation 用に作成した架空値であり、実環境の情報を含ま
 |---|---|
 | confirmed link | [links_confirmed.example.csv](links_confirmed.example.csv) |
 | candidate link | [links_candidates.example.csv](links_candidates.example.csv) |
+| LinkDiagnostics | [link-diagnostics.example.yaml](link-diagnostics.example.yaml) |
+| link mismatch report | [mismatch-links.example.md](mismatch-links.example.md) |
 | Mermaid topology | [topology-graph.example.md](topology-graph.example.md) |
 | Mermaid Underlay | [topology_underlay.example.md](topology_underlay.example.md) |
 | Mermaid EVPN | [topology_evpn.example.md](topology_evpn.example.md) |
@@ -28,6 +30,9 @@ Underlay では、同じ link に対して Loopback address と接続 interface 
 
 `links_candidates.example.csv` は candidate がない正常例であり、互換性のある header だけを保持する。実環境では
 candidate が 0 件とは限らないため、`links_confirmed.csv` と合わせて必ず確認する。
+
+本 sample は running config の description だけを収録し、LLDP evidence を含まない。このため LinkDiagnostics は
+`partial`／`UNKNOWN` であり、mismatch 0 件を全 link の整合性確認済みとは扱わない。
 
 表示例は Containerlab sample と共通の架空 topology を使用している。元になる変換前後 config は
 [Containerlab Quick Start Sample](../../../containerlab/examples/quick-start/README.md) を参照する。

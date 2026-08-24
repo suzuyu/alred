@@ -5,6 +5,10 @@
 Mermaid、Graphviz、draw.ioはconfirmed link CSVまたはContainerlab YAMLを入力にできる。CSVを使う場合、
 candidateは`--input-candidates`で別fileとして指定する。
 
+`normalize-links` または `generate-network-diagram` が生成した `link-diagnostics.yaml` は
+`--link-diagnostics` で指定する。診断 file を指定しない直接 CSV／Containerlab 入力では描画自体は継続するが、
+診断結果は `not-evaluated` となる。
+
 `--min-confidence`は`low`、`medium`、`high`から選択する。candidateを指定しても、表示対象はconfidence filterの
 影響を受ける。曖昧なlinkを含める場合は、confirmedとの線種・注記の差をレビューする。
 
@@ -18,7 +22,8 @@ alred generate-network-diagram \
   --evidence-package imported-evidence/<package-id>
 ```
 
-既定では `topology-graph.md`、`topology_underlay.md`、`topology_evpn.md`、`evpn-control-plane-model.yaml`、
+既定では `links_confirmed.csv`、`links_candidates.csv`、`link-diagnostics.yaml`、`mismatch-links.md`、
+`topology-graph.md`、`topology_underlay.md`、`topology_evpn.md`、`evpn-control-plane-model.yaml`、
 `evpn-session-links.csv`、`topology_overlay_service.md`、`overlay-service-model.yaml`、`overlay-service-links.csv`、
 `overlay-services/`、`topology-graph.drawio` と、source／option／hash を記録した
 `network-diagram-manifest.yaml` を出力する。role grouping は既定で有効、site grouping は metadata から自動判定し、
@@ -26,6 +31,18 @@ alred generate-network-diagram \
 主要方向の 4 view と Topology Confirmed Links を 9 page にまとめる場合は `--all-graph` を指定する。`BT`／`RL` も含む 17 page 版が必要な場合は
 `--all-graph --directions TD,LR,BT,RL` を指定する。Overlay Service を除く 7／13 page は
 `--no-overlay-service` で生成する。
+
+Physical／Underlay の diagnostic 表示は次のとおりである。EVPN／Overlay Service の論理 edge には適用しない。
+
+| 状態 | 表示 |
+|---|---|
+| 双方向 LLDP と description の不整合 | 赤色の実線、`⚠`、diagnostic code |
+| 両端 config 収集済みの description 非相互 claim | 赤色の破線と方向、`⚠`、diagnostic code |
+| 対向が inventory 外、または対向 link record がない片方向 description／LLDP | 通常 candidate の灰色破線。mismatch 扱いしない |
+| warning | amber の線、`⚠`、diagnostic code |
+
+線上の diagnostic code は 2 件まで表示し、それ以上は `+N more` とする。全件、影響 device、未解決 peer は
+`mismatch-links.md` を正本として確認する。
 
 Evidence Package、external import、Operation では、それぞれの Manifest から検証済み running config を host 単位で解決して
 `topology_underlay.md` と EVPN model を生成する。直接 CSV／Containerlab YAML を使用する場合は、必要に応じて
@@ -36,6 +53,7 @@ Evidence Package、external import、Operation では、それぞれの Manifest
 ```bash
 alred generate-mermaid \
   --input output/links_confirmed.csv \
+  --link-diagnostics output/link-diagnostics.yaml \
   --hosts hosts.yaml \
   --roles roles.yaml \
   --sites sites.yaml \
@@ -54,6 +72,7 @@ alred generate-mermaid \
 ```bash
 alred generate-graphviz \
   --input output/links_confirmed.csv \
+  --link-diagnostics output/link-diagnostics.yaml \
   --hosts hosts.yaml \
   --roles roles.yaml \
   --min-confidence medium \
@@ -73,6 +92,7 @@ dot -Tpng output/topology.dot -o output/topology.png
 ```bash
 alred generate-drawio \
   --input output/links_confirmed.csv \
+  --link-diagnostics output/link-diagnostics.yaml \
   --hosts hosts.yaml \
   --roles roles.yaml \
   --min-confidence medium \
@@ -84,7 +104,9 @@ alred generate-drawio \
 `--all-graph` は `Topology TD`、`Topology Confirmed Links TD`、`Topology LR`、`Underlay TD`、`Underlay LR`、
 `EVPN TD`、`EVPN LR`、`Overlay Service TD`、`Overlay Service LR` の 9 page を 1 file へまとめる。
 `Topology Confirmed Links TD` は
-candidate link を含めない。`--directions TD,LR,BT,RL` を追加すると、反転方向を含む 17 page を生成する。
+candidate link を含めない。candidate／claim などのため非表示になる診断がある場合は、page 上部の amber 警告欄に
+非表示診断の総数と `CONFLICT`／`WARNING`／`UNKNOWN` 別件数を表示する。詳細は `mismatch-links.md` を確認する。
+警告欄は非表示 link を confirmed へ昇格させない。`--directions TD,LR,BT,RL` を追加すると、反転方向を含む 17 page を生成する。
 `--no-overlay-service` では Overlay Service page を生成しない。
 EVPN LR の Spine–Leaf session は Spine の右側から Leaf の左側へ接続し、遠い反対側を経由しない。Overlay Service Summary は
 route leak の向きを優先し、最大次数の service を hub とする。TD は hub を上段、直接接続する service 群を下段へ横並びにし、

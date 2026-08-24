@@ -261,6 +261,8 @@ DEFAULT_SHOW_COMMANDS_PATH = "show_commands.txt"
 DEFAULT_SAMPLES_DIR = "samples"
 DEFAULT_LINKS_CONFIRMED_FILENAME = "links_confirmed.csv"
 DEFAULT_LINKS_CANDIDATES_FILENAME = "links_candidates.csv"
+DEFAULT_LINK_DIAGNOSTICS_FILENAME = "link-diagnostics.yaml"
+DEFAULT_MISMATCH_LINKS_FILENAME = "mismatch-links.md"
 DEFAULT_TOPOLOGY_CLAB_FILENAME = "topology.clab.yaml"
 DEFAULT_TOPOLOGY_MERMAID_FILENAME = "topology-graph.md"
 DEFAULT_TOPOLOGY_UNDERLAY_MERMAID_FILENAME = "topology_underlay.md"
@@ -337,6 +339,11 @@ DRAWIO_STYLE_NIC = (
     "rounded=1;whiteSpace=wrap;html=1;"
     "strokeColor=#94a3b8;fillColor=#ffffff;fontColor=#334155;"
     "fontSize=10;"
+)
+DRAWIO_STYLE_NOTICE = (
+    "rounded=1;whiteSpace=wrap;html=1;"
+    "strokeColor=#d97706;fillColor=#fffbeb;fontColor=#92400e;"
+    "align=left;verticalAlign=middle;spacingLeft=12;fontStyle=1;"
 )
 DRAWIO_STYLE_EDGE = "endArrow=none;html=1;rounded=0;strokeColor=#475569;jumpStyle=arc;jumpSize=6;"
 DRAWIO_STYLE_EDGE_DASHED_SUFFIX = "dashed=1;strokeColor=#94a3b8;"

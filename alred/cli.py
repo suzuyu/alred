@@ -66,6 +66,8 @@ from .constants import (
     DEFAULT_HOSTS_PATH,
     DEFAULT_LINKS_CANDIDATES_FILENAME,
     DEFAULT_LINKS_CONFIRMED_FILENAME,
+    DEFAULT_LINK_DIAGNOSTICS_FILENAME,
+    DEFAULT_MISMATCH_LINKS_FILENAME,
     DEFAULT_LOGGING_THRESHOLD_MAP,
     DEFAULT_NETWORK_DIAGRAM_MANIFEST_FILENAME,
     DEFAULT_EVPN_CONTROL_PLANE_MODEL_FILENAME,
@@ -252,6 +254,13 @@ from .render import (
     render_drawio_xml_lines,
     render_graphviz_dot_lines,
     render_mermaid_markdown_lines,
+)
+from .link_diagnostics import (
+    attach_link_diagnostics,
+    build_confirmed_links_page_notice,
+    build_link_diagnostics,
+    empty_link_diagnostics,
+    render_mismatch_links_markdown,
 )
 from .resources import (
     get_resource_dir,
@@ -4955,6 +4964,21 @@ def prepare_topology_diagram_context(args: argparse.Namespace, logger: Logger) -
             inventory_map=inventory_map,
         )
 
+    link_diagnostics_path = getattr(args, "link_diagnostics", None)
+    if link_diagnostics_path:
+        link_diagnostics = load_yaml(link_diagnostics_path)
+        validate_document(link_diagnostics, kind="LinkDiagnostics")
+    else:
+        link_diagnostics = empty_link_diagnostics(
+            __version__, source=str(getattr(args, "input", ""))
+        )
+    rendered_diagnostic_ids = attach_link_diagnostics(
+        rendered_links, link_diagnostics
+    )
+    rendered_diagnostic_ids.update(
+        attach_link_diagnostics(rendered_candidate_links, link_diagnostics)
+    )
+
     normalized_inventory_map, normalized_mgmt_ip_map = build_normalized_inventory_and_mgmt_maps(
         inventory_map=inventory_map,
         mgmt_ip_map=mgmt_ip_map,
@@ -4974,11 +4998,18 @@ def prepare_topology_diagram_context(args: argparse.Namespace, logger: Logger) -
     for link in rendered_links + rendered_candidate_links:
         for endpoint in link.get("endpoints", []):
             diagram_node_names.add(str(endpoint).split(":", 1)[0])
+    report_node_names = diagram_node_names.union(
+        link_diagnostics["spec"]["affected_devices"]
+    )
     node_site_map: Dict[str, str] = {}
-    for node in diagram_node_names:
+    for node in report_node_names:
         resolved_site = inventory_site_map.get(node) or detect_node_site(node, sites)
         if resolved_site:
             node_site_map[node] = resolved_site
+    report_node_role_map = {
+        node: node_role_map.get(node) or detect_node_role(node, roles)
+        for node in report_node_names
+    }
 
     node_address_map: Optional[Dict[str, str]] = None
     node_address_label_map: Optional[Dict[str, str]] = None
@@ -5076,6 +5107,8 @@ def prepare_topology_diagram_context(args: argparse.Namespace, logger: Logger) -
         "normalized_mgmt_ip_map": normalized_mgmt_ip_map,
         "rendered_links": rendered_links,
         "rendered_candidate_links": rendered_candidate_links,
+        "link_diagnostics": link_diagnostics,
+        "rendered_diagnostic_ids": rendered_diagnostic_ids,
         "node_address_map": node_address_map,
         "node_address_label_map": node_address_label_map,
         "node_address_lines_map": node_address_lines_map,
@@ -5083,6 +5116,7 @@ def prepare_topology_diagram_context(args: argparse.Namespace, logger: Logger) -
         "node_interface_label_map": node_interface_label_map,
         "extra_node_names": extra_node_names,
         "node_role_map": node_role_map,
+        "report_node_role_map": report_node_role_map,
         "node_site_map": node_site_map,
         "output_path": output_path,
         "title": title,
@@ -5132,6 +5166,13 @@ def build_drawio_page_diagram(
         node_layout_rank_map=context.get("node_layout_rank_map"),
         sites=context["sites"],
         align_role_nodes_with_direction=view == "overlay-service",
+        page_notice=(
+            build_confirmed_links_page_notice(
+                context["link_diagnostics"], context["rendered_links"]
+            )
+            if view == "confirmed"
+            else ""
+        ),
     )
     root = ET.fromstring("\n".join(drawio_lines))
     diagram = root.find("diagram")
@@ -8138,6 +8179,7 @@ def cmd_normalize_links(args: argparse.Namespace) -> None:
 
     lldp_records: List[Dict[str, str]] = []
     description_records: List[Dict[str, str]] = []
+    description_ambiguities: List[Dict[str, Any]] = []
     run_texts: dict[str, str] = {}
     lldp_texts: dict[str, str] = {}
     evidence_dir = getattr(args, "evidence_package", None)
@@ -8243,6 +8285,7 @@ def cmd_normalize_links(args: argparse.Namespace) -> None:
             mappings,
             description_rules,
             include_svi=bool(getattr(args, "include_svi", False)),
+            ambiguity_records=description_ambiguities,
         )
         logger.info("PARSED RUN %s: %d description links", local_hostname, len(records))
         description_records.extend(records)
@@ -8254,6 +8297,7 @@ def cmd_normalize_links(args: argparse.Namespace) -> None:
             mappings,
             description_rules,
             include_svi=bool(getattr(args, "include_svi", False)),
+            ambiguity_records=description_ambiguities,
         )
         logger.info("PARSED RUN %s: %d description links", path.name, len(records))
         description_records.extend(records)
@@ -8277,6 +8321,31 @@ def cmd_normalize_links(args: argparse.Namespace) -> None:
         output_candidates_value
         if output_candidates_value is not None
         else output_dir / DEFAULT_LINKS_CANDIDATES_FILENAME
+    )
+    source_description = (
+        str(evidence_dir)
+        if evidence_dir
+        else str(import_source)
+        if import_source
+        else "operation"
+        if operation_source
+        else str(getattr(args, "input", None) or get_raw_dir("raw"))
+    )
+    link_diagnostics = build_link_diagnostics(
+        lldp_records=lldp_records,
+        description_records=description_records,
+        confirmed_links=confirmed,
+        candidate_links=candidates,
+        inventory_hosts=hosts,
+        running_config_hosts=set(run_paths) | set(run_texts),
+        lldp_hosts=set(lldp_paths) | set(lldp_texts),
+        normalizer_version=__version__,
+        source=source_description,
+        policy_hashes={
+            "mappings": canonical_sha256(mappings),
+            "description_rules": canonical_sha256(description_rules),
+        },
+        description_ambiguities=description_ambiguities,
     )
 
     if evidence_context is not None:
@@ -8361,8 +8430,54 @@ def cmd_normalize_links(args: argparse.Namespace) -> None:
     if output_candidates:
         write_links_csv(candidates, output_candidates)
         logger.info("Wrote %d candidate links to %s", len(candidates), output_candidates)
+    diagnostics_path = output_dir / DEFAULT_LINK_DIAGNOSTICS_FILENAME
+    mismatch_report_path = output_dir / DEFAULT_MISMATCH_LINKS_FILENAME
+    atomic_write_yaml(
+        output_dir,
+        diagnostics_path,
+        link_diagnostics,
+        kind="LinkDiagnostics",
+    )
+    roles = load_roles(getattr(args, "roles", None))
+    sites = load_sites(getattr(args, "sites", None))
+    normalized_host_names = {
+        hostname: normalize_hostname(hostname, mappings) for hostname in hosts
+    }
+    node_role_map = {
+        normalized: detect_node_role(normalized, roles)
+        for normalized in normalized_host_names.values()
+    }
+    node_site_map = {
+        normalized: detect_node_site(normalized, sites)
+        for normalized in normalized_host_names.values()
+        if detect_node_site(normalized, sites)
+    }
+    atomic_write_bytes(
+        output_dir,
+        mismatch_report_path,
+        (
+            "\n".join(
+                render_mismatch_links_markdown(
+                    link_diagnostics,
+                    node_site_map=node_site_map,
+                    node_role_map=node_role_map,
+                    sites=sites,
+                    roles=roles,
+                )
+            )
+            + "\n"
+        ).encode("utf-8"),
+    )
+    logger.info("Wrote link diagnostics to %s", diagnostics_path)
+    logger.info("Wrote mismatch report to %s", mismatch_report_path)
     print_normalize_links_result_summary(
-        confirmed, candidates, output_confirmed, output_candidates
+        confirmed,
+        candidates,
+        output_confirmed,
+        output_candidates,
+        link_diagnostics=link_diagnostics,
+        diagnostics_output=str(diagnostics_path),
+        mismatch_report_output=str(mismatch_report_path),
     )
 
 
@@ -8410,6 +8525,10 @@ def print_normalize_links_result_summary(
     candidates: List[Dict[str, str]],
     confirmed_output: str,
     candidates_output: str | None,
+    *,
+    link_diagnostics: Mapping[str, Any] | None = None,
+    diagnostics_output: str | None = None,
+    mismatch_report_output: str | None = None,
 ) -> None:
     """
     Print a concise normalize-links result summary.
@@ -8419,22 +8538,37 @@ def print_normalize_links_result_summary(
         candidates: Candidate link records.
         confirmed_output: Confirmed CSV path.
         candidates_output: Candidate CSV path.
+        link_diagnostics: Optional schema-validated diagnostic result.
+        diagnostics_output: Optional LinkDiagnostics output path.
+        mismatch_report_output: Optional mismatch report output path.
     """
-    mismatch_hosts, mismatch_details = collect_lldp_description_mismatch_summary(confirmed, candidates)
-
     print("\n### NORMALIZE LINKS RESULT ###")
-    if mismatch_hosts:
-        print("LLDP / Description : MISMATCH")
-        print("")
-        print("Mismatch hosts:")
-        for hostname in mismatch_hosts:
-            print(f"- {hostname}")
-        print("")
-        print("Mismatch links:")
-        for detail in mismatch_details:
-            print(f"- {detail}")
+    if link_diagnostics is not None:
+        diagnostic_spec = link_diagnostics["spec"]
+        print(f"Link diagnostics     : {diagnostic_spec['result'].upper()}")
+        print(f"Evaluation status    : {diagnostic_spec['evaluation_status']}")
+        print(f"Diagnostics          : {len(diagnostic_spec['diagnostics'])}")
+        print(
+            "Not evaluated claims : "
+            f"{len(diagnostic_spec['unevaluated_claims'])}"
+        )
+        print(f"Affected devices     : {len(diagnostic_spec['affected_devices'])}")
     else:
-        print("LLDP / Description : OK")
+        mismatch_hosts, mismatch_details = collect_lldp_description_mismatch_summary(
+            confirmed, candidates
+        )
+        if mismatch_hosts:
+            print("LLDP / Description : MISMATCH")
+            print("")
+            print("Mismatch hosts:")
+            for hostname in mismatch_hosts:
+                print(f"- {hostname}")
+            print("")
+            print("Mismatch links:")
+            for detail in mismatch_details:
+                print(f"- {detail}")
+        else:
+            print("LLDP / Description : OK")
 
     print("")
     print(f"Confirmed links output : {confirmed_output}")
@@ -8442,6 +8576,10 @@ def print_normalize_links_result_summary(
         print(f"Candidate links output : {candidates_output}")
     else:
         print("Candidate links output : disabled")
+    if diagnostics_output:
+        print(f"Link diagnostics output : {diagnostics_output}")
+    if mismatch_report_output:
+        print(f"Mismatch report output  : {mismatch_report_output}")
     print("##############################")
 
 
@@ -9586,6 +9724,8 @@ def _resolve_renderer_link_source(args: argparse.Namespace) -> None:
         output_dir=str(link_dir),
         output_confirmed=None,
         output_candidates=None,
+        roles=getattr(args, "roles", None),
+        sites=getattr(args, "sites", None),
         acknowledge_sensitive_config=bool(
             getattr(args, "acknowledge_sensitive_config", False)
         ),
@@ -9593,6 +9733,7 @@ def _resolve_renderer_link_source(args: argparse.Namespace) -> None:
     cmd_normalize_links(normalize_args)
     args.input = str(link_dir / DEFAULT_LINKS_CONFIRMED_FILENAME)
     args.input_candidates = str(link_dir / DEFAULT_LINKS_CANDIDATES_FILENAME)
+    args.link_diagnostics = str(link_dir / DEFAULT_LINK_DIAGNOSTICS_FILENAME)
     args.input_format = "csv"
     if evidence:
         args.hosts = str(Path(evidence) / "inventory" / "hosts.resolved.yaml")
@@ -10001,6 +10142,7 @@ def network_diagram_input_records(args: argparse.Namespace) -> List[Dict[str, st
     for raw_path in (
         getattr(args, "input", None),
         getattr(args, "input_candidates", None),
+        getattr(args, "link_diagnostics", None),
         getattr(args, "hosts", None),
         getattr(args, "mappings", None),
         getattr(args, "roles", None),
@@ -10124,6 +10266,8 @@ def network_diagram_result_lines(
     detail_markdown_count: int,
     detail_drawio_count: int,
     status: str,
+    link_diagnostics_result: str = "unknown",
+    mismatch_report_path: Path | None = None,
 ) -> List[str]:
     """Build the concise final result summary for network diagram generation."""
     output_display = str(output_dir)
@@ -10155,6 +10299,22 @@ def network_diagram_result_lines(
             lines.append(f"  Markdown: {detail_markdown_count} files")
         if detail_drawio_count:
             lines.append(f"  draw.io: {detail_drawio_count} files")
+    effective_report_path = (
+        mismatch_report_path or output_dir / DEFAULT_MISMATCH_LINKS_FILENAME
+    )
+    report_display = (
+        str(effective_report_path)
+        if include_output_in_paths
+        else effective_report_path.name
+    )
+    lines.extend(
+        [
+            "",
+            "Link diagnostics:",
+            f"  Result: {link_diagnostics_result.upper()}",
+            f"  Report: {report_display}",
+        ]
+    )
     lines.extend(["", f"Status: {status}", "################################"])
     return lines
 
@@ -10229,6 +10389,8 @@ def cmd_generate_network_diagram(args: argparse.Namespace) -> int | None:
         "evpn": output_dir / DEFAULT_TOPOLOGY_EVPN_MERMAID_FILENAME,
         "evpn_model": output_dir / DEFAULT_EVPN_CONTROL_PLANE_MODEL_FILENAME,
         "evpn_csv": output_dir / DEFAULT_EVPN_SESSION_LINKS_FILENAME,
+        "link_diagnostics": output_dir / DEFAULT_LINK_DIAGNOSTICS_FILENAME,
+        "mismatch_report": output_dir / DEFAULT_MISMATCH_LINKS_FILENAME,
         "drawio": output_dir / drawio_filename,
     }
     if include_overlay_service:
@@ -10262,6 +10424,27 @@ def cmd_generate_network_diagram(args: argparse.Namespace) -> int | None:
                 mermaid_args,
                 mermaid_context,
                 group_by_site=group_by_site,
+            ),
+        )
+        write_text(
+            staging / DEFAULT_LINK_DIAGNOSTICS_FILENAME,
+            yaml.safe_dump(
+                mermaid_context["link_diagnostics"],
+                sort_keys=False,
+                allow_unicode=True,
+            ).rstrip("\n").splitlines(),
+        )
+        write_text(
+            staging / DEFAULT_MISMATCH_LINKS_FILENAME,
+            render_mismatch_links_markdown(
+                mermaid_context["link_diagnostics"],
+                node_site_map=mermaid_context["node_site_map"],
+                node_role_map=mermaid_context["report_node_role_map"],
+                sites=mermaid_context["sites"],
+                roles=mermaid_context["roles"],
+                rendered_diagnostic_ids=mermaid_context[
+                    "rendered_diagnostic_ids"
+                ],
             ),
         )
 
@@ -10608,6 +10791,13 @@ def cmd_generate_network_diagram(args: argparse.Namespace) -> int | None:
                         else (args.direction,)
                     ),
                     "views": view_names,
+                    "link_diagnostics": {
+                        "evaluation_status": mermaid_context["link_diagnostics"]["spec"]["evaluation_status"],
+                        "result": mermaid_context["link_diagnostics"]["spec"]["result"],
+                        "diagnostic_count": len(mermaid_context["link_diagnostics"]["spec"]["diagnostics"]),
+                        "unevaluated_claim_count": len(mermaid_context["link_diagnostics"]["spec"]["unevaluated_claims"]),
+                        "affected_device_count": len(mermaid_context["link_diagnostics"]["spec"]["affected_devices"]),
+                    },
                 },
                 "inputs": network_diagram_input_records(args),
                 "artifacts": [
@@ -10617,7 +10807,7 @@ def cmd_generate_network_diagram(args: argparse.Namespace) -> int | None:
                     }
                     for key in [
                         "mermaid", "underlay", "evpn", "evpn_model",
-                        "evpn_csv", *(
+                        "evpn_csv", "link_diagnostics", "mismatch_report", *(
                             ["overlay", "overlay_model", "overlay_csv"]
                             if include_overlay_service else []
                         ), "drawio", *detail_keys,
@@ -10628,6 +10818,7 @@ def cmd_generate_network_diagram(args: argparse.Namespace) -> int | None:
         validate_document(manifest, kind="NetworkDiagramManifest")
         for key in [
             "mermaid", "underlay", "evpn", "evpn_model", "evpn_csv",
+            "link_diagnostics", "mismatch_report",
             *(
                 ["overlay", "overlay_model", "overlay_csv"]
                 if include_overlay_service else []
@@ -10651,6 +10842,8 @@ def cmd_generate_network_diagram(args: argparse.Namespace) -> int | None:
     logger.info("Wrote Mermaid EVPN to %s", final_paths["evpn"])
     logger.info("Wrote EVPN model to %s", final_paths["evpn_model"])
     logger.info("Wrote EVPN session CSV to %s", final_paths["evpn_csv"])
+    logger.info("Wrote link diagnostics to %s", final_paths["link_diagnostics"])
+    logger.info("Wrote mismatch report to %s", final_paths["mismatch_report"])
     if include_overlay_service:
         logger.info("Wrote Overlay Service diagram to %s", final_paths["overlay"])
         logger.info("Wrote Overlay Service model to %s", final_paths["overlay_model"])
@@ -10694,6 +10887,8 @@ def cmd_generate_network_diagram(args: argparse.Namespace) -> int | None:
                     key.startswith("overlay_detail:drawio:")
                     for key in detail_keys
                 ),
+                link_diagnostics_result=mermaid_context["link_diagnostics"]["spec"]["result"],
+                mismatch_report_path=final_paths["mismatch_report"],
                 status="PARTIAL" if partial else "SUCCESS",
             )
         )
@@ -10778,6 +10973,11 @@ def cmd_generate_doc(args: argparse.Namespace) -> None:
             logger=logger,
             inventory_map=inventory_map,
         )
+    if getattr(args, "link_diagnostics", None):
+        link_diagnostics = load_yaml(args.link_diagnostics)
+        validate_document(link_diagnostics, kind="LinkDiagnostics")
+        attach_link_diagnostics(rendered_links, link_diagnostics)
+        attach_link_diagnostics(rendered_candidate_links, link_diagnostics)
 
     normalized_inventory_map, normalized_mgmt_ip_map = build_normalized_inventory_and_mgmt_maps(
         inventory_map=inventory_map,
@@ -13747,9 +13947,26 @@ def _resolve_health_roles(
     return resolved, fixed_path
 
 
+def _resolve_transcript_import_options(args: argparse.Namespace) -> None:
+    duplicate_policy = getattr(args, "transcript_duplicate_policy", None)
+    file_order = getattr(args, "transcript_file_order", None)
+    if args.input_format == "nxos-transcript":
+        args.transcript_duplicate_policy = duplicate_policy or "safe-latest"
+        args.transcript_file_order = file_order or "reject"
+        return
+    if duplicate_policy is not None or file_order is not None:
+        raise OperationStateError(
+            "transcript duplicate options require "
+            "--input-format nxos-transcript"
+        )
+    args.transcript_duplicate_policy = None
+    args.transcript_file_order = None
+
+
 def cmd_health_check_snapshot(args: argparse.Namespace) -> int:
     """Build a Snapshot from existing files without device access."""
     try:
+        _resolve_transcript_import_options(args)
         workspace, output_dir = _snapshot_workspace(args)
         args.change_id = workspace.change_id
         if (
@@ -14017,6 +14234,8 @@ def cmd_health_check_snapshot(args: argparse.Namespace) -> int:
                         imported_at=manifest_completed_at,
                         timezone=workspace.timezone,
                         hosts_path=args.hosts,
+                        duplicate_policy=args.transcript_duplicate_policy,
+                        file_order=args.transcript_file_order,
                     )
                     for hostname, host_record in manifest["spec"]["hosts"].items():
                         if hostname in host_addresses:
@@ -14407,6 +14626,14 @@ def _write_health_execution_context(
         inventory_path=args.hosts,
         policy_path=args.policy if args.collect else None,
         input_format=args.input_format if not args.collect else None,
+        transcript_import=(
+            {
+                "duplicate_policy": args.transcript_duplicate_policy,
+                "file_order": args.transcript_file_order,
+            }
+            if not args.collect and args.input_format == "nxos-transcript"
+            else None
+        ),
         collection=collection,
         authentication={
             "username": args.username if args.collect else None,
@@ -14506,6 +14733,19 @@ def _apply_health_followup_execution_context(
     if args.input:
         if args.input_format is None and spec["input_mode"] == "input":
             args.input_format = spec["input_format"]
+        transcript_import = spec.get("transcript_import")
+        if args.input_format == "nxos-transcript" and transcript_import:
+            for attribute, key in (
+                ("transcript_duplicate_policy", "duplicate_policy"),
+                ("transcript_file_order", "file_order"),
+            ):
+                supplied = getattr(args, attribute, None)
+                fixed = transcript_import[key]
+                if supplied is not None and supplied != fixed:
+                    raise HealthExecutionContextError(
+                        f"--{attribute.replace('_', '-')} does not match before"
+                    )
+                setattr(args, attribute, fixed)
         return True
 
     if spec["input_mode"] != "collect":
@@ -15758,6 +15998,7 @@ def cmd_health_check_phase(args: argparse.Namespace) -> int:
         raise OperationStateError("--collect requires --hosts")
     if args.input and not args.input_format:
         raise OperationStateError("--input-format is required with --input")
+    _resolve_transcript_import_options(args)
     before_attempt = None
     rollback_attempt = None
     if phase == "before":
@@ -17455,6 +17696,22 @@ def build_parser() -> argparse.ArgumentParser:
                 "used"
             ),
         )
+        phase_parser.add_argument(
+            "--transcript-duplicate-policy",
+            choices=["reject", "safe-latest"],
+            help=(
+                "Duplicate host/command policy for nxos-transcript "
+                "(default: safe-latest; after/rollback inherit before)"
+            ),
+        )
+        phase_parser.add_argument(
+            "--transcript-file-order",
+            choices=["reject", "mtime", "filename"],
+            help=(
+                "Cross-file ordering for differing nxos-transcript "
+                "duplicates (default: reject; after/rollback inherit before)"
+            ),
+        )
         input_mode.add_argument(
             "--collect",
             action="store_true",
@@ -17624,6 +17881,22 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["alred-collect", "nxos-transcript"],
         required=True,
         help="Explicit input adapter; automatic detection is not used",
+    )
+    p_health_snapshot.add_argument(
+        "--transcript-duplicate-policy",
+        choices=["reject", "safe-latest"],
+        help=(
+            "Duplicate host/command policy for nxos-transcript "
+            "(default: safe-latest)"
+        ),
+    )
+    p_health_snapshot.add_argument(
+        "--transcript-file-order",
+        choices=["reject", "mtime", "filename"],
+        help=(
+            "Cross-file ordering for differing nxos-transcript duplicates "
+            "(default: reject)"
+        ),
     )
     p_health_snapshot.add_argument(
         "--phase",
@@ -19064,6 +19337,8 @@ def build_parser() -> argparse.ArgumentParser:
         help=f"Operation root for --latest-operation/--change-id (default: {DEFAULT_OPERATIONS_ROOT})",
     )
     p_norm.add_argument("--mappings", help="Mappings YAML path")
+    p_norm.add_argument("--roles", help=f"Role detection YAML path (default: ./{DEFAULT_ROLES_PATH} if exists)")
+    p_norm.add_argument("--sites", help=f"Site detection YAML path (default: ./{DEFAULT_SITES_PATH} if exists)")
     p_norm.add_argument(
         "--description-rules",
         help=f"Description rules YAML path (default: ./{DEFAULT_DESCRIPTION_RULES_PATH} if exists)",
@@ -19188,6 +19463,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_mermaid.add_argument("--input-format", choices=["auto", "csv", "clab"], default="auto", help="Input format (default: auto)")
     p_mermaid.add_argument("--input-candidates", help="Optional input candidate links CSV")
+    p_mermaid.add_argument("--link-diagnostics", help="Optional LinkDiagnostics YAML for edge styling")
     p_mermaid_source = p_mermaid.add_mutually_exclusive_group()
     p_mermaid_source.add_argument(
         "--evidence-package", help="Imported Evidence Package directory"
@@ -19295,6 +19571,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_network_diagram.add_argument(
         "--input-candidates",
         help="Optional input candidate links CSV",
+    )
+    p_network_diagram.add_argument(
+        "--link-diagnostics",
+        help="Optional LinkDiagnostics YAML for edge styling and mismatch report",
     )
     p_network_diagram_source = p_network_diagram.add_mutually_exclusive_group()
     p_network_diagram_source.add_argument(
@@ -19456,6 +19736,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_graphviz.add_argument("--input-format", choices=["auto", "csv", "clab"], default="auto", help="Input format (default: auto)")
     p_graphviz.add_argument("--input-candidates", help="Optional input candidate links CSV")
+    p_graphviz.add_argument("--link-diagnostics", help="Optional LinkDiagnostics YAML for edge styling")
     p_graphviz.add_argument("-i", "--inventory", "--hosts", dest="hosts", help=f"Input hosts.yaml (default: ./{DEFAULT_HOSTS_PATH} if exists)")
     p_graphviz.add_argument("--mappings", help="Mappings YAML path")
     p_graphviz.add_argument("--roles", help=f"Role detection YAML path (default: ./{DEFAULT_ROLES_PATH} if exists)")
@@ -19497,6 +19778,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_drawio.add_argument("--input-format", choices=["auto", "csv", "clab"], default="auto", help="Input format (default: auto)")
     p_drawio.add_argument("--input-candidates", help="Optional input candidate links CSV")
+    p_drawio.add_argument("--link-diagnostics", help="Optional LinkDiagnostics YAML for edge styling")
     p_drawio.add_argument("-i", "--inventory", "--hosts", dest="hosts", help=f"Input hosts.yaml (default: ./{DEFAULT_HOSTS_PATH} if exists)")
     p_drawio.add_argument("--mappings", help="Mappings YAML path")
     p_drawio.add_argument("--roles", help=f"Role detection YAML path (default: ./{DEFAULT_ROLES_PATH} if exists)")
@@ -19550,6 +19832,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_doc = subparsers.add_parser("generate-doc", help="Generate both containerlab YAML and Mermaid markdown")
     p_doc.add_argument("--input", required=True, help="Input confirmed links CSV")
     p_doc.add_argument("--input-candidates", help="Optional input candidate links CSV")
+    p_doc.add_argument("--link-diagnostics", help="Optional LinkDiagnostics YAML for edge styling")
     p_doc.add_argument("-i", "--inventory", "--hosts", dest="hosts", help=f"Input hosts.yaml (default: ./{DEFAULT_HOSTS_PATH} if exists)")
     p_doc.add_argument("--mappings", help="Mappings YAML path")
     p_doc.add_argument("--roles", help=f"Role detection YAML path (default: ./{DEFAULT_ROLES_PATH} if exists)")

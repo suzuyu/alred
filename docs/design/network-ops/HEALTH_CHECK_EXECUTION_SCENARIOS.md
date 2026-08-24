@@ -494,6 +494,14 @@ alred health-check snapshot \
 
 `--hosts`は検出したprompt名とinventory hostname / aliasの照合に使用する。
 
+複数回取得したログを含む directory をそのまま入力する場合は、
+`--transcript-duplicate-policy safe-latest`を使用する。内容が同一の候補と
+同一 file 内の後ろの区間は自動解決する。異なる file 間は既定の
+`--transcript-file-order reject`では採用せず、運用上信頼できる場合に限って
+`mtime`または`filename`を明示する。`filename`では`after > work > before`を優先し、
+同じ phase の中で対応形式の timestamp が最新の file を採用する。
+`COLLECTED_AT:`は別 tool の transcript に存在するとは限らないため必須としない。
+
 ### 7.3 設定投入後のログを解析
 
 ```bash

@@ -24,6 +24,7 @@ default解決、未知field、version互換性を定義する。
 | `RunningConfigImportManifest` | YAML | 外部show runのsource、host解決、採用区間、canonical config |
 | `RunningConfigSourceMap` | YAML | 任意filenameとinventory hostnameの明示対応 |
 | `CanonicalLinkEvidence` | JSONまたはCSV | LLDP／descriptionの正規化済みlink証拠、scope、confidence、warning |
+| `LinkDiagnostics` | YAML | LLDP／description の両端照合、診断、未評価の片方向 claim、coverage、affected device、provenance |
 | `HealthSnapshot` | JSON | 正規化した観測状態 |
 | `HealthResult` | JSON | check結果と比較 |
 | `ExecutionPlan` | JSON | apply対象、順序、hash、前提 |

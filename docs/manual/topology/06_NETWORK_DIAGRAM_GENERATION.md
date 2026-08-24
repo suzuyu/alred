@@ -2,7 +2,7 @@
 
 ## 1. 目的
 
-`generate-network-diagram` は 1 つの固定 source から link 正規化、Physical／Underlay／EVPN／Overlay Service の生成、
+`generate-network-diagram` は 1 つの固定 source から link 正規化と診断、Physical／Underlay／EVPN／Overlay Service の生成、
 canonical model／CSV／draw.io／Manifest の公開までを一括実行する。Evidence Package、external running config import、Operation、
 confirmed CSV／Containerlab YAML を source にできる。隔離環境では Evidence Package を標準経路とする。
 
@@ -27,11 +27,12 @@ alred generate-network-diagram \
 ## 3. 一括処理
 
 1. archive import 時に検証済みの Package Manifest と artifact hash を確認する。
-2. 共通 `normalize-links` を 1 回実行する。
+2. 共通 `normalize-links` を 1 回実行し、canonical links と LinkDiagnostics を生成する。
 3. 再生成した canonical links と Package 同梱結果の semantic hash を照合する。
-4. 固定 running config と任意 operational output から Underlay、EVPN、Overlay Service model を生成する。
-5. staging directory で schema、Manifest、artifact hash を検証する。
-6. 全成果物がそろった場合だけ output directory へ atomic publish する。
+4. LinkDiagnostics を Physical／Underlay edge へ関連付け、`mismatch-links.md` を生成する。
+5. 固定 running config と任意 operational output から Underlay、EVPN、Overlay Service model を生成する。
+6. staging directory で schema、Manifest、artifact hash を検証する。
+7. 全成果物がそろった場合だけ output directory へ atomic publish する。
 
 canonical links が一致しない場合は diagram を公開しない。収集されていない address、session、route state を role や hostname から
 推測して補完しない。
@@ -62,6 +63,7 @@ Overlay Service の route 到達性は、対応する Type-5 と destination VRF
 | `--overlay-detail-limit <count>` | selector 未指定時に生成する Detail 件数を制限する。既定は 20 件 |
 | `--site`／`--vrf`／`--l2vni`／`--l3vni`／`--service` | Detail 対象を union で選択する |
 | `--output-dir <directory>` | 固定成果物の公開先を変更する |
+| `--link-diagnostics <file>` | 直接 CSV／Containerlab 入力で既存の `link-diagnostics.yaml` を使用する |
 | `--no-overlay-service` | Overlay Service を除外した 7 page を生成する |
 | `--no-group-by-role`／`--no-group-by-site` | role grouping または自動 site grouping を無効化する |
 
@@ -96,6 +98,8 @@ hub 左列／spoke 右列へ配置する。逆方向 route leak は 2 lane に�
 |---|---|---|---|
 | `links_confirmed.csv` | 常時 | 複数 evidence で確認できた canonical link | [confirmed link](examples/quick-start/links_confirmed.example.csv) |
 | `links_candidates.csv` | 常時 | 片方向または未確定の review 対象 link | [candidate link](examples/quick-start/links_candidates.example.csv) |
+| `link-diagnostics.yaml` | 常時 | coverage、不整合、警告、未評価 claim、影響 device、未解決 peer reference の schema 付き結果 | [Link Normalization](02_LINK_NORMALIZATION.md) |
+| `mismatch-links.md` | 常時 | Summary、Affected Devices、mismatch、warning、unknown、未解決 peer reference。未評価 claim は Summary の件数だけを表示 | [Link Normalization](02_LINK_NORMALIZATION.md) |
 | `normalized-links.regenerated.csv` | Evidence Package 使用時 | Package の固定 source から再生成した confirmed link | [Link Normalization](02_LINK_NORMALIZATION.md) |
 | `link-verification.json` | Evidence Package 使用時 | Package 同梱 link と再生成 link の semantic hash 検証結果 | [Link Normalization](02_LINK_NORMALIZATION.md) |
 | `normalization-manifest.yaml` | Evidence Package 使用時 | normalizer version と検証済み semantic hash | [Link Normalization](02_LINK_NORMALIZATION.md) |
@@ -110,7 +114,7 @@ hub 左列／spoke 右列へ配置する。逆方向 route leak は 2 lane に�
 | `overlay-services/*.md` | Overlay Service Detail で `markdown` を選択時 | VRF 単位の設定・RT・placement Detail | [tenant1 Markdown sample](examples/single-site-fabric/overlay-services/adc_tenant1-vpc1-faa720c4.md) |
 | `overlay-services/*.drawio` | Overlay Service Detail で `drawio` を選択時 | VRF 単位の編集可能な Detail | [tenant1 draw.io sample](examples/single-site-fabric/overlay-services/adc_tenant1-vpc1-faa720c4.drawio) |
 | `topology-graph.drawio` | `--all-graph` 未指定時 | `--direction` で選択した単一 view の draw.io | [Diagram Rendering](03_DIAGRAM_RENDERING.md) |
-| `topology-graph-all.drawio` | `--all-graph` 指定時 | 4 view × TD／LR と Topology Confirmed Links の 9 page draw.io | [9-page draw.io sample](examples/single-site-fabric/topology-graph-all.drawio) |
+| `topology-graph-all.drawio` | `--all-graph` 指定時 | 4 view × TD／LR と Topology Confirmed Links の 9 page draw.io。confirmed-only page は非表示診断がある場合に分類別件数と `mismatch-links.md` への参照を警告表示 | [9-page draw.io sample](examples/single-site-fabric/topology-graph-all.drawio) |
 | `network-diagram-manifest.yaml` | 常時 | source、実効 option、入力・成果物 hash、Detail 選択結果 | [Manifest sample](examples/single-site-fabric/network-diagram-manifest.yaml) |
 
 `--no-overlay-service` 指定時は Overlay Service Summary、model、CSV、Detail を生成しない。Detail の生成件数と形式は
@@ -123,6 +127,8 @@ selector、`--overlay-detail-limit`、`--all-overlay-details`、`--overlay-detai
 ```bash
 test -f output/links_confirmed.csv
 test -f output/links_candidates.csv
+test -f output/link-diagnostics.yaml
+test -f output/mismatch-links.md
 test -f output/link-verification.json
 test -f output/topology-graph.md
 test -f output/topology_underlay.md
@@ -135,7 +141,8 @@ test -f output/network-diagram-manifest.yaml
 test -d output/overlay-services
 ```
 
-`network-diagram-manifest.yaml` で source、実効 option、input／artifact hash、Detail の generated／omitted service ID を確認する。
+`mismatch-links.md` で evaluation status、影響 device、対象 link、原因、片方向だが未評価の claim を確認する。`network-diagram-manifest.yaml` で source、
+実効 option、LinkDiagnostics の result／件数、input／artifact hash、Detail の generated／omitted service ID を確認する。
 成果物の意味と troubleshooting は [Output and Troubleshooting](04_OUTPUT_AND_TROUBLESHOOTING.md) を参照する。
 
 ## 9. Graphviz を追加生成

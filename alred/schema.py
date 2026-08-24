@@ -35,6 +35,7 @@ SCHEMA_FILES = {
     "HealthSnapshot": "health-snapshot.schema.json",
     "LabTransformParameters": "lab-transform-parameters.schema.json",
     "LabTransformManifest": "lab-transform-manifest.schema.json",
+    "LinkDiagnostics": "link-diagnostics.schema.json",
     "ManagedRollbackVerification": "managed-rollback-verification.schema.json",
     "NetworkDiagramManifest": "network-diagram-manifest.schema.json",
     "OperationExecution": "operation-execution.schema.json",
