@@ -5,7 +5,7 @@ Role detection and topology preparation helpers.
 from __future__ import annotations
 
 from logging import Logger
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Tuple
 
 from .constants import (
     DEFAULT_SITE_PRIORITY,
@@ -17,6 +17,7 @@ from .constants import (
 from .parsing import (
     confidence_allowed,
     get_inventory_device_type,
+    is_excluded_node,
     is_excluded_interface,
     normalize_hostname,
     normalize_interface_name,
@@ -170,6 +171,33 @@ def detect_node_roles(node: str, roles: Dict[str, Any]) -> List[str]:
             matched.append(role)
 
     return matched or ["other"]
+
+
+def node_has_defined_role(
+    node: str,
+    roles: Mapping[str, Any],
+    node_role_map: Mapping[str, str] | None = None,
+) -> bool:
+    """Return whether a node resolves to a non-fallback configured role."""
+    role = str((node_role_map or {}).get(node) or detect_node_role(node, dict(roles)))
+    return role.casefold() not in {"default", "other"} and role in roles
+
+
+def filter_links_by_defined_roles(
+    links: List[Dict[str, Any]],
+    roles: Mapping[str, Any],
+    node_role_map: Mapping[str, str] | None = None,
+) -> List[Dict[str, Any]]:
+    """Keep links only when both endpoint nodes have configured roles."""
+    filtered: List[Dict[str, Any]] = []
+    for link in links:
+        endpoints = link.get("endpoints", [])
+        if not isinstance(endpoints, list) or len(endpoints) != 2:
+            continue
+        nodes = [str(endpoint).split(":", 1)[0] for endpoint in endpoints]
+        if all(node_has_defined_role(node, roles, node_role_map) for node in nodes):
+            filtered.append(link)
+    return filtered
 
 
 def get_role_priority(role: str, roles: Dict[str, Any]) -> int:
@@ -539,6 +567,10 @@ def prepare_rendered_links(
     skipped_by_confidence = 0
 
     for r in records:
+        if is_excluded_node(r.get("src_node", ""), mappings) or is_excluded_node(
+            r.get("dst_node", ""), mappings
+        ):
+            continue
         if not confidence_allowed(r.get("confidence", ""), min_confidence):
             skipped_by_confidence += 1
             if log_skips:
@@ -624,6 +656,10 @@ def prepare_rendered_candidate_links(
     seen = set()
 
     for r in records:
+        if is_excluded_node(r.get("src_node", ""), mappings) or is_excluded_node(
+            r.get("dst_node", ""), mappings
+        ):
+            continue
         src_node = normalize_hostname(r["src_node"], mappings)
         dst_node = normalize_hostname(r["dst_node"], mappings)
         src_if = normalize_interface_name(

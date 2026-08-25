@@ -41,6 +41,8 @@ def test_clab_set_cmds_records_failed_step_and_preserves_current(
     args = build_parser().parse_args(
         [
             "clab-set-cmds",
+            "--hosts",
+            "hosts.yaml",
             "--password",
             "do-not-store",
         ]
@@ -92,7 +94,9 @@ def test_clab_set_cmds_records_interrupted_step_without_current(
         raise KeyboardInterrupt
 
     monkeypatch.setattr(cli, "cmd_collect", interrupt_collect)
-    args = build_parser().parse_args(["clab-set-cmds"])
+    args = build_parser().parse_args(
+        ["clab-set-cmds", "--hosts", "hosts.yaml"]
+    )
 
     with pytest.raises(KeyboardInterrupt):
         args.func(args)

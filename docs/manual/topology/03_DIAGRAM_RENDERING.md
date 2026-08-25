@@ -28,8 +28,8 @@ alred generate-network-diagram \
 `overlay-services/`、`topology-graph.drawio` と、source／option／hash を記録した
 `network-diagram-manifest.yaml` を出力する。role grouping は既定で有効、site grouping は metadata から自動判定し、
 すべての diagram へ同じ値を適用する。既定方向は `TD` であり、横方向は `--direction LR` で選択する。draw.io の
-主要方向の 4 view と Topology Confirmed Links を 9 page にまとめる場合は `--all-graph` を指定する。`BT`／`RL` も含む 17 page 版が必要な場合は
-`--all-graph --directions TD,LR,BT,RL` を指定する。Overlay Service を除く 7／13 page は
+主要方向の 4 view、Topology Confirmed Links、Topology Defined Roles を 10 page にまとめる場合は `--all-graph` を指定する。
+`BT`／`RL` も含む 18 page 版が必要な場合は `--all-graph --directions TD,LR,BT,RL` を指定する。Overlay Service を除く 8／14 page は
 `--no-overlay-service` で生成する。
 
 Physical／Underlay の diagnostic 表示は次のとおりである。EVPN／Overlay Service の論理 edge には適用しない。
@@ -49,6 +49,15 @@ Evidence Package、external import、Operation では、それぞれの Manifest
 `--underlay-raw` を指定する。
 
 ## 3. Mermaid
+
+import 済みの最新 Evidence Package から生成する最小 command は次のとおりである。
+
+```bash
+alred generate-mermaid
+```
+
+source を省略すると `imported-evidence/latest` を検証して使用する。既存の confirmed CSV を使用する場合は
+`--input output/links_confirmed.csv` を明示する。
 
 ```bash
 alred generate-mermaid \
@@ -101,12 +110,14 @@ alred generate-drawio \
   --output output/topology.drawio
 ```
 
-`--all-graph` は `Topology TD`、`Topology Confirmed Links TD`、`Topology LR`、`Underlay TD`、`Underlay LR`、
-`EVPN TD`、`EVPN LR`、`Overlay Service TD`、`Overlay Service LR` の 9 page を 1 file へまとめる。
+`--all-graph` は `Topology TD`、`Topology Confirmed Links TD`、`Topology Defined Roles TD`、`Topology LR`、
+`Underlay TD`、`Underlay LR`、`EVPN TD`、`EVPN LR`、`Overlay Service TD`、`Overlay Service LR` の 10 page を 1 file へまとめる。
 `Topology Confirmed Links TD` は
 candidate link を含めない。candidate／claim などのため非表示になる診断がある場合は、page 上部の amber 警告欄に
 非表示診断の総数と `CONFLICT`／`WARNING`／`UNKNOWN` 別件数を表示する。詳細は `mismatch-links.md` を確認する。
-警告欄は非表示 link を confirmed へ昇格させない。`--directions TD,LR,BT,RL` を追加すると、反転方向を含む 17 page を生成する。
+警告欄は非表示 link を confirmed へ昇格させない。`Topology Defined Roles TD` は、明示 `group` または
+`roles.yaml` で定義済み role に解決した node だけを表示する。`default`、`other`、未定義 role の node と、その node を
+endpoint に持つ link は表示しない。`--directions TD,LR,BT,RL` を追加すると、反転方向を含む 18 page を生成する。
 `--no-overlay-service` では Overlay Service page を生成しない。
 EVPN LR の Spine–Leaf session は Spine の右側から Leaf の左側へ接続し、遠い反対側を経由しない。Overlay Service Summary は
 route leak の向きを優先し、最大次数の service を hub とする。TD は hub を上段、直接接続する service 群を下段へ横並びにし、

@@ -10,6 +10,7 @@ spec:
     group_by_role: true
     group_by_site: true
     all_graph: true
+    defined_roles_only_page: true
     overlay_service: true
     overlay_detail_limit: 20
     all_overlay_details: true
@@ -87,7 +88,7 @@ spec:
   - path: docs/manual/topology/examples/single-site-fabric/overlay-service-links.csv
     sha256: sha256:c1bdd789f498058b8494202e95d5674993117332107e5fc7c19e235f54d6e391
   - path: docs/manual/topology/examples/single-site-fabric/topology-graph-all.drawio
-    sha256: sha256:f8ebdb243eebf1c8a1fc960fdd97850aa9d8d1d5b82e82cda3a7975f7a1b0f43
+    sha256: sha256:3c5b445723b3ffdf4fe69572c42d29098950c47806be4bd88874c03ece50f917
   - path: docs/manual/topology/examples/single-site-fabric/overlay-services/adc_controller-vpc1-fb38d5fd.md
     sha256: sha256:98f509391d9b95920cf02cbf7857826c4c066a54ced453653bc1c9de8221ab47
   - path: docs/manual/topology/examples/single-site-fabric/overlay-services/adc_controller-vpc1-fb38d5fd.drawio

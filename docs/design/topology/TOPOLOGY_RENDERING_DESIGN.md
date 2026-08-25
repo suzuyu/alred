@@ -99,13 +99,19 @@ Overlay Service は物理 LLDP／description 診断を混在させない。rende
 非表示診断警告には含めず、`mismatch-links.md` には件数だけ、詳細は `link-diagnostics.yaml` に記録する。
 
 draw.io `--all-graph` は、`TD` と `LR` について Physical、Underlay、EVPN、Overlay Service を作成し、
-candidate を除外した `Topology Confirmed Links TD` を加えた計 9 page を
-1 file へ格納する。page 名と順序は `Topology TD`、`Topology Confirmed Links TD`、`Topology LR`、
+candidate を除外した `Topology Confirmed Links TD` と role 定義済み node だけの `Topology Defined Roles TD` を加えた計 10 page を
+1 file へ格納する。page 名と順序は `Topology TD`、`Topology Confirmed Links TD`、`Topology Defined Roles TD`、`Topology LR`、
 `Underlay TD`、`Underlay LR`、`EVPN TD`、`EVPN LR`、`Overlay Service TD`、`Overlay Service LR` とする。
 `Topology Confirmed Links TD` は
 `--directions` の先頭方向を使用し、`links_confirmed.csv` の link と endpoint node だけを描画する。
-`--no-overlay-service` を指定した場合は 7 page とする。`--directions TD,LR,BT,RL` を明示した場合は
-Overlay Service を含むと 17 page、除外すると 13 page とする。詳細は
+`Topology Defined Roles TD` も先頭方向を使用する。node の実効 role は inventory／Containerlab の明示 `group` を優先し、
+未指定時は `roles.yaml` の定義順 rule で解決する。実効 role が `role_detection` の key に存在し、かつ role 名が
+大文字・小文字を区別せず `default`／`other` ではない node だけを描画する。未定義 role の endpoint を含む confirmed／candidate
+link は除外する。除外によって link がなくなった定義済み node も、元の Physical page に存在した場合は standalone node として残す。
+`NetworkDiagramManifest.spec.options.defined_roles_only_page` は、この page を生成した場合に `true` とする。同じ major version の
+旧 Manifest との互換性を維持するため任意 field とし、省略時は `false` と解釈する。
+`--no-overlay-service` を指定した場合は 8 page とする。`--directions TD,LR,BT,RL` を明示した場合は
+Overlay Service を含むと 18 page、除外すると 14 page とする。詳細は
 [Overlay Service Diagram Design](OVERLAY_SERVICE_DIAGRAM_DESIGN.md) を参照する。
 `--directions` は comma 区切りの `TD`、`LR`、`BT`、`RL` を受け付け、指定順を Physical、Underlay、EVPN の
 各 page 順に反映する。
@@ -125,6 +131,13 @@ inventory、mapping、role、site を使って diagram を生成する。
 - `--change-id <operation-id>`
 - `--input <confirmed-csv-or-containerlab-yaml>`
 
+source selector と `--input` をすべて省略した場合は、検証済み import の current pointer である
+`imported-evidence/latest` を `--evidence-package` の実効値として使用する。`latest` は相対 symlink、同一 root 内の通常 directory、
+`import-record.yaml`、Package Manifest、member hash を既存 Evidence Package resolver で検証し、欠損、root 外参照、未検証 directory
+では fail closed とする。`--running-config-import`、`--latest-operation`、`--change-id`、明示 `--evidence-package`、明示 `--input` は
+この既定値より優先する。従来の既定 CSV を使用する場合は `--input output/links_confirmed.csv` を明示する。
+同じ既定 source と優先順位を `generate-mermaid` にも適用する。
+
 既定成果物は次のとおりとする。
 
 | file | 内容 |
@@ -143,8 +156,8 @@ inventory、mapping、role、site を使って diagram を生成する。
 | `mismatch-links.md` | mismatch、warning、未評価 claim、原因、affected device の review report |
 | `network-diagram-manifest.yaml` | source、実効 option、入力・成果物 hash |
 
-`--all-graph` 指定時は `topology-graph.drawio` の代わりに `topology-graph-all.drawio` を生成する。既定は 9 page、
-`--directions TD,LR,BT,RL` 指定時は 17 page とする。`--no-overlay-service` では 7／13 page とする。
+`--all-graph` 指定時は `topology-graph.drawio` の代わりに `topology-graph-all.drawio` を生成する。既定は 10 page、
+`--directions TD,LR,BT,RL` 指定時は 18 page とする。`--no-overlay-service` では 8／14 page とする。
 role grouping は既定で有効、site grouping は解決済み metadata により
 自動判定し、全 view で同じ実効値を使う。
 
@@ -223,7 +236,7 @@ Containerlab YAML を生成しない diagram 専用 command であり、`generat
 - CSVとcontainerlab入力から同一link集合になること
 - confidence境界、exclude、endpoint ordering、deduplication
 - Mermaid、DOT、draw.ioのgolden testとhash seed差分
-- draw.io の既定 9 page／全方向 17 page と、`--no-overlay-service` の 7／13 page の名称・順序、および
+- draw.io の既定 10 page／全方向 18 page と、`--no-overlay-service` の 8／14 page の名称・順序、および
   `Topology Confirmed Links <direction>` に candidate link が含まれないこと
 - role/site groupingとunderlay address欠落
 - Underlay／EVPN view の責務分離と model parity

@@ -30,7 +30,14 @@ alred clab-set-cmds \
 ```
 
 archive と同じ directory の `<package-id>.sha256` は自動検出する。import 済み directory から再開する場合は
-`--evidence-import imported-evidence/<package-id>` を使用する。`verbatim` Package だけは
+`--evidence-import imported-evidence/<package-id>` を使用する。`imported-evidence/latest` がある場合は、次の最小 command でも
+最新の検証済み import から再開できる。
+
+```bash
+alred clab-set-cmds
+```
+
+直接収集を行う場合は `--hosts <inventory>` を明示する。`verbatim` Package だけは
 `--acknowledge-sensitive-config` も必須である。
 
 成功後に最低限確認する。

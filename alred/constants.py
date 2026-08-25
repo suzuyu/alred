@@ -100,6 +100,7 @@ DEFAULT_POLICY = {
 DEFAULT_MAPPINGS = {
     "node_name_map": {},
     "interface_name_map": {},
+    "exclude_node_name_contains": [],
     "exclude_interfaces": [
         "mgmt0",
         "management",
@@ -148,15 +149,15 @@ DEFAULT_DESCRIPTION_RULES = {
     "description_rules": [
         {
             "name": "to_hostname_interface",
-            "regex": r"TO[_ -]?(?P<remote_host>[A-Za-z0-9._-]+)[_ -]+(?P<remote_if>(?:Eth|eth|Ethernet|Fa|fa|FastEthernet|Gi|gi|GigabitEthernet|Te|te|TenGigabitEthernet|Po|po|Port-channel|ens|enp|eno|bond|br|IPMI|ipmi|BMC|bmc|IBMC|ibmc|LAN|lan)\S*)",
+            "regex": r"TO[_ -]?(?P<remote_host>[A-Za-z0-9._-]+)[_ -]+(?P<remote_if>(?:Eth|eth|Ethernet|Fa|fa|FastEthernet|Gi|gi|GigabitEthernet|Te|te|TenGigabitEthernet|Po|po|Port-channel|ens|enp|eno|bond|br|IPMI|ipmi|BMC|bmc|IBMC|ibmc|LAN|lan|MGMT|mgmt|vPC-peer-link|vpc-peer-link)\S*)",
         },
         {
             "name": "hostname_interface_space",
-            "regex": r"(?P<remote_host>[A-Za-z0-9._-]+)[ _:-]+(?P<remote_if>(?:Eth|eth|Ethernet|Fa|fa|FastEthernet|Gi|gi|GigabitEthernet|Te|te|TenGigabitEthernet|Po|po|Port-channel|ens|enp|eno|bond|br|IPMI|ipmi|BMC|bmc|IBMC|ibmc|LAN|lan)\S*)",
+            "regex": r"(?P<remote_host>[A-Za-z0-9._-]+)[ _:-]+(?P<remote_if>(?:Eth|eth|Ethernet|Fa|fa|FastEthernet|Gi|gi|GigabitEthernet|Te|te|TenGigabitEthernet|Po|po|Port-channel|ens|enp|eno|bond|br|IPMI|ipmi|BMC|bmc|IBMC|ibmc|LAN|lan|MGMT|mgmt|vPC-peer-link|vpc-peer-link)\S*)",
         },
         {
             "name": "hostname_only",
-            "regex": r"^(?P<remote_host>[A-Za-z0-9._-]+)$",
+            "regex": r"^(?!(?:MGMT|mgmt|vPC-peer-link|vpc-peer-link)$)(?P<remote_host>[A-Za-z0-9._-]+)$",
         },
     ]
 }
@@ -259,6 +260,7 @@ DEFAULT_ROLES_PATH = "roles.yaml"
 DEFAULT_SITES_PATH = "sites.yaml"
 DEFAULT_SHOW_COMMANDS_PATH = "show_commands.txt"
 DEFAULT_SAMPLES_DIR = "samples"
+DEFAULT_IMPORTED_EVIDENCE_PATH = "imported-evidence/latest"
 DEFAULT_LINKS_CONFIRMED_FILENAME = "links_confirmed.csv"
 DEFAULT_LINKS_CANDIDATES_FILENAME = "links_candidates.csv"
 DEFAULT_LINK_DIAGNOSTICS_FILENAME = "link-diagnostics.yaml"

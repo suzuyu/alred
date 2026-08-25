@@ -153,7 +153,8 @@ def test_topology_quick_start_samples_match_current_renderers(tmp_path: Path) ->
         TOPOLOGY_SAMPLE / "topology-graph-all.example.drawio"
     ).getroot()
     assert [item.get("name") for item in actual_drawio.findall("diagram")] == [
-        "Topology TD", "Topology Confirmed Links TD", "Topology LR",
+        "Topology TD", "Topology Confirmed Links TD",
+        "Topology Defined Roles TD", "Topology LR",
         "Underlay TD", "Underlay LR",
         "EVPN TD", "EVPN LR", "Overlay Service TD", "Overlay Service LR",
     ]
@@ -488,7 +489,8 @@ def test_single_site_fabric_diagrams_are_reproducible(tmp_path: Path) -> None:
         SINGLE_SITE_TOPOLOGY_SAMPLE / "topology-graph-all.drawio"
     ).getroot()
     assert [item.get("name") for item in actual_drawio.findall("diagram")] == [
-        "Topology TD", "Topology Confirmed Links TD", "Topology LR",
+        "Topology TD", "Topology Confirmed Links TD",
+        "Topology Defined Roles TD", "Topology LR",
         "Underlay TD", "Underlay LR",
         "EVPN TD", "EVPN LR", "Overlay Service TD", "Overlay Service LR",
     ]

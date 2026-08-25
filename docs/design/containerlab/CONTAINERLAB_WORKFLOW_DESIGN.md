@@ -68,6 +68,11 @@ diagram、VNI 成果物の生成までを実行する。`--evidence-import` は�
 directory から開始する。どちらも `collect-clab`、`containerlab deploy`、device access、config push を
 実行しない。archive と import 済み directory は同時指定できない。
 
+source option、`--hosts`、`--output`、`--without-collect` をすべて省略した `clab-set-cmds` は、
+`--evidence-import imported-evidence/latest` を実効 source とする。`--evidence-package` は引き続き archive を意味し、
+自動選択時に archive の再 import は行わない。直接収集は `--hosts <inventory>`、既存 raw は
+`--without-collect` または `--output <raw-root>` を明示して選択する。
+
 alred collectionを使用せず外部show run folderを入力にするflowは次とする。
 
 ```text
@@ -139,6 +144,9 @@ Collection Manifest から作成した `digital-twin` の sanitized／verbatim p
 `LabTransformParameters` を実装済みとする。`--evidence-import` は `--evidence-package` の互換 alias とする。
 `--lab-parameters` と出力先 option は任意とし、省略時は built-in safety policy と既定出力先を使用する。
 verbatim package では `--acknowledge-sensitive-config` を追加で必須とする。
+source option、`--input`、`--hosts` をすべて省略した場合は、
+`--evidence-package imported-evidence/latest` を実効 source とする。既存 file mode は `--input raw` または
+`--hosts <inventory>` を明示して選択する。
 Evidence Package 作成時の最新 current before 自動選択と `--change-id` による Operation 固定も実装済みである。
 任意 phase／attempt の選択は将来拡張とする。Canonical Link Evidence の再生成 gate は
 `normalize-links --evidence-package` が担当する。

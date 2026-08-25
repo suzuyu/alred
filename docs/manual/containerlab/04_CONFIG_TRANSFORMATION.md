@@ -6,9 +6,10 @@
 
 | 入力 mode | 必要な option | 条件 |
 |---|---|---|
-| Evidence Package | `--evidence-package <imported-package-directory>` | Package を入力にする場合の mode 選択に必要 |
+| 最新 Evidence Package | なし | `imported-evidence/latest` を検証して使用 |
+| 特定 Evidence Package | `--evidence-package <imported-package-directory>` | 過去世代または別 import root を固定する場合 |
 | Evidence Package／`verbatim` | `--evidence-package` と `--acknowledge-sensitive-config` | 原文 config を含む Package だけで必要 |
-| 既存 file | なし | `./hosts.yaml` と `raw/config/<hostname>_run.txt` を既定入力に使用 |
+| 既存 file | `--input raw` または `--hosts <inventory>` | 明示した既存 file source を使用 |
 
 `--hosts`、`--input`、`--lab-parameters`、出力先 option などは任意である。既定 path 以外を使う場合または
 変換 policy を明示する場合に指定する。
@@ -18,9 +19,13 @@
 商用環境と隔離 lab を分離する標準経路では、検証済み import directory を Manifest 入力として使用する。
 
 ```bash
+alred clab-transform-config
+
 alred clab-transform-config \
   --evidence-package imported-evidence/<package-id>
 ```
+
+最初の command は `imported-evidence/latest`、2 番目は指定した世代を使用する。
 
 `--lab-parameters` を省略すると built-in safety policy を使用する。既定の出力は `hosts.lab.yaml`、
 `raw/labconfig/`、`raw/lab-transform-manifest.yaml` である。これらを変更する場合だけ
@@ -40,10 +45,10 @@ Evidence Package 経路は missing running config、inventory との device 集�
 ## 3. 既存互換: raw directory から変換
 
 ```bash
-alred clab-transform-config
+alred clab-transform-config --input raw
 ```
 
-既定で `./hosts.yaml` と `raw/config/<hostname>_run.txt` を読み、file suffix は `_run.txt` とする。別 path は
+`./hosts.yaml` と `raw/config/<hostname>_run.txt` を読み、file suffix は `_run.txt` とする。別 path は
 `--hosts`、`--input`、`--file-suffix` で指定する。management subnet 変換、node 対応、正規化 mapping が必要な場合は
 `--clab-env`、`--node-map`、`--mappings` をそれぞれ指定する。
 
