@@ -10,6 +10,7 @@ spec:
     group_by_role: true
     group_by_site: true
     all_graph: true
+    defined_roles_only_page: true
     overlay_service: true
     overlay_detail_limit: 20
     all_overlay_details: false
@@ -69,4 +70,4 @@ spec:
     - path: docs/manual/topology/examples/quick-start/overlay-service-links.example.csv
       sha256: sha256:3ce7e39e685fe65864a9b248a4d31e29bbfacad856be699ba372836f8ea38310
     - path: docs/manual/topology/examples/quick-start/topology-graph-all.example.drawio
-      sha256: sha256:6fceae59e30051d5702e85a16fcbd3a9ff6d1e866797580f5fa7667ff90ddace
+      sha256: sha256:e6fde4df32eba7fcb1b72539799c7f2a30c208ce3476bcc906b33d5b192a3946

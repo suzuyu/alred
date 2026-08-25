@@ -64,6 +64,7 @@ from .constants import (
     DEFAULT_LINUX_NODE_EXEC,
     DEFAULT_LOG_ROTATION,
     DEFAULT_HOSTS_PATH,
+    DEFAULT_IMPORTED_EVIDENCE_PATH,
     DEFAULT_LINKS_CANDIDATES_FILENAME,
     DEFAULT_LINKS_CONFIRMED_FILENAME,
     DEFAULT_LINK_DIAGNOSTICS_FILENAME,
@@ -403,6 +404,7 @@ from .portable_evidence import (
     load_collection_link_inputs,
     load_collection_command_inputs,
     resolve_evidence_collection_source,
+    resolve_latest_evidence_package,
     resolve_imported_digital_twin,
     resolve_imported_command_paths,
     resolve_imported_evidence_links,
@@ -434,8 +436,10 @@ from .topology import (
     detect_node_role,
     detect_node_roles,
     detect_node_site,
+    filter_links_by_defined_roles,
     get_role_priority,
     is_network_device_type,
+    node_has_defined_role,
     prepare_rendered_candidate_links,
     prepare_rendered_links,
 )
@@ -5136,12 +5140,46 @@ def build_drawio_page_diagram(
     """
     page_args = argparse.Namespace(**vars(args))
     page_args.direction = direction
-    page_args.view = "physical" if view == "confirmed" else view
+    page_args.view = (
+        "physical" if view in {"confirmed", "defined-roles"} else view
+    )
     page_args.underlay = view == "underlay"
     context = prepare_topology_diagram_context(page_args, logger)
 
+    rendered_links = context["rendered_links"]
+    candidate_links = (
+        [] if view == "confirmed" else context["rendered_candidate_links"]
+    )
+    extra_node_names: List[str] | None = None
+    title = context["title"]
+    if view == "defined-roles":
+        physical_node_names = set(context["extra_node_names"])
+        for link in rendered_links + candidate_links:
+            for endpoint in link.get("endpoints", []):
+                physical_node_names.add(str(endpoint).split(":", 1)[0])
+        extra_node_names = sorted(
+            node
+            for node in physical_node_names
+            if node_has_defined_role(
+                node,
+                context["roles"],
+                context["node_role_map"],
+            )
+        )
+        rendered_links = filter_links_by_defined_roles(
+            rendered_links,
+            context["roles"],
+            context["node_role_map"],
+        )
+        candidate_links = filter_links_by_defined_roles(
+            candidate_links,
+            context["roles"],
+            context["node_role_map"],
+        )
+        title = f"{title} (DEFINED ROLES ONLY)"
+
     drawio_lines = render_drawio_xml_lines(
-        rendered_links=context["rendered_links"],
+        rendered_links=rendered_links,
         roles=context["roles"],
         normalized_inventory_map=context["normalized_inventory_map"],
         normalized_mgmt_ip_map=context["normalized_mgmt_ip_map"],
@@ -5152,10 +5190,9 @@ def build_drawio_page_diagram(
         group_by_role=args.group_by_role,
         group_by_site=getattr(args, "group_by_site", False),
         add_comments=args.add_comments,
-        title=context["title"],
-        candidate_links=(
-            [] if view == "confirmed" else context["rendered_candidate_links"]
-        ),
+        title=title,
+        candidate_links=candidate_links,
+        extra_node_names=extra_node_names,
         node_address_map=context["node_address_map"],
         node_address_label_map=context["node_address_label_map"],
         node_address_lines_map=context["node_address_lines_map"],
@@ -5432,6 +5469,7 @@ def cmd_transform_config(args: argparse.Namespace) -> None:
     Args:
         args: Parsed CLI args.
     """
+    apply_default_evidence_consumer_source(args)
     logger = setup_logging(args.log_file, args.verbose)
     evidence_source_paths: Dict[str, Path] = {}
     evidence_manifest: Dict[str, Any] | None = None
@@ -5894,6 +5932,18 @@ def cmd_evidence_package_verify(args: argparse.Namespace) -> None:
 
 def cmd_evidence_package_import(args: argparse.Namespace) -> None:
     """Safely import a verified portable evidence archive."""
+    bundle = args.bundle
+    checksum_file = args.checksum_file
+    source_selection = "explicit"
+    if bundle is None:
+        if checksum_file is not None:
+            raise EvidencePackageError(
+                "EVIDENCE_INVALID_SOURCE: --checksum-file requires --bundle"
+            )
+        selected = resolve_latest_evidence_package("evidence-packages")
+        bundle = selected["archive"]
+        checksum_file = selected["checksum"]
+        source_selection = "latest-verified"
     try:
         keep_latest_packages = (
             get_evidence_import_keep_latest()
@@ -5907,9 +5957,9 @@ def cmd_evidence_package_import(args: argparse.Namespace) -> None:
             "EVIDENCE_INVALID_SOURCE: --keep-latest-packages must be zero or greater"
         )
     result = import_evidence_package(
-        args.bundle,
+        bundle,
         output_dir=args.output_dir,
-        checksum_file=args.checksum_file,
+        checksum_file=checksum_file,
         acknowledge_sensitive_config=args.acknowledge_sensitive_config,
         imported_at=datetime.now().astimezone(),
     )
@@ -5917,7 +5967,15 @@ def cmd_evidence_package_import(args: argparse.Namespace) -> None:
         args.output_dir,
         keep_latest=keep_latest_packages,
     )
-    _print_evidence_result({**result, "retention": retention}, "text")
+    _print_evidence_result(
+        {
+            **result,
+            "source_selection": source_selection,
+            "source_bundle": str(bundle),
+            "retention": retention,
+        },
+        "text",
+    )
 
 
 def cmd_import_running_config(args: argparse.Namespace) -> None:
@@ -8175,6 +8233,7 @@ def cmd_normalize_links(args: argparse.Namespace) -> None:
     Args:
         args: Parsed CLI args.
     """
+    apply_default_evidence_consumer_source(args)
     logger = setup_logging(args.log_file, args.verbose)
 
     lldp_records: List[Dict[str, str]] = []
@@ -9600,6 +9659,7 @@ def cmd_generate_mermaid(args: argparse.Namespace) -> int | None:
     Args:
         args: Parsed CLI args.
     """
+    apply_default_evidence_consumer_source(args)
     view = resolve_diagram_view(args)
     if view in {"underlay", "evpn", "overlay-service"} and any(
         (
@@ -9873,7 +9933,7 @@ def build_drawio_page_variants(
     *,
     include_overlay_service: bool = True,
 ) -> List[Tuple[str, str, str]]:
-    """Build stable view pages plus one confirmed-links-only page."""
+    """Build stable view pages plus focused Physical review pages."""
     resolved = tuple(directions)
     topology_variants = [
         (f"Topology {direction}", direction, "physical")
@@ -9884,7 +9944,12 @@ def build_drawio_page_variants(
             f"Topology Confirmed Links {resolved[0]}",
             resolved[0],
             "confirmed",
-        )
+        ),
+        (
+            f"Topology Defined Roles {resolved[0]}",
+            resolved[0],
+            "defined-roles",
+        ),
     ] + topology_variants[1:] + [
         (f"Underlay {direction}", direction, "underlay")
         for direction in resolved
@@ -10135,6 +10200,108 @@ def describe_network_diagram_source(args: argparse.Namespace) -> Dict[str, str]:
     return {"type": "file", "value": str(args.input)}
 
 
+def has_non_file_evidence_source(args: argparse.Namespace) -> bool:
+    """Return whether a Package, import, or Operation source is selected."""
+    return any(
+        (
+            getattr(args, "evidence_package", None),
+            getattr(args, "evidence_import", None),
+            getattr(args, "running_config_import", None),
+            bool(getattr(args, "latest_operation", False)),
+            getattr(args, "change_id", None),
+        )
+    )
+
+
+def apply_default_imported_evidence_source(
+    args: argparse.Namespace,
+    *,
+    destination: str,
+    local_source_fields: Sequence[str] = (),
+) -> bool:
+    """Select the verified latest import when no other source was requested."""
+    if has_non_file_evidence_source(args) or any(
+        getattr(args, field, None) for field in local_source_fields
+    ):
+        return False
+    setattr(args, destination, DEFAULT_IMPORTED_EVIDENCE_PATH)
+    return True
+
+
+def apply_default_evidence_consumer_source(args: argparse.Namespace) -> None:
+    """Apply source defaults and local fallbacks for Evidence consumers."""
+    command = str(getattr(args, "command", ""))
+    if command == "normalize-links":
+        apply_default_imported_evidence_source(
+            args,
+            destination="evidence_package",
+            local_source_fields=(
+                "input",
+                "hosts",
+                "mappings",
+                "description_rules",
+            ),
+        )
+        return
+    if command == "clab-transform-config":
+        apply_default_imported_evidence_source(
+            args,
+            destination="evidence_import",
+            local_source_fields=("hosts", "input"),
+        )
+        if getattr(args, "input", None) is None:
+            args.input = get_raw_dir("raw")
+        return
+    if command in {"generate-mermaid", "generate-network-diagram"}:
+        local_fields = [
+            "input",
+            "input_candidates",
+            "link_diagnostics",
+            "hosts",
+            "mappings",
+            "roles",
+            "sites",
+        ]
+        if command == "generate-network-diagram":
+            local_fields.append("description_rules")
+        apply_default_imported_evidence_source(
+            args,
+            destination="evidence_package",
+            local_source_fields=tuple(local_fields),
+        )
+        if (
+            not has_non_file_evidence_source(args)
+            and getattr(args, "input", None) is None
+        ):
+            args.input = (
+                f"{get_links_dir('output')}/{DEFAULT_LINKS_CONFIRMED_FILENAME}"
+            )
+        return
+    if command == "clab-set-cmds":
+        apply_default_imported_evidence_source(
+            args,
+            destination="evidence_import",
+            local_source_fields=(
+                "hosts",
+                "output",
+                "without_collect",
+                "policy",
+                "target_hosts",
+                "mappings",
+                "description_rules",
+                "roles",
+                "sites",
+            ),
+        )
+        if getattr(args, "output", None) is None:
+            args.output = get_raw_dir("raw")
+
+
+def apply_default_network_diagram_source(args: argparse.Namespace) -> None:
+    """Apply the common latest-import default to the network diagram command."""
+    apply_default_evidence_consumer_source(args)
+
+
 def network_diagram_input_records(args: argparse.Namespace) -> List[Dict[str, str]]:
     """Collect the effective regular-file inputs recorded in the diagram Manifest."""
     records: List[Dict[str, str]] = []
@@ -10345,6 +10512,7 @@ def cmd_generate_network_diagram(args: argparse.Namespace) -> int | None:
         raise TopologyDiagramError(
             "Overlay Service selectors/details cannot be combined with --no-overlay-service"
         )
+    apply_default_network_diagram_source(args)
     logger = setup_logging(args.log_file, args.verbose)
     source = describe_network_diagram_source(args)
     underlay_run_paths, underlay_run_texts = resolve_network_diagram_underlay_inputs(
@@ -10760,6 +10928,7 @@ def cmd_generate_network_diagram(args: argparse.Namespace) -> int | None:
                     "group_by_role": bool(args.group_by_role),
                     "group_by_site": group_by_site,
                     "all_graph": bool(args.all_graph),
+                    "defined_roles_only_page": bool(args.all_graph),
                     "overlay_service": include_overlay_service,
                     "overlay_detail_limit": int(
                         getattr(args, "overlay_detail_limit", 20)
@@ -11340,6 +11509,12 @@ def _run_clab_set_cmds(
     offline_source = evidence_import or running_config_import
     source_document: dict[str, Any]
     if evidence_import:
+        resolve_imported_digital_twin(
+            evidence_import,
+            acknowledge_sensitive_config=bool(
+                getattr(args, "acknowledge_sensitive_config", False)
+            ),
+        )
         manifest_path = Path(evidence_import) / "package-manifest.yaml"
         source_document = {
             "type": "evidence-package",
@@ -11458,6 +11633,7 @@ def _run_clab_set_cmds(
 
 def cmd_clab_set_cmds(args: argparse.Namespace) -> None:
     """Run and persist one predefined Containerlab generation pipeline attempt."""
+    apply_default_evidence_consumer_source(args)
     pipeline_attempt = ClabSetPipelineAttempt(
         pipeline_root=Path("output/clab-set-cmds"),
         requested_source=_requested_clab_set_source(args),
@@ -18238,7 +18414,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_evidence_verify.set_defaults(func=cmd_evidence_package_verify)
 
     p_evidence_import = evidence_subparsers.add_parser("import")
-    p_evidence_import.add_argument("--bundle", required=True)
+    p_evidence_import.add_argument(
+        "--bundle",
+        help=(
+            "Evidence Package archive; defaults to the latest verified package "
+            "in evidence-packages"
+        ),
+    )
     p_evidence_import.add_argument(
         "--checksum-file",
         help=(
@@ -18371,7 +18553,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--evidence-package",
         "--evidence-import",
         dest="evidence_import",
-        help="Imported digital-twin package directory; resolves inventory/config from its Manifest",
+        help=(
+            "Imported digital-twin package directory; defaults to "
+            f"{DEFAULT_IMPORTED_EVIDENCE_PATH} when no local source is specified"
+        ),
     )
     p_transform.add_argument(
         "--running-config-import",
@@ -18432,8 +18617,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_transform.add_argument(
         "--input",
-        default=default_raw_dir,
-        help="Raw root directory for source running-config files (reads <input>/config when present)",
+        help=(
+            "Raw root directory for source running-config files; explicitly selects "
+            f"local input (default local path: {default_raw_dir})"
+        ),
     )
     p_transform.add_argument(
         "--file-suffix",
@@ -18972,7 +19159,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_clab_set_source.add_argument(
         "--evidence-import",
-        help="Already imported Evidence Package directory",
+        help=(
+            "Already imported Evidence Package directory; defaults to "
+            f"{DEFAULT_IMPORTED_EVIDENCE_PATH} when no source is specified"
+        ),
     )
     p_clab_set_source.add_argument(
         "--running-config-import",
@@ -19014,8 +19204,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_clab_set.add_argument(
         "--output",
-        default=default_raw_dir,
-        help="Raw root directory for collect phase",
+        help=(
+            "Raw root directory for collect phase; explicitly selects direct/local "
+            f"input (default local path: {default_raw_dir})"
+        ),
     )
     p_clab_set.add_argument("--workers", type=int, default=5, help="Number of parallel device collections")
     p_clab_set.add_argument("--mappings", help="Mappings YAML path override for normalize/render steps")
@@ -19316,7 +19508,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_norm_source.add_argument(
         "--evidence-package",
-        help="Imported Evidence Package directory; inventory, policy, and raw artifacts are Manifest-pinned",
+        help=(
+            "Imported Evidence Package directory; defaults to "
+            f"{DEFAULT_IMPORTED_EVIDENCE_PATH} when no local source is specified"
+        ),
     )
     p_norm_source.add_argument(
         "--running-config-import",
@@ -19458,15 +19653,21 @@ def build_parser() -> argparse.ArgumentParser:
     p_mermaid = subparsers.add_parser("generate-mermaid", help="Generate Mermaid markdown from links CSV")
     p_mermaid.add_argument(
         "--input",
-        default=f"{default_links_dir}/{DEFAULT_LINKS_CONFIRMED_FILENAME}",
-        help="Input confirmed links CSV or containerlab YAML",
+        help=(
+            "Input confirmed links CSV or containerlab YAML; explicitly selects "
+            "file input"
+        ),
     )
     p_mermaid.add_argument("--input-format", choices=["auto", "csv", "clab"], default="auto", help="Input format (default: auto)")
     p_mermaid.add_argument("--input-candidates", help="Optional input candidate links CSV")
     p_mermaid.add_argument("--link-diagnostics", help="Optional LinkDiagnostics YAML for edge styling")
     p_mermaid_source = p_mermaid.add_mutually_exclusive_group()
     p_mermaid_source.add_argument(
-        "--evidence-package", help="Imported Evidence Package directory"
+        "--evidence-package",
+        help=(
+            "Imported Evidence Package directory; defaults to "
+            f"{DEFAULT_IMPORTED_EVIDENCE_PATH} when no file source is specified"
+        ),
     )
     p_mermaid_source.add_argument(
         "--running-config-import", help="External running config import"
@@ -19559,8 +19760,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_network_diagram.add_argument(
         "--input",
-        default=f"{default_links_dir}/{DEFAULT_LINKS_CONFIRMED_FILENAME}",
-        help="Input confirmed links CSV or containerlab YAML",
+        help=(
+            "Input confirmed links CSV or containerlab YAML; when no source is "
+            "specified, imported-evidence/latest is used"
+        ),
     )
     p_network_diagram.add_argument(
         "--input-format",
@@ -19671,7 +19874,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_network_diagram.add_argument(
         "--all-graph",
         action="store_true",
-        help="Write multi-page draw.io Physical/Underlay/EVPN/Overlay Service variants",
+        help=(
+            "Write multi-page draw.io Physical/Underlay/EVPN/Overlay Service, "
+            "Confirmed Links, and Defined Roles variants"
+        ),
     )
     p_network_diagram.add_argument(
         "--no-overlay-service",
@@ -19797,7 +20003,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_drawio.add_argument(
         "--all-graph",
         action="store_true",
-        help="Write multi-page Physical/Underlay/EVPN/Overlay Service variants",
+        help=(
+            "Write multi-page Physical/Underlay/EVPN/Overlay Service, "
+            "Confirmed Links, and Defined Roles variants"
+        ),
     )
     p_drawio.add_argument(
         "--no-overlay-service",
@@ -20060,7 +20269,11 @@ def main() -> None:
     ) as exc:
         _operation_cli_error(exc)
     except EvidencePackageError as exc:
-        print(f"{exc.code}: {exc}", file=sys.stderr)
+        message = str(exc)
+        duplicate_prefix = f"{exc.code}: "
+        if message.startswith(duplicate_prefix):
+            message = message.removeprefix(duplicate_prefix)
+        print(f"{exc.code}: {message}", file=sys.stderr)
         raise SystemExit(6)
     except ClabApplyError as exc:
         print(f"{exc.code}: {exc}", file=sys.stderr)

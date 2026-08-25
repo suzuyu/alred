@@ -16,7 +16,7 @@
 | Overlay Service model | [overlay-service-model.yaml](overlay-service-model.yaml) |
 | Overlay Service route leak CSV | [overlay-service-links.csv](overlay-service-links.csv) |
 | Overlay Service Markdown／`draw.io` Detail | [overlay-services/](overlay-services/) |
-| `draw.io` 9 page | [topology-graph-all.drawio](topology-graph-all.drawio) |
+| `draw.io` 10 page | [topology-graph-all.drawio](topology-graph-all.drawio) |
 | 生成 Manifest | [network-diagram-manifest.yaml](network-diagram-manifest.yaml) |
 
 `adc-*` の命名規則から `site=adc` を解決し、明示 label がない node に適用している。`sites.example.yaml` には将来の

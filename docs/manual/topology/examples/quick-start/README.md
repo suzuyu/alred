@@ -17,11 +17,12 @@ documentation 用に作成した架空値であり、実環境の情報を含ま
 | Mermaid Overlay Service | [topology_overlay_service.example.md](topology_overlay_service.example.md) |
 | Overlay Service model | [overlay-service-model.example.yaml](overlay-service-model.example.yaml) |
 | Overlay Service route leak CSV | [overlay-service-links.example.csv](overlay-service-links.example.csv) |
-| draw.io 9 page | [topology-graph-all.example.drawio](topology-graph-all.example.drawio) |
+| draw.io 10 page | [topology-graph-all.example.drawio](topology-graph-all.example.drawio) |
 | 生成 Manifest | [network-diagram-manifest.example.yaml](network-diagram-manifest.example.yaml) |
 
 Mermaid は既定の `TD`、role grouping、site grouping を適用した 4 node／4 link の例である。draw.io は
-`--all-graph` により Physical／Underlay／EVPN／Overlay Service の `TD`／`LR` と Topology Confirmed Links を収容した 9 page 構成である。
+`--all-graph` により Physical／Underlay／EVPN／Overlay Service の `TD`／`LR`、Topology Confirmed Links、
+Topology Defined Roles を収容した 10 page 構成である。
 Underlay では、同じ link に対して Loopback address と接続 interface address を表示する。
 
 本 Quick Start の最小 config には EVPN BGP／VNI／RT 設定がないため、EVPN model と Overlay Service model は

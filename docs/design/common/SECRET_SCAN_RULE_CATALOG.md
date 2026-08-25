@@ -239,6 +239,10 @@ high／low 件数、値を含まない finding を保持し、`create`と`verify
 `inspect`／`verify`の既定出力は status と high／low 件数だけを表示する。
 catalog導入前の Portable Evidence Manifestは、`secret_scan_declared: false`を表示して現在のcatalogで再scanする。
 高信頼findingがない旧packageだけを互換読込みし、旧Manifestの`CLEAN`を推測または追記しない。
+catalog version が対応範囲内でも `catalog_sha256` が現在値と異なる package は、archive／member／Manifest の checksum を
+先に検証した上で現在の catalog により全対象 member を再 scan する。sanitized member に high confidence finding があれば
+拒否し、通過した場合だけ `secret_scan_catalog_match: false` と現在の catalog hash を verify result および import record に
+記録して互換読込みする。旧 catalog の finding 集合と現在の finding 集合が同一であるとは推測しない。
 
 既存 Support Bundle は private key block と行頭の `password`、`secret`、`community`、`token` を高信頼として
 検出し、追加 mask pattern を redaction へ使用する。Support Bundle への 4.1 の NX-OS line selector 統合、

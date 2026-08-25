@@ -61,15 +61,26 @@ parserを使えることだけで正式対応とはしない。未対応platform
 descriptionはinterface stanzaから抽出し、設定されたruleに一致した場合だけremote endpointへ変換する。rule名を
 evidenceへ残し、推定できないdescriptionをlinkとして扱わない。
 
+既定の description rule は `MGMT`、`mgmt`、`vPC-peer-link`、`vpc-peer-link` を remote interface token として
+認識する。判定は parser の大文字・小文字非依存 match を使用する。これらの token だけで構成された description は
+remote hostname として扱わず、link を生成しない。remote hostname と token が同じ description に存在する場合だけ、
+それぞれ `remote_host` と `remote_if` として抽出する。
+
 ## 4. Canonical normalization
 
 1. explicit hostname／interface mappingを最優先する。
 2. device type別のinterface略称をcanonical表記へ変換する。
-3. exclude interfaceを適用する。
+3. exclude node／interfaceを適用する。
 4. 両endpointを方向非依存のcanonical pairへ変換して重複を判定する。
 
 mappingは完全一致を基本とし、意図しない部分文字列置換を行わない。正規化前の観測値をraw collectionに保持し、
 canonical CSVだけから元データを復元できると仮定しない。
+
+`mappings.yaml` の `exclude_node_name_contains` は、hostname mapping 適用後の endpoint node 名に対して
+大文字・小文字を区別しない部分一致で評価する。空文字は規則として拒否し、いずれかの endpoint が一致した link は
+LLDP、description、直接 CSV の source にかかわらず canonical confirmed／candidate と diagram から除外する。
+例えば `UNUSED` を指定すると、interface description から誤って抽出された `UNUSED` や
+`UNUSED-LINK` endpoint を link として扱わない。この規則は node の表示名変換や inventory の収集対象選択には使用しない。
 
 ## 5. Evidenceとconfidence
 
@@ -199,6 +210,9 @@ alred normalize-links \
 `--evidence-package`との同時指定を拒否する。
 Evidence Package 入力 mode の必須 option は `--evidence-package` だけとする。`--output-dir` は任意とし、
 省略時は従来の link 出力 directory（既定 `output/`）へ成果物を生成する。
+source selector、`--input`、`--hosts` をすべて省略した場合は、`--evidence-package imported-evidence/latest` を
+実効 source とする。既存 file mode を使用する場合は `--input raw` または `--hosts <inventory>` を明示する。
+明示 source は既定 Evidence Package より優先する。
 
 #### 7.2.1 入力解決
 

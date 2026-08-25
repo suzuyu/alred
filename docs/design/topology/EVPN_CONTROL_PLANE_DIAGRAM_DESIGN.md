@@ -228,7 +228,7 @@ alred generate-drawio --view evpn
 黙って省略せず、model を `status: insufficient-evidence` とし、diagram に理由を表示する。
 
 `--all-graph` の既定 `TD,LR` では、次の EVPN までの 6 page に `Overlay Service TD`／`Overlay Service LR` と
-`Topology Confirmed Links TD` を `Topology TD` の直後へ追加した 9 page を生成する。
+`Topology Confirmed Links TD`／`Topology Defined Roles TD` を `Topology TD` の直後へ追加した 10 page を生成する。
 
 1. `Topology TD`
 2. `Topology LR`
@@ -237,8 +237,9 @@ alred generate-drawio --view evpn
 5. `EVPN TD`
 6. `EVPN LR`
 
-`--directions TD,LR,BT,RL` 指定時は 4 view × 4 direction と Topology Confirmed Links の 17 page とする。
-`--no-overlay-service` を指定した場合は 7／13 page とする。page 名、view 順、direction 順を固定する。
+`--directions TD,LR,BT,RL` 指定時は 4 view × 4 direction と Topology Confirmed Links／Topology Defined Roles の
+18 page とする。
+`--no-overlay-service` を指定した場合は 8／14 page とする。page 名、view 順、direction 順を固定する。
 
 ## 8. 不足 evidence と error
 
@@ -303,7 +304,7 @@ route-server、NVE tunnel、VNI／RT service graph は本 view の対象外と�
 - EVPN view に物理 interface／Underlay prefix が混入しないこと
 - evidence 不足、unresolved、ambiguous、pseudonymized address
 - Mermaid／Graphviz／draw.io の node／session parity
-- draw.io の既定 9 page、全 direction 17 page、`--no-overlay-service` の 7／13 page の名称・順序
+- draw.io の既定 10 page、全 direction 18 page、`--no-overlay-service` の 8／14 page の名称・順序
 - staging 失敗時に以前の model／diagram／Manifest を維持すること
 - hash seed、input row／YAML rule 順に依存しない stable output
 

@@ -62,6 +62,15 @@ def load_mappings(path: str | None) -> Dict[str, Any]:
     mappings = DEFAULT_MAPPINGS.copy()
     mappings["node_name_map"] = loaded.get("node_name_map", {}) or {}
     mappings["interface_name_map"] = loaded.get("interface_name_map", {}) or {}
+    excluded_node_patterns = loaded.get("exclude_node_name_contains", []) or []
+    if not isinstance(excluded_node_patterns, list):
+        raise ValueError("exclude_node_name_contains must be a list")
+    mappings["exclude_node_name_contains"] = []
+    for value in excluded_node_patterns:
+        pattern = str(value).strip()
+        if not pattern:
+            raise ValueError("exclude_node_name_contains cannot contain an empty value")
+        mappings["exclude_node_name_contains"].append(pattern)
     mappings["exclude_interfaces"] = loaded.get(
         "exclude_interfaces",
         DEFAULT_MAPPINGS["exclude_interfaces"],
@@ -418,6 +427,16 @@ def get_inventory_device_type(
     return str(attrs.get("device_type", "unknown"))
 
 
+def is_excluded_node(node_name: str, mappings: Dict[str, Any]) -> bool:
+    """Return whether a normalized endpoint node contains an excluded token."""
+    normalized = normalize_hostname(node_name, mappings).casefold()
+    return any(
+        str(pattern).strip().casefold() in normalized
+        for pattern in mappings.get("exclude_node_name_contains", []) or []
+        if str(pattern).strip()
+    )
+
+
 def is_excluded_interface(ifname: str, mappings: Dict[str, Any]) -> bool:
     """
     Check whether interface should be excluded.
@@ -514,7 +533,12 @@ def parse_nxos_lldp_detail(text: str, local_hostname: str, mappings: Dict[str, A
         if not remote_hostname or not local_if or not remote_if:
             continue
 
-        if is_excluded_interface(local_if, mappings) or is_excluded_interface(remote_if, mappings):
+        if (
+            is_excluded_node(local_hostname, mappings)
+            or is_excluded_node(remote_hostname, mappings)
+            or is_excluded_interface(local_if, mappings)
+            or is_excluded_interface(remote_if, mappings)
+        ):
             continue
 
         records.append({
@@ -565,7 +589,12 @@ def parse_linux_lldp(text: str, local_hostname: str, mappings: Dict[str, Any]) -
             current_remote_port = m.group(1)
 
         if current_local_if and current_remote_name and current_remote_port:
-            if not is_excluded_interface(current_local_if, mappings) and not is_excluded_interface(current_remote_port, mappings):
+            if (
+                not is_excluded_node(local_hostname, mappings)
+                and not is_excluded_node(current_remote_name, mappings)
+                and not is_excluded_interface(current_local_if, mappings)
+                and not is_excluded_interface(current_remote_port, mappings)
+            ):
                 records.append({
                     "src_node": normalize_hostname(local_hostname, mappings),
                     "src_if": normalize_interface_name(current_local_if, mappings),
@@ -710,6 +739,9 @@ def build_description_records(
     """
     records: List[Dict[str, str]] = []
 
+    if is_excluded_node(local_hostname, mappings):
+        return records
+
     for item in parse_interface_descriptions_from_run(run_text):
         local_if = item["local_if"]
         desc = item["description"]
@@ -725,6 +757,8 @@ def build_description_records(
         for parsed in parse_remote_candidates_from_description(desc, description_rules):
             remote_host = normalize_hostname(parsed["remote_host"], mappings)
             remote_if = normalize_interface_name(parsed["remote_if"], mappings)
+            if is_excluded_node(remote_host, mappings):
+                continue
             if remote_if and is_excluded_interface(remote_if, mappings):
                 continue
             endpoint = (remote_host, remote_if)
@@ -823,7 +857,13 @@ def normalize_link_records(
     Returns:
         Normalized record list.
     """
-    return [normalize_link_record(r, mappings, inventory_map) for r in records]
+    normalized = [normalize_link_record(r, mappings, inventory_map) for r in records]
+    return [
+        record
+        for record in normalized
+        if not is_excluded_node(record.get("src_node", ""), mappings)
+        and not is_excluded_node(record.get("dst_node", ""), mappings)
+    ]
 
 
 def record_key(r: Dict[str, str]) -> Tuple[str, str, str, str]:

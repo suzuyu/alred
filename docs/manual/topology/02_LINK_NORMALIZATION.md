@@ -2,6 +2,15 @@
 
 ## 1. 基本実行
 
+import 済みの最新 Evidence Package を使用する場合は、source option を省略できる。
+
+```bash
+alred normalize-links
+```
+
+この command は `imported-evidence/latest` を検証して使用する。既存 file を直接使用する場合は、次のように
+`--hosts` または `--input` を明示する。
+
 ```bash
 alred normalize-links \
   --hosts hosts.yaml \

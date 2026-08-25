@@ -13,6 +13,15 @@ Evidence Package を使用する最短手順は [Quick Start](01_QUICK_START.md)
 
 主要 4 view、TD／LR の multi-page draw.io、全 Overlay Service Detail を生成する。
 
+`evidence-package import` 済みの最新 package を使用する最小 command は次のとおりである。
+
+```bash
+alred generate-network-diagram
+```
+
+source を省略すると `imported-evidence/latest` を検証して使用する。過去世代または別 directory を使用する場合は
+`--evidence-package <imported-package-directory>` を明示する。
+
 ```bash
 alred generate-network-diagram \
   --evidence-package imported-evidence/<package-id> \
@@ -56,15 +65,16 @@ Overlay Service の route 到達性は、対応する Type-5 と destination VRF
 
 | Option | 動作 |
 |---|---|
-| `--all-graph` | Physical／Underlay／EVPN／Overlay Service の TD／LR と Topology Confirmed Links を 9 page draw.io にまとめる |
-| `--directions TD,LR,BT,RL` | `--all-graph` と併用し、反転方向を含む 17 page を生成する |
+| `--all-graph` | Physical／Underlay／EVPN／Overlay Service の TD／LR、Topology Confirmed Links、Topology Defined Roles を 10 page draw.io にまとめる |
+| `--directions TD,LR,BT,RL` | `--all-graph` と併用し、反転方向を含む 18 page を生成する |
 | `--all-overlay-details` | Detail 上限を解除して全 service を選択する |
 | `--overlay-detail-format markdown,drawio` | service Detail を Markdown と draw.io の両形式で生成する |
 | `--overlay-detail-limit <count>` | selector 未指定時に生成する Detail 件数を制限する。既定は 20 件 |
 | `--site`／`--vrf`／`--l2vni`／`--l3vni`／`--service` | Detail 対象を union で選択する |
 | `--output-dir <directory>` | 固定成果物の公開先を変更する |
+| `--input <file>` | `imported-evidence/latest` の既定選択を使わず、confirmed CSV または Containerlab YAML を直接入力する |
 | `--link-diagnostics <file>` | 直接 CSV／Containerlab 入力で既存の `link-diagnostics.yaml` を使用する |
-| `--no-overlay-service` | Overlay Service を除外した 7 page を生成する |
+| `--no-overlay-service` | Overlay Service を除外した 8 page を生成する |
 | `--no-group-by-role`／`--no-group-by-site` | role grouping または自動 site grouping を無効化する |
 
 `--all-overlay-details --overlay-detail-format markdown,drawio` は全 VRF の両形式を生成する。大規模環境で review 対象が限定される場合は、
@@ -114,7 +124,7 @@ hub 左列／spoke 右列へ配置する。逆方向 route leak は 2 lane に�
 | `overlay-services/*.md` | Overlay Service Detail で `markdown` を選択時 | VRF 単位の設定・RT・placement Detail | [tenant1 Markdown sample](examples/single-site-fabric/overlay-services/adc_tenant1-vpc1-faa720c4.md) |
 | `overlay-services/*.drawio` | Overlay Service Detail で `drawio` を選択時 | VRF 単位の編集可能な Detail | [tenant1 draw.io sample](examples/single-site-fabric/overlay-services/adc_tenant1-vpc1-faa720c4.drawio) |
 | `topology-graph.drawio` | `--all-graph` 未指定時 | `--direction` で選択した単一 view の draw.io | [Diagram Rendering](03_DIAGRAM_RENDERING.md) |
-| `topology-graph-all.drawio` | `--all-graph` 指定時 | 4 view × TD／LR と Topology Confirmed Links の 9 page draw.io。confirmed-only page は非表示診断がある場合に分類別件数と `mismatch-links.md` への参照を警告表示 | [9-page draw.io sample](examples/single-site-fabric/topology-graph-all.drawio) |
+| `topology-graph-all.drawio` | `--all-graph` 指定時 | 4 view × TD／LR、Topology Confirmed Links、role 定義済み node だけの Topology Defined Roles を収容する 10 page draw.io。confirmed-only page は非表示診断がある場合に分類別件数と `mismatch-links.md` への参照を警告表示 | [10-page draw.io sample](examples/single-site-fabric/topology-graph-all.drawio) |
 | `network-diagram-manifest.yaml` | 常時 | source、実効 option、入力・成果物 hash、Detail 選択結果 | [Manifest sample](examples/single-site-fabric/network-diagram-manifest.yaml) |
 
 `--no-overlay-service` 指定時は Overlay Service Summary、model、CSV、Detail を生成しない。Detail の生成件数と形式は

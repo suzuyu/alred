@@ -897,6 +897,7 @@ def render_drawio_xml_lines(
     add_comments: bool,
     title: str,
     candidate_links: Optional[List[Dict[str, Any]]] = None,
+    extra_node_names: Optional[List[str]] = None,
     node_address_map: Optional[Dict[str, str]] = None,
     node_address_label_map: Optional[Dict[str, str]] = None,
     node_address_lines_map: Optional[Dict[str, List[str]]] = None,
@@ -926,6 +927,7 @@ def render_drawio_xml_lines(
         add_comments: Whether to add section comments.
         title: Diagram title.
         candidate_links: Optional candidate links.
+        extra_node_names: Optional standalone nodes to include.
         node_address_map: Optional node -> displayed address map.
         node_address_label_map: Optional node -> address label map.
         node_address_lines_map: Optional node -> multiple address label lines.
@@ -954,6 +956,7 @@ def render_drawio_xml_lines(
         ep1, ep2 = link["endpoints"]
         node_names.add(ep1.split(":", 1)[0])
         node_names.add(ep2.split(":", 1)[0])
+    node_names.update(extra_node_names or [])
 
     def resolve_node_role(node: str) -> str:
         return (node_role_map or {}).get(node) or detect_node_role_func(node, roles)

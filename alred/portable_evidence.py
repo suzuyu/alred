@@ -51,6 +51,7 @@ from .schema import (
 from .link_diagnostics import build_link_diagnostics
 from .secret_scan import (
     CATALOG_SHA256,
+    CATALOG_VERSION,
     SecretFinding,
     build_scan_result,
     is_secret_bearing_line,
@@ -1258,7 +1259,7 @@ def _read_archive(path: str | Path) -> tuple[dict[str, bytes], dict[str, Any]]:
 def _verify_declared_secret_scan(
     files: Mapping[str, bytes],
     manifest: Mapping[str, Any],
-) -> tuple[dict[str, Any], bool]:
+) -> tuple[dict[str, Any], bool, bool]:
     entries = list(manifest["spec"]["files"])
     findings, files_scanned = _scan_package_members(files, entries)
     _enforce_scan_result(findings, entries)
@@ -1271,16 +1272,18 @@ def _verify_declared_secret_scan(
         ),
     )
     if declared_scan is None:
-        return calculated_scan, False
-    if declared_scan.get("catalog_sha256") != CATALOG_SHA256:
+        return calculated_scan, False, False
+    if declared_scan.get("catalog_version") != CATALOG_VERSION:
         raise EvidencePackageError(
-            "EVIDENCE_INTEGRITY_FAILED: unsupported secret scan catalog"
+            "EVIDENCE_INTEGRITY_FAILED: unsupported secret scan catalog version"
         )
+    if declared_scan.get("catalog_sha256") != CATALOG_SHA256:
+        return calculated_scan, True, False
     if calculated_scan != declared_scan:
         raise EvidencePackageError(
             "EVIDENCE_INTEGRITY_FAILED: secret scan result mismatch"
         )
-    return declared_scan, True
+    return declared_scan, True, True
 
 
 def verify_evidence_package(
@@ -1331,7 +1334,9 @@ def verify_evidence_package(
             raise EvidencePackageError("EVIDENCE_INTEGRITY_FAILED: archive checksum mismatch")
         external_verified = True
     files, manifest = _read_archive(archive)
-    declared_scan, scan_declared = _verify_declared_secret_scan(files, manifest)
+    declared_scan, scan_declared, catalog_match = _verify_declared_secret_scan(
+        files, manifest
+    )
     return {
         "verified": True,
         "external_checksum_verified": external_verified,
@@ -1341,19 +1346,25 @@ def verify_evidence_package(
         ),
         "archive_sha256": archive_sha256,
         "package_id": manifest["metadata"]["package_id"],
+        "created_at": manifest["metadata"]["created_at"],
         "profile": manifest["spec"]["profile"],
         "members": len(files),
         "secret_scan_status": declared_scan["status"],
         "secret_scan_high_confidence": declared_scan["high_confidence"],
         "secret_scan_low_confidence": declared_scan["low_confidence"],
         "secret_scan_declared": scan_declared,
+        "secret_scan_catalog_match": catalog_match,
+        "secret_scan_catalog_sha256": CATALOG_SHA256,
+        "secret_scan_catalog_version": CATALOG_VERSION,
     }
 
 
 def inspect_evidence_package(bundle: str | Path) -> dict[str, Any]:
     """Return trusted metadata only after internal integrity verification."""
     files, manifest = _read_archive(bundle)
-    declared_scan, scan_declared = _verify_declared_secret_scan(files, manifest)
+    declared_scan, scan_declared, catalog_match = _verify_declared_secret_scan(
+        files, manifest
+    )
     return {
         "package_id": manifest["metadata"]["package_id"],
         "created_at": manifest["metadata"]["created_at"],
@@ -1365,6 +1376,9 @@ def inspect_evidence_package(bundle: str | Path) -> dict[str, Any]:
         "secret_scan_high_confidence": declared_scan["high_confidence"],
         "secret_scan_low_confidence": declared_scan["low_confidence"],
         "secret_scan_declared": scan_declared,
+        "secret_scan_catalog_match": catalog_match,
+        "secret_scan_catalog_sha256": CATALOG_SHA256,
+        "secret_scan_catalog_version": CATALOG_VERSION,
         "analysis_limitations": manifest["spec"].get("analysis_limitations", []),
     }
 
@@ -1379,33 +1393,11 @@ def _evidence_archive_package_id(path: Path) -> tuple[str, bool] | None:
     return None
 
 
-def prune_evidence_packages(
-    output_dir: str | Path,
-    *,
-    keep_latest: int,
-    dry_run: bool = False,
-) -> dict[str, Any]:
-    """Prune verified package/checksum pairs by profile and sensitivity."""
-    if keep_latest < 0:
-        raise EvidencePackageError(
-            "EVIDENCE_INVALID_SOURCE: keep_latest must be zero or greater"
-        )
-    output = Path(output_dir)
-    if not output.exists():
-        return {
-            "keep_latest": keep_latest,
-            "dry_run": dry_run,
-            "verified": 0,
-            "deleted": [],
-            "skipped": [],
-            "released_bytes": 0,
-        }
-    if not output.is_dir() or output.is_symlink():
-        raise EvidencePackageError(
-            f"EVIDENCE_INVALID_SOURCE: unsafe evidence output directory: {output}"
-        )
-
-    groups: dict[tuple[str, bool], list[dict[str, Any]]] = {}
+def _verified_evidence_package_records(
+    output: Path,
+) -> tuple[list[dict[str, Any]], list[dict[str, str]], set[Path]]:
+    """Return verified package/checksum pairs and rejected archive candidates."""
+    records: list[dict[str, Any]] = []
     skipped: list[dict[str, str]] = []
     managed_paths: set[Path] = set()
     for archive in sorted(output.glob("*.tar.gz")):
@@ -1438,12 +1430,11 @@ def prune_evidence_packages(
                 archive,
                 checksum_file=checksum,
             )
-            inspection = inspect_evidence_package(archive)
             if verification["package_id"] != filename_package_id:
                 raise EvidencePackageError(
                     "EVIDENCE_INTEGRITY_FAILED: package ID does not match filename"
                 )
-            created_at = datetime.fromisoformat(str(inspection["created_at"]))
+            created_at = datetime.fromisoformat(str(verification["created_at"]))
             if created_at.tzinfo is None:
                 raise EvidencePackageError(
                     "EVIDENCE_INTEGRITY_FAILED: package created_at has no timezone"
@@ -1451,17 +1442,83 @@ def prune_evidence_packages(
         except (EvidencePackageError, OSError, UnicodeDecodeError, ValueError) as exc:
             skipped.append({"archive": str(archive), "reason": str(exc)})
             continue
-        record = {
-            "package_id": filename_package_id,
-            "profile": str(verification["profile"]),
-            "sensitive": sensitive,
-            "created_at": created_at,
-            "archive": archive,
-            "checksum": checksum,
-            "archive_sha256": str(verification["archive_sha256"]),
-            "size": archive.stat().st_size + checksum.stat().st_size,
+        records.append(
+            {
+                "package_id": filename_package_id,
+                "profile": str(verification["profile"]),
+                "sensitive": sensitive,
+                "created_at": created_at,
+                "archive": archive,
+                "checksum": checksum,
+                "archive_sha256": str(verification["archive_sha256"]),
+                "size": archive.stat().st_size + checksum.stat().st_size,
+            }
+        )
+    return records, skipped, managed_paths
+
+
+def resolve_latest_evidence_package(
+    input_dir: str | Path = "evidence-packages",
+) -> dict[str, Path]:
+    """Resolve the newest fully verified package/checksum pair."""
+    directory = Path(input_dir)
+    if not directory.is_dir() or directory.is_symlink():
+        raise EvidencePackageError(
+            f"EVIDENCE_INVALID_SOURCE: evidence package directory is missing or unsafe: {directory}"
+        )
+    records, skipped, _managed_paths = _verified_evidence_package_records(directory)
+    if skipped:
+        first = skipped[0]
+        raise EvidencePackageError(
+            "EVIDENCE_INVALID_SOURCE: automatic bundle selection found an invalid "
+            f"archive: {first['archive']}: {first['reason']}"
+        )
+    if not records:
+        raise EvidencePackageError(
+            f"EVIDENCE_INVALID_SOURCE: no verified Evidence Package found: {directory}"
+        )
+    selected = max(
+        records,
+        key=lambda item: (item["created_at"], item["package_id"]),
+    )
+    return {
+        "archive": selected["archive"],
+        "checksum": selected["checksum"],
+    }
+
+
+def prune_evidence_packages(
+    output_dir: str | Path,
+    *,
+    keep_latest: int,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    """Prune verified package/checksum pairs by profile and sensitivity."""
+    if keep_latest < 0:
+        raise EvidencePackageError(
+            "EVIDENCE_INVALID_SOURCE: keep_latest must be zero or greater"
+        )
+    output = Path(output_dir)
+    if not output.exists():
+        return {
+            "keep_latest": keep_latest,
+            "dry_run": dry_run,
+            "verified": 0,
+            "deleted": [],
+            "skipped": [],
+            "released_bytes": 0,
         }
-        groups.setdefault((record["profile"], sensitive), []).append(record)
+    if not output.is_dir() or output.is_symlink():
+        raise EvidencePackageError(
+            f"EVIDENCE_INVALID_SOURCE: unsafe evidence output directory: {output}"
+        )
+
+    records, skipped, managed_paths = _verified_evidence_package_records(output)
+    groups: dict[tuple[str, bool], list[dict[str, Any]]] = {}
+    for record in records:
+        groups.setdefault(
+            (record["profile"], bool(record["sensitive"])), []
+        ).append(record)
 
     for path in sorted(output.iterdir()):
         if path.name.startswith(".") or path in managed_paths:
@@ -1575,6 +1632,15 @@ def import_evidence_package(
                     "external_checksum_selection"
                 ],
                 "package_manifest_sha256": _sha256_bytes(files["alred-evidence/package-manifest.yaml"]),
+                "secret_scan_catalog_match": verification[
+                    "secret_scan_catalog_match"
+                ],
+                "secret_scan_catalog_sha256": verification[
+                    "secret_scan_catalog_sha256"
+                ],
+                "secret_scan_catalog_version": verification[
+                    "secret_scan_catalog_version"
+                ],
             },
         }
         (staging / "import-record.yaml").write_text(
@@ -1596,6 +1662,13 @@ def import_evidence_package(
         "external_checksum_verified": verification["external_checksum_verified"],
         "external_checksum_selection": verification["external_checksum_selection"],
         "external_checksum_file": verification["external_checksum_file"],
+        "secret_scan_catalog_match": verification["secret_scan_catalog_match"],
+        "secret_scan_catalog_sha256": verification[
+            "secret_scan_catalog_sha256"
+        ],
+        "secret_scan_catalog_version": verification[
+            "secret_scan_catalog_version"
+        ],
     }
 
 
@@ -1902,9 +1975,25 @@ def resolve_imported_digital_twin(
         and manifest["spec"]["secret_scan"]["catalog_sha256"]
         != CATALOG_SHA256
     ):
-        raise EvidencePackageError(
-            "EVIDENCE_INTEGRITY_FAILED: unsupported secret scan catalog"
-        )
+        record_path = root / "import-record.yaml"
+        try:
+            import_record = yaml.safe_load(
+                record_path.read_text(encoding="utf-8")
+            ) or {}
+        except (OSError, UnicodeDecodeError, yaml.YAMLError) as exc:
+            raise EvidencePackageError(
+                "EVIDENCE_INTEGRITY_FAILED: invalid import record"
+            ) from exc
+        record_spec = import_record.get("spec", {})
+        if (
+            record_spec.get("secret_scan_catalog_match") is not False
+            or record_spec.get("secret_scan_catalog_sha256") != CATALOG_SHA256
+            or record_spec.get("secret_scan_catalog_version") != CATALOG_VERSION
+        ):
+            raise EvidencePackageError(
+                "EVIDENCE_INTEGRITY_FAILED: old secret scan catalog was not "
+                "revalidated during import"
+            )
     resolved: dict[str, Path] = {}
     for entry in manifest.get("spec", {}).get("files", []):
         if entry.get("command_id") != "running_config":

@@ -242,6 +242,9 @@ interface_name_map:
   Eth1/1: Ethernet1/1
   Eth1/2: Ethernet1/2
 
+exclude_node_name_contains:
+  - UNUSED
+
 exclude_interfaces:
   - mgmt0
   - loopback0
@@ -253,11 +256,13 @@ exclude_interfaces:
 
 - `node_name_map`: ホスト名の正規化
 - `interface_name_map`: インターフェース名の個別変換
+- `exclude_node_name_contains`: 正規化後の endpoint node 名に含まれる文字列による link 除外（大文字・小文字を区別しない）
 - `exclude_interfaces`: 除外するインターフェース名
 
 補足:
 
 - `Port-channel` または `port-channel` を含めると `Port-channel<number>` も広く除外します
+- `exclude_node_name_contains` のいずれかに一致した node を片側に持つ link は、confirmed／candidate と diagram から除外します。空文字は指定できません
 - キー名は `interface_name_map` が正です (`interface_map` ではありません)
 - inventory が利用できるリンク処理では、両端の `device_type` に応じて名前を正規化します
 - Linux の `Port 1` / `port1` / `eth1` は `eth1` に正規化します。データリンクでの `eth0` は管理インターフェースと衝突するため `init-clab` ではエラーです
@@ -377,6 +382,7 @@ description_rules:
 
 - `regex` には `remote_host` の名前付きキャプチャを含めてください
 - `remote_if` は任意です。ホスト名のみを拾いたい場合は `remote_host` だけのルールでも構いません
+- 同梱 example は `MGMT`、`mgmt`、`vPC-peer-link`、`vpc-peer-link` を interface token として扱います。これらの文字列だけの description は remote hostname として扱いません
 
 ## 10. show commands (`show_commands.txt`)
 

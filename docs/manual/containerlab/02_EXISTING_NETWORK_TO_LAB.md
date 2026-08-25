@@ -210,8 +210,7 @@ missing source、変換 hash、warning、risk finding を確認する。既定�
 directory を atomic に公開する。
 
 ```bash
-alred evidence-package import \
-  --bundle evidence-packages/<package-id>.tar.gz
+alred evidence-package import
 
 alred normalize-links \
   --evidence-package imported-evidence/<package-id>
@@ -219,6 +218,11 @@ alred normalize-links \
 alred clab-transform-config \
   --evidence-package imported-evidence/<package-id>
 ```
+
+`--bundle` を省略すると、`evidence-packages/` にある検証済み package/checksum pair のうち、Package Manifest の
+`created_at` が最新のものを import する。directory 内に checksum 欠損または検証不能な archive がある場合は、古い package を
+選ばず停止する。任意の package を選択する場合は従来どおり
+`--bundle evidence-packages/<package-id>.tar.gz` を指定する。
 
 Evidence Package mode で `normalize-links` に必須な option は `--evidence-package` だけである。inventory、mappings、
 description rules、running config、任意 LLDP、packaged canonical links は Manifest から解決する。

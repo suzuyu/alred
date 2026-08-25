@@ -11,7 +11,7 @@ from alred.link_diagnostics import (
     render_mismatch_links_markdown,
 )
 from alred.parsing import merge_lldp_and_description_links
-from alred.parsing import build_description_records
+from alred.parsing import build_description_records, normalize_link_records
 from alred.render import (
     render_drawio_xml_lines,
     render_graphviz_dot_lines,
@@ -391,6 +391,59 @@ def test_description_rule_order_preserves_existing_fallback_behavior():
     assert descriptions[0]["dst_node"] == "spine01"
     assert descriptions[0]["dst_if"] == "Ethernet1/2"
     assert descriptions[0]["rule_name"] == "to_hostname_interface"
+
+
+def test_description_rules_recognize_management_and_vpc_interface_tokens():
+    for remote_if in ("MGMT", "mgmt", "vPC-peer-link", "vpc-peer-link"):
+        descriptions = build_description_records(
+            "leaf01",
+            f"interface Ethernet1/1\n  description leaf02 {remote_if}\n",
+            {},
+            DEFAULT_DESCRIPTION_RULES["description_rules"],
+        )
+
+        assert len(descriptions) == 1
+        assert descriptions[0]["dst_node"] == "leaf02"
+        assert descriptions[0]["dst_if"] == remote_if
+
+
+def test_description_interface_token_alone_is_not_a_remote_hostname():
+    for description in ("MGMT", "mgmt", "vPC-peer-link", "vpc-peer-link"):
+        records = build_description_records(
+            "leaf01",
+            f"interface Ethernet1/1\n  description {description}\n",
+            {},
+            DEFAULT_DESCRIPTION_RULES["description_rules"],
+        )
+
+        assert records == []
+
+
+def test_description_endpoint_matching_excluded_node_substring_is_ignored():
+    descriptions = build_description_records(
+        "leaf01",
+        "interface Ethernet1/1\n  description TO_UNUSED-LINK_Ethernet1/2\n",
+        {"exclude_node_name_contains": ["unused"]},
+        DEFAULT_DESCRIPTION_RULES["description_rules"],
+    )
+
+    assert descriptions == []
+
+
+def test_normalized_links_exclude_mapped_node_substring_case_insensitively():
+    records = [
+        _record("leaf01", "Ethernet1/1", "parking", "Ethernet1/2"),
+        _record("leaf01", "Ethernet1/3", "spine01", "Ethernet1/4"),
+    ]
+    mappings = {
+        "node_name_map": {"parking": "Unused-Peer"},
+        "exclude_node_name_contains": ["UNUSED"],
+    }
+
+    normalized = normalize_link_records(records, mappings)
+
+    assert len(normalized) == 1
+    assert normalized[0]["dst_node"] == "spine01"
 
 
 def test_mismatch_report_contains_affected_device_summary_and_details():

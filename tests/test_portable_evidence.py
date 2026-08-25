@@ -9,6 +9,8 @@ import tarfile
 
 import yaml
 import pytest
+import alred.portable_evidence as portable_evidence
+import alred.secret_scan as secret_scan
 
 from alred.cli import (
     build_parser,
@@ -18,6 +20,7 @@ from alred.cli import (
     cmd_evidence_package_prune_imports,
     get_evidence_import_keep_latest,
     get_evidence_package_keep_latest,
+    main,
 )
 from alred.portable_evidence import (
     EvidencePackageError,
@@ -38,6 +41,7 @@ from alred.parsing import read_links_csv, write_links_csv
 from alred.schema import source_sha256, validate_document
 from alred.secret_scan import (
     CATALOG_SHA256,
+    CATALOG_VERSION,
     build_scan_result,
     sanitize_text,
     scan_text,
@@ -1043,6 +1047,79 @@ def test_evidence_import_applies_retention_after_success(tmp_path: Path) -> None
     assert (imports / "latest").resolve() == package_dirs[0].resolve()
 
 
+def test_evidence_import_without_bundle_selects_latest_verified_package(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    manifest, raw = _collection(tmp_path)
+    packages = tmp_path / "evidence-packages"
+    imports = tmp_path / "imports"
+    older = create_evidence_package(
+        collection_manifest=manifest,
+        raw_root=raw,
+        profile="digital-twin",
+        output_dir=packages,
+        created_at=NOW,
+    )
+    newer = create_evidence_package(
+        collection_manifest=manifest,
+        raw_root=raw,
+        profile="digital-twin",
+        output_dir=packages,
+        created_at=NOW + timedelta(minutes=1),
+    )
+    monkeypatch.chdir(tmp_path)
+    args = build_parser().parse_args(
+        ["evidence-package", "import", "--output-dir", str(imports)]
+    )
+
+    cmd_evidence_package_import(args)
+
+    output = capsys.readouterr().out
+    assert args.bundle is None
+    assert older["package_id"] not in (imports / "latest").resolve().name
+    assert (imports / "latest").resolve().name == newer["package_id"]
+    assert "source_selection: latest-verified" in output
+    assert f"source_bundle: evidence-packages/{newer['archive'].name}" in output
+
+
+def test_evidence_import_without_bundle_fails_closed_on_invalid_archive(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manifest, raw = _collection(tmp_path)
+    packages = tmp_path / "evidence-packages"
+    create_evidence_package(
+        collection_manifest=manifest,
+        raw_root=raw,
+        profile="digital-twin",
+        output_dir=packages,
+        created_at=NOW,
+    )
+    (packages / "broken.tar.gz").write_bytes(b"broken")
+    monkeypatch.chdir(tmp_path)
+    args = build_parser().parse_args(["evidence-package", "import"])
+
+    with pytest.raises(
+        EvidencePackageError,
+        match="automatic bundle selection found an invalid archive",
+    ):
+        cmd_evidence_package_import(args)
+
+
+def test_evidence_import_checksum_file_requires_explicit_bundle() -> None:
+    args = build_parser().parse_args(
+        ["evidence-package", "import", "--checksum-file", "package.sha256"]
+    )
+
+    with pytest.raises(
+        EvidencePackageError,
+        match="--checksum-file requires --bundle",
+    ):
+        cmd_evidence_package_import(args)
+
+
 def test_evidence_prune_imports_cli_dry_run(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
@@ -1146,6 +1223,9 @@ def test_create_verify_inspect_and_import_digital_twin(tmp_path: Path) -> None:
     assert inspected["config_content"] == "sanitized"
     assert inspected["secret_scan_status"] == "CLEAN"
     assert verified["secret_scan_status"] == "CLEAN"
+    assert verified["secret_scan_catalog_match"] is True
+    assert verified["secret_scan_catalog_sha256"] == CATALOG_SHA256
+    assert verified["secret_scan_catalog_version"] == CATALOG_VERSION
 
     with tarfile.open(created["archive"], "r:gz") as archive:
         member = archive.extractfile(
@@ -1197,6 +1277,62 @@ def test_create_verify_inspect_and_import_digital_twin(tmp_path: Path) -> None:
     assert inventory.is_file()
     assert set(configs) == {"prod-leaf01"}
     assert manifest["metadata"]["package_id"] == imported["package_id"]
+
+
+def test_old_secret_scan_catalog_is_revalidated_and_recorded(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manifest, raw = _collection(tmp_path)
+    created = create_evidence_package(
+        collection_manifest=manifest,
+        raw_root=raw,
+        profile="digital-twin",
+        output_dir=tmp_path / "packages",
+        created_at=NOW,
+    )
+    current_catalog = "sha256:" + "f" * 64
+    monkeypatch.setattr(portable_evidence, "CATALOG_SHA256", current_catalog)
+    monkeypatch.setattr(secret_scan, "CATALOG_SHA256", current_catalog)
+
+    verified = verify_evidence_package(created["archive"])
+    imported = import_evidence_package(
+        created["archive"],
+        output_dir=tmp_path / "imports",
+        imported_at=NOW,
+    )
+    record = yaml.safe_load(
+        (imported["import_dir"] / "import-record.yaml").read_text(encoding="utf-8")
+    )
+
+    assert verified["secret_scan_declared"] is True
+    assert verified["secret_scan_catalog_match"] is False
+    assert verified["secret_scan_catalog_sha256"] == current_catalog
+    assert imported["secret_scan_catalog_match"] is False
+    assert record["spec"]["secret_scan_catalog_match"] is False
+    assert record["spec"]["secret_scan_catalog_sha256"] == current_catalog
+    assert record["spec"]["secret_scan_catalog_version"] == CATALOG_VERSION
+    inventory, configs, _manifest = resolve_imported_digital_twin(
+        imported["import_dir"]
+    )
+    assert inventory.is_file()
+    assert set(configs) == {"prod-leaf01"}
+
+
+def test_evidence_cli_does_not_repeat_error_code(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("sys.argv", ["alred", "evidence-package", "import"])
+
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+
+    assert exc_info.value.code == 6
+    error = capsys.readouterr().err
+    assert error.count("EVIDENCE_INVALID_SOURCE:") == 1
 
 
 def test_verify_and_import_continue_when_inferred_checksum_is_absent(
@@ -1506,6 +1642,61 @@ def test_digital_twin_package_regenerates_and_verifies_canonical_links(
     assert (tmp_path / "links" / "mismatch-links.md").is_file()
 
 
+def test_standalone_consumers_default_to_latest_imported_evidence(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    collection_manifest, raw = _collection(tmp_path)
+    created = create_evidence_package(
+        collection_manifest=collection_manifest,
+        raw_root=raw,
+        profile="digital-twin",
+        output_dir=tmp_path / "packages",
+        created_at=NOW,
+    )
+    import_evidence_package(
+        created["archive"],
+        output_dir=tmp_path / "imported-evidence",
+        imported_at=NOW,
+    )
+    monkeypatch.chdir(tmp_path)
+    parser = build_parser()
+
+    normalize_args = parser.parse_args(
+        ["normalize-links", "--output-dir", str(tmp_path / "latest-links")]
+    )
+    normalize_args.func(normalize_args)
+    assert normalize_args.evidence_package == "imported-evidence/latest"
+    assert (tmp_path / "latest-links" / "links_confirmed.csv").is_file()
+
+    transform_args = parser.parse_args(
+        [
+            "clab-transform-config",
+            "--output-hosts",
+            str(tmp_path / "latest-hosts.lab.yaml"),
+            "--output-dir",
+            str(tmp_path / "latest-labconfig"),
+        ]
+    )
+    transform_args.func(transform_args)
+    assert transform_args.evidence_import == "imported-evidence/latest"
+    assert (tmp_path / "latest-hosts.lab.yaml").is_file()
+    assert (tmp_path / "latest-labconfig" / "prod-leaf01_run.txt").is_file()
+
+    mermaid_args = parser.parse_args(
+        [
+            "generate-mermaid",
+            "--link-output-dir",
+            str(tmp_path / "latest-mermaid-links"),
+            "--output",
+            str(tmp_path / "latest-topology.md"),
+        ]
+    )
+    mermaid_args.func(mermaid_args)
+    assert mermaid_args.evidence_package == "imported-evidence/latest"
+    assert (tmp_path / "latest-topology.md").is_file()
+
+
 def test_legacy_link_hash_is_verified_before_direction_neutral_comparison(
     tmp_path: Path,
 ) -> None:
@@ -1712,7 +1903,46 @@ def test_clab_set_cmds_accepts_evidence_archive_as_offline_source(
     } == {"created"}
 
 
-def test_generate_network_diagram_uses_imported_evidence_for_underlay(
+def test_clab_set_cmds_defaults_to_latest_imported_evidence(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    collection_manifest, raw = _collection(tmp_path)
+    created = create_evidence_package(
+        collection_manifest=collection_manifest,
+        raw_root=raw,
+        profile="digital-twin",
+        output_dir=tmp_path / "packages",
+        created_at=NOW,
+    )
+    import_evidence_package(
+        created["archive"],
+        output_dir=tmp_path / "imported-evidence",
+        imported_at=NOW,
+    )
+    monkeypatch.chdir(tmp_path)
+    args = build_parser().parse_args(["clab-set-cmds"])
+
+    args.func(args)
+
+    assert args.evidence_package is None
+    assert args.evidence_import == "imported-evidence/latest"
+    current = json.loads(
+        (tmp_path / "output/clab-set-cmds/current.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    attempt_manifest = yaml.safe_load(
+        (tmp_path / current["manifest"]).read_text(encoding="utf-8")
+    )
+    assert attempt_manifest["spec"]["requested_source"] == {
+        "type": "evidence-package",
+        "path": "imported-evidence/latest",
+    }
+    assert attempt_manifest["spec"]["device_access_performed"] is False
+
+
+def test_generate_network_diagram_defaults_to_latest_imported_evidence(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1726,14 +1956,13 @@ def test_generate_network_diagram_uses_imported_evidence_for_underlay(
     )
     imported = import_evidence_package(
         created["archive"],
-        output_dir=tmp_path / "imports",
+        output_dir=tmp_path / "imported-evidence",
         imported_at=NOW,
     )
     monkeypatch.chdir(tmp_path)
     output = tmp_path / "network-diagram"
     args = build_parser().parse_args([
         "generate-network-diagram",
-        "--evidence-package", str(imported["import_dir"]),
         "--output-dir", str(output),
     ])
 
@@ -1747,7 +1976,7 @@ def test_generate_network_diagram_uses_imported_evidence_for_underlay(
     )
     assert manifest["spec"]["source"] == {
         "type": "evidence-package",
-        "value": str(imported["import_dir"]),
+        "value": "imported-evidence/latest",
     }
 
 

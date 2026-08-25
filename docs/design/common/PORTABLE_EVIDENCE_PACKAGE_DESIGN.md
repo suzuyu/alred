@@ -521,6 +521,9 @@ archive外checksumが指定された場合のarchive hash、package内checksum�
 path traversal、absolute path、重複member、symlink、special file、Manifest file entry の export hash、profile必須
 capabilityを展開せず検証する。content text member は現在の catalog で独立再 scan し、catalog hash と scan 結果が
 Manifest と一致すること、sanitized member に high confidence finding がないことも検証する。
+Manifest の catalog hash が現在値と異なる場合は declared result との完全一致を要求せず、checksum 検証後に現在の catalog で
+全対象を再 scan する。通過時は現在 catalog の result を返し、catalog 不一致と再 scan 済み hash を import record へ固定する。
+これにより旧 package を current rule で fail closed に再評価し、旧 catalog の判定を現在も有効とみなさない。
 `--checksum-file` を省略した場合は、archive 名の `<package-id>.tar.gz` または
 `<package-id>.sensitive.tar.gz` から、同じ directory の `<package-id>.sha256` を自動検出する。自動検出した
 checksum file は明示指定時と同じに検証し、読み取り不能、空、または archive hash 不一致で停止する。
@@ -533,11 +536,20 @@ checksum file を同じ directory へ搬送する。checksum file を別名ま�
 
 ```text
 alred evidence-package import \
-  --bundle <archive> \
+  [--bundle <archive>] \
   [--checksum-file <path>] \
   [--output-dir <directory>] \
   [--keep-latest-packages <count>]
 ```
+
+`--bundle` を省略した場合は `evidence-packages/` 直下の通常 file である `*.tar.gz` と、同じ package ID の
+`.sha256` の組を列挙し、外部 checksum、archive 内部、Package Manifest、secret scan を検証する。認識可能な archive が
+一つでも検証不能な場合は古い package へ黙って fallback せず `EVIDENCE_INVALID_SOURCE` で停止する。検証済み候補の
+Manifest `created_at` が最も新しい package を選び、同時刻は package ID の辞書順で決定する。候補がない場合も
+`EVIDENCE_INVALID_SOURCE` とする。symlink、subdirectory、認識しない拡張子は候補にしない。
+
+自動選択では選択した pair の `.sha256` を必ず使用する。したがって `--checksum-file` は `--bundle` と同時に指定する場合だけ
+許可する。`--bundle` を明示した従来動作と checksum の隣接推定は維持する。
 
 `verify`と同じ検証をすべて通過した後、`--output-dir`（既定`imported-evidence/`）配下の
 `<package-id>/`へ展開する。同名の既存directoryは上書きせず失敗する。展開は同一filesystem上の一時directoryで
@@ -548,6 +560,25 @@ atomic に更新する。verify、secret scan、展開、`import-record.yaml` �
 場合は以前の `latest` を維持する。`latest` は利用者向けの到達経路であり、offline consumer は解決後も
 `package-manifest.yaml`、`import-record.yaml`、package ID、archive hash を検証する。同名 package の再利用は
 import ではないため `latest` の世代を変更しない。
+
+import 済み Evidence Package を入力にできる次の offline consumer は、source selector と既存 file／直接収集 source を
+すべて省略した場合、`imported-evidence/latest` を既定 source として使用する。
+
+- `normalize-links`
+- `generate-mermaid`
+- `generate-network-diagram`
+- `clab-transform-config`
+- `clab-set-cmds`
+
+`clab-set-cmds` の `--evidence-package` は未 import archive を意味するため、無指定時は
+`--evidence-import imported-evidence/latest` の実効値として扱う。他の command は
+`--evidence-package imported-evidence/latest` の実効値として扱う。明示した Package／external import／Operation source は
+既定値より優先する。`--input`、`--hosts`、`clab-set-cmds --without-collect` などで既存 file または直接収集 source を
+明示した場合も、その source を優先する。
+
+consumer は `latest` を package directory として直接信用せず、相対 symlink、同一 import root 内の通常 directory、
+`import-record.yaml`、Package Manifest、member hash を既存 resolver で検証する。欠損、root 外参照、未検証 directory、
+profile 不一致では fail closed とする。
 
 import 成功後は、同じ profile・通常／sensitive 区分ごとに import 日時が新しい 3 directory を保持し、
 それより古い検証済み directory を削除する。保持数は `--keep-latest-packages`、未指定時は

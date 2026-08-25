@@ -10,6 +10,10 @@
 #   Eth1/49: eth49
 #   Eth1/50: eth50
 
+# 正規化後の endpoint node 名に次の文字列を含む link を除外する（大文字・小文字を区別しない）
+exclude_node_name_contains:
+  - UNUSED
+
 exclude_interfaces:
   - mgmt0
   - loopback0

@@ -11,6 +11,8 @@ from pathlib import Path
 import yaml
 
 from alred.cli import (
+    apply_default_evidence_consumer_source,
+    apply_default_network_diagram_source,
     apply_cisco_n9kv_kind_defaults,
     apply_n9kv_startup_delay,
     build_clab_set_step_args,
@@ -19,18 +21,53 @@ from alred.cli import (
     filter_links_by_target_roles,
     prepare_topology_diagram_context,
 )
-from alred.constants import DEFAULT_CLAB_SET_CMDS
+from alred.constants import (
+    DEFAULT_CLAB_SET_CMDS,
+    DEFAULT_IMPORTED_EVIDENCE_PATH,
+)
 from alred.design import normalize_and_validate_cables
 from alred.parsing import (
+    load_mappings,
     load_node_map_csv,
     merge_lldp_and_description_links,
     normalize_interface_name,
 )
-from alred.topology import detect_node_site
+from alred.topology import detect_node_site, prepare_rendered_links
 from alred.transform import transform_inventory_mgmt_subnet, transform_run_config_text
 
 
 class DeviceAwareNormalizationTests(unittest.TestCase):
+    def test_mapping_rejects_empty_excluded_node_pattern(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "mappings.yaml"
+            path.write_text(
+                "exclude_node_name_contains:\n  - ''\n",
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ValueError, "cannot contain an empty value"):
+                load_mappings(str(path))
+
+    def test_renderer_excludes_direct_csv_node_substring(self) -> None:
+        rendered, skipped_by_confidence = prepare_rendered_links(
+            [
+                {
+                    "src_node": "leaf01",
+                    "src_if": "Ethernet1/1",
+                    "dst_node": "unused-peer",
+                    "dst_if": "Ethernet1/2",
+                    "confidence": "high",
+                }
+            ],
+            {"exclude_node_name_contains": ["UNUSED"]},
+            {},
+            "low",
+            logging.getLogger("test"),
+        )
+
+        self.assertEqual(rendered, [])
+        self.assertEqual(skipped_by_confidence, 0)
+
     def test_linux_port_names_become_container_interfaces(self) -> None:
         mappings = {"interface_name_map": {}, "node_name_map": {}, "exclude_interfaces": []}
         self.assertEqual(normalize_interface_name("Port 1", mappings, "linux"), "eth1")
@@ -903,10 +940,87 @@ class GenerateMermaidClabInputTests(unittest.TestCase):
         self.assertTrue(defaults.group_by_role)
         self.assertIsNone(defaults.group_by_site)
         self.assertEqual(defaults.direction, "TD")
+        self.assertIsNone(defaults.input)
+        apply_default_evidence_consumer_source(defaults)
+        self.assertEqual(
+            defaults.evidence_package,
+            DEFAULT_IMPORTED_EVIDENCE_PATH,
+        )
+
+        direct_mermaid = parser.parse_args(
+            ["generate-mermaid", "--input", "links.csv"]
+        )
+        apply_default_evidence_consumer_source(direct_mermaid)
+        self.assertEqual(direct_mermaid.input, "links.csv")
+        self.assertIsNone(direct_mermaid.evidence_package)
 
         network_defaults = parser.parse_args(["generate-network-diagram"])
         self.assertEqual(network_defaults.direction, "TD")
         self.assertIsNone(network_defaults.directions)
+        self.assertIsNone(network_defaults.input)
+        apply_default_network_diagram_source(network_defaults)
+        self.assertEqual(
+            network_defaults.evidence_package,
+            DEFAULT_IMPORTED_EVIDENCE_PATH,
+        )
+
+        direct_input = parser.parse_args(
+            ["generate-network-diagram", "--input", "links.csv"]
+        )
+        apply_default_network_diagram_source(direct_input)
+        self.assertEqual(direct_input.input, "links.csv")
+        self.assertIsNone(direct_input.evidence_package)
+
+        normalize_defaults = parser.parse_args(["normalize-links"])
+        apply_default_evidence_consumer_source(normalize_defaults)
+        self.assertEqual(
+            normalize_defaults.evidence_package,
+            DEFAULT_IMPORTED_EVIDENCE_PATH,
+        )
+
+        normalize_local = parser.parse_args(
+            ["normalize-links", "--input", "raw"]
+        )
+        apply_default_evidence_consumer_source(normalize_local)
+        self.assertEqual(normalize_local.input, "raw")
+        self.assertIsNone(normalize_local.evidence_package)
+
+        transform_defaults = parser.parse_args(["clab-transform-config"])
+        apply_default_evidence_consumer_source(transform_defaults)
+        self.assertEqual(
+            transform_defaults.evidence_import,
+            DEFAULT_IMPORTED_EVIDENCE_PATH,
+        )
+        self.assertEqual(transform_defaults.input, "raw")
+
+        transform_local = parser.parse_args(
+            ["clab-transform-config", "--input", "raw"]
+        )
+        apply_default_evidence_consumer_source(transform_local)
+        self.assertEqual(transform_local.input, "raw")
+        self.assertIsNone(transform_local.evidence_import)
+
+        clab_set_defaults = parser.parse_args(["clab-set-cmds"])
+        apply_default_evidence_consumer_source(clab_set_defaults)
+        self.assertEqual(
+            clab_set_defaults.evidence_import,
+            DEFAULT_IMPORTED_EVIDENCE_PATH,
+        )
+        self.assertEqual(clab_set_defaults.output, "raw")
+
+        clab_set_local = parser.parse_args(
+            ["clab-set-cmds", "--hosts", "hosts.yaml"]
+        )
+        apply_default_evidence_consumer_source(clab_set_local)
+        self.assertEqual(clab_set_local.hosts, "hosts.yaml")
+        self.assertIsNone(clab_set_local.evidence_import)
+
+        clab_set_local_policy = parser.parse_args(
+            ["clab-set-cmds", "--mappings", "mappings.yaml"]
+        )
+        apply_default_evidence_consumer_source(clab_set_local_policy)
+        self.assertEqual(clab_set_local_policy.mappings, "mappings.yaml")
+        self.assertIsNone(clab_set_local_policy.evidence_import)
 
         all_directions = parser.parse_args([
             "generate-network-diagram",
@@ -1417,7 +1531,7 @@ class GenerateNetworkDiagramTests(unittest.TestCase):
                 )
             self.assertFalse((output / "network-diagram-manifest.yaml").exists())
 
-    def test_all_graph_writes_nine_page_drawio_by_default(self) -> None:
+    def test_all_graph_writes_defined_roles_page_by_default(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             clab, roles, raw = self._write_inputs(root)
@@ -1440,13 +1554,114 @@ class GenerateNetworkDiagramTests(unittest.TestCase):
             self.assertEqual(
                 [item.get("name") for item in drawio.findall("diagram")],
                 [
-                    "Topology TD", "Topology Confirmed Links TD", "Topology LR",
+                    "Topology TD", "Topology Confirmed Links TD",
+                    "Topology Defined Roles TD", "Topology LR",
                     "Underlay TD", "Underlay LR",
                     "EVPN TD", "EVPN LR",
                     "Overlay Service TD", "Overlay Service LR",
                 ],
             )
+            manifest = yaml.safe_load(
+                (output / "network-diagram-manifest.yaml").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertTrue(
+                manifest["spec"]["options"]["defined_roles_only_page"]
+            )
             self.assertFalse((output / "topology-graph.drawio").exists())
+
+    def test_defined_roles_page_excludes_fallback_and_unknown_roles(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            clab, roles, raw = self._write_inputs(root)
+            topology = yaml.safe_load(clab.read_text(encoding="utf-8"))
+            topology["topology"]["nodes"].update(
+                {
+                    "default01": {
+                        "kind": "linux",
+                        "group": "default",
+                    },
+                    "unknown01": {
+                        "kind": "linux",
+                        "group": "custom-undefined",
+                    },
+                    "defined-orphan": {
+                        "kind": "cisco_n9kv",
+                        "group": "leaf",
+                    },
+                }
+            )
+            topology["topology"]["links"].extend(
+                [
+                    {
+                        "endpoints": [
+                            "leaf01:Ethernet1/2",
+                            "default01:eth1",
+                        ]
+                    },
+                    {
+                        "endpoints": [
+                            "leaf01:Ethernet1/3",
+                            "unknown01:eth1",
+                        ]
+                    },
+                ]
+            )
+            clab.write_text(
+                yaml.safe_dump(topology, sort_keys=False),
+                encoding="utf-8",
+            )
+            output = root / "output"
+            args = build_parser().parse_args(
+                [
+                    "generate-network-diagram",
+                    "--input",
+                    str(clab),
+                    "--roles",
+                    str(roles),
+                    "--underlay-raw",
+                    str(raw),
+                    "--output-dir",
+                    str(output),
+                    "--all-graph",
+                    "--log-file",
+                    str(root / "generate-network-diagram.log"),
+                ]
+            )
+
+            args.func(args)
+
+            drawio = ET.fromstring(
+                (output / "topology-graph-all.drawio").read_text(
+                    encoding="utf-8"
+                )
+            )
+            physical_page = next(
+                page
+                for page in drawio.findall("diagram")
+                if page.get("name") == "Topology TD"
+            )
+            defined_page = next(
+                page
+                for page in drawio.findall("diagram")
+                if page.get("name") == "Topology Defined Roles TD"
+            )
+            physical_values = "\n".join(
+                str(cell.get("value", ""))
+                for cell in physical_page.findall(".//mxCell")
+            )
+            defined_values = "\n".join(
+                str(cell.get("value", ""))
+                for cell in defined_page.findall(".//mxCell")
+            )
+            self.assertIn("default01", physical_values)
+            self.assertIn("unknown01", physical_values)
+            self.assertNotIn("default01", defined_values)
+            self.assertNotIn("unknown01", defined_values)
+            self.assertIn("spine01", defined_values)
+            self.assertIn("leaf01", defined_values)
+            self.assertIn("defined-orphan", defined_values)
 
     def test_all_graph_accepts_explicit_full_direction_set(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1473,7 +1688,8 @@ class GenerateNetworkDiagramTests(unittest.TestCase):
                 [item.get("name") for item in drawio.findall("diagram")],
                 [
                     "Topology TD", "Topology Confirmed Links TD",
-                    "Topology LR", "Topology BT", "Topology RL",
+                    "Topology Defined Roles TD", "Topology LR",
+                    "Topology BT", "Topology RL",
                     "Underlay TD", "Underlay LR", "Underlay BT", "Underlay RL",
                     "EVPN TD", "EVPN LR", "EVPN BT", "EVPN RL",
                     "Overlay Service TD", "Overlay Service LR",
@@ -1481,7 +1697,7 @@ class GenerateNetworkDiagramTests(unittest.TestCase):
                 ],
             )
 
-    def test_no_overlay_service_writes_seven_page_drawio(self) -> None:
+    def test_no_overlay_service_writes_eight_page_drawio(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             clab, roles, raw = self._write_inputs(root)
@@ -1505,7 +1721,8 @@ class GenerateNetworkDiagramTests(unittest.TestCase):
             self.assertEqual(
                 [item.get("name") for item in drawio.findall("diagram")],
                 [
-                    "Topology TD", "Topology Confirmed Links TD", "Topology LR",
+                    "Topology TD", "Topology Confirmed Links TD",
+                    "Topology Defined Roles TD", "Topology LR",
                     "Underlay TD", "Underlay LR",
                     "EVPN TD", "EVPN LR",
                 ],
