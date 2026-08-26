@@ -24,6 +24,7 @@ COMMAND_IDS = {
     "show interface brief": "interface_brief",
     "show interface counters errors non-zero": "interface_errors",
     "show port-channel summary": "port_channel_summary",
+    "show lldp neighbors detail": "lldp_neighbors_detail",
     "show system config reload-pending": "reload_pending",
     "show logging": "show_logging",
     "show ip route summary vrf all": "route_summary_ipv4",

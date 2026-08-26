@@ -7,7 +7,7 @@ from copy import deepcopy
 import pytest
 import yaml
 
-from alred.cli import resolve_show_commands_for_host
+from alred.cli import load_show_command_groups, resolve_show_commands_for_host
 from alred.health.report import render_health_checklist
 from alred.health.evaluator import (
     _build_type5_route_indexes,
@@ -17,7 +17,10 @@ from alred.health.evaluator import (
 )
 from alred.health.parsers import parse_nxos_command
 from alred.health.profile import resolve_profiles
-from alred.health.role_commands import build_role_command_groups
+from alred.health.role_commands import (
+    build_role_command_groups,
+    render_role_command_groups,
+)
 from alred.health.roles import (
     RoleResolutionError,
     load_role_config,
@@ -235,6 +238,20 @@ def test_role_command_groups_collect_only_role_relevant_overlay_commands(
         "device_type:nxos:role:super-spine"
     ]
     assert groups["device_type:nxos:role:network-functions"] == []
+
+    rendered = render_role_command_groups(groups)
+    assert (
+        "[device_type:nxos]\n"
+        "# Base collection: executed once; "
+        "output: raw/config/<hostname>_run.txt|json\n"
+        "# show running-config\n"
+        "show lldp neighbors detail\n"
+    ) in rendered
+    command_path = tmp_path / "show-commands.txt"
+    command_path.write_text(rendered, encoding="utf-8")
+    loaded = load_show_command_groups(str(command_path))
+    assert "show running-config" not in loaded["device_type:nxos"]
+    assert loaded["device_type:nxos"][0] == "show lldp neighbors detail"
 
 
 def test_nxos_role_command_group_does_not_apply_to_eos_host() -> None:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 import logging
 
 from alred.constants import DEFAULT_DESCRIPTION_RULES
@@ -89,6 +90,33 @@ def test_nonreciprocal_description_claims_remain_directional_candidates():
         "DESCRIPTION_NOT_RECIPROCAL",
         "DESCRIPTION_NOT_RECIPROCAL",
     ]
+    leaf_claim = next(
+        item
+        for item in diagnostics
+        if item["local_endpoint"]["node"] == "leaf01"
+    )
+    assert leaf_claim["expected_reciprocal_claim"] == {
+        "local_endpoint": {"node": "spine01", "interface": "Ethernet1/2"},
+        "configured_endpoint": {"node": "leaf01", "interface": "Ethernet1/1"},
+    }
+    assert leaf_claim["actual_reciprocal_claims"] == [
+        {
+            "local_endpoint": {
+                "node": "spine01",
+                "interface": "Ethernet1/2",
+            },
+            "configured_endpoint": {
+                "node": "leaf01",
+                "interface": "Ethernet1/9",
+            },
+        }
+    ]
+    report = "\n".join(render_mismatch_links_markdown(document))
+    assert "- A-side claim: `leaf01:Ethernet1/1 -> spine01:Ethernet1/2`" in report
+    assert "- Expected reverse: `spine01:Ethernet1/2 -> leaf01:Ethernet1/1`" in report
+    assert "- Actual reverse: `spine01:Ethernet1/2 -> leaf01:Ethernet1/9`" in report
+    assert "remote interface differs" in report
+    assert "- LLDP endpoint: `-`" not in report
     rendered = [
         {"endpoints": ["spine01:Ethernet1/2", "leaf01:Ethernet1/1"]},
         {"endpoints": ["leaf01:Ethernet1/9", "spine01:Ethernet1/2"]},
@@ -105,6 +133,50 @@ def test_nonreciprocal_description_claims_remain_directional_candidates():
     assert "CONFLICT: 2, WARNING: 0, UNKNOWN: 0" in notice
     assert "Candidate/claim links are not drawn" in notice
     assert "See mismatch-links.md" in notice
+
+
+def test_nonreciprocal_description_report_distinguishes_missing_remote_interface():
+    descriptions = [
+        _record("leaf01", "Ethernet1/1", "spine01", "Ethernet1/2"),
+        _record("spine01", "Ethernet1/2", "leaf01", ""),
+    ]
+
+    _confirmed, _candidates, document = _build([], descriptions)
+
+    diagnostics = document["spec"]["diagnostics"]
+    assert len(diagnostics) == 1
+    diagnostic = diagnostics[0]
+    assert diagnostic["actual_reciprocal_claims"] == [
+        {
+            "local_endpoint": {
+                "node": "spine01",
+                "interface": "Ethernet1/2",
+            },
+            "configured_endpoint": {"node": "leaf01", "interface": ""},
+        }
+    ]
+    report = "\n".join(render_mismatch_links_markdown(document))
+    assert "- Actual reverse: `spine01:Ethernet1/2 -> leaf01`" in report
+    assert "does not specify the expected remote interface" in report
+    assert "- Rendered as conflict claim: no" in report
+
+
+def test_legacy_nonreciprocal_diagnostic_without_comparison_evidence_is_readable():
+    descriptions = [
+        _record("leaf01", "Ethernet1/1", "spine01", "Ethernet1/2"),
+        _record("spine01", "Ethernet1/2", "leaf01", "Ethernet1/9"),
+    ]
+    _confirmed, _candidates, document = _build([], descriptions)
+    legacy = deepcopy(document)
+    for diagnostic in legacy["spec"]["diagnostics"]:
+        diagnostic.pop("expected_reciprocal_claim")
+        diagnostic.pop("actual_reciprocal_claims")
+
+    validate_document(legacy, kind="LinkDiagnostics")
+    report = "\n".join(render_mismatch_links_markdown(legacy))
+
+    assert "- Actual reverse: `not recorded in this artifact`" in report
+    assert "legacy diagnostic does not contain peer-side comparison evidence" in report
 
 
 def test_one_way_description_without_peer_config_is_not_a_mismatch():
@@ -224,6 +296,9 @@ def test_one_way_lldp_requires_peer_link_records_not_only_collected_output():
     assert "- Mismatched links: 0" in report
     assert "## Warnings" in report
     assert "## Mismatched Links" not in report
+    assert "- LLDP observed: `leaf01:Ethernet1/1 -> spine01:Ethernet1/2`" in report
+    assert "- Expected reverse: `spine01:Ethernet1/2 -> leaf01:Ethernet1/1`" in report
+    assert "- Actual reverse: `(none)`" in report
 
 
 def test_device_only_descriptions_are_reciprocal_at_device_scope():
@@ -467,7 +542,10 @@ def test_mismatch_report_contains_affected_device_summary_and_details():
     assert "| leaf01 | site-1 | leaf |" in report
     assert "| spine01 | site-1 | spine |" in report
     assert "`LLDP_DESC_INTERFACE_CONFLICT`" in report
-    assert "- Rendered: no" in report
+    assert "- LLDP observed: `leaf01:Ethernet1/1 -> spine01:Ethernet1/2`" in report
+    assert "- Description configured: `leaf01:Ethernet1/1 -> spine01:Ethernet1/9`" in report
+    assert "remote interface differs between LLDP" in report
+    assert "- Rendered in diagram: no" in report
 
 
 def test_not_evaluated_report_does_not_claim_no_mismatches():

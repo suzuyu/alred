@@ -42,8 +42,8 @@ LLDP は物理接続の優先 evidence であり、0 件でも description recor
 
 | 生成物 | 内容 |
 |---|---|
-| `link-diagnostics.yaml` | schema 検証可能な diagnostic、coverage、未評価 claim、影響 device、未解決 peer reference |
-| `mismatch-links.md` | Summary、Affected Devices、mismatch、warning、unknown、未解決 peer reference。未評価 claim は Summary の件数だけを表示 |
+| `link-diagnostics.yaml` | schema 検証可能な diagnostic、coverage、未評価 claim、影響 device、未解決 peer reference。非相互 description は期待する逆方向と実際の逆方向 claim も保持 |
+| `mismatch-links.md` | Summary、Affected Devices、mismatch、warning、unknown、未解決 peer reference。診断ごとの期待値、実測値、差分理由を表示し、未評価 claim は Summary の件数だけを表示 |
 
 双方向 LLDP と description の不整合は confirmed link に `CONFLICT` として関連付ける。description だけが示す非相互な接続は、
 両端の running config を正常収集済みの場合だけ conflict とし、confirmed link へ昇格させず有向 claim として保持する。
@@ -70,10 +70,11 @@ alred normalize-links \
 1. confirmed と candidate の件数を確認する。
 2. `mismatch-links.md` の evaluation status と Summary を確認する。
 3. Affected Devices の site、role、conflict link 数、local conflict 数、peer-reference 数、diagnostic code を確認する。
-4. candidate、赤い claim、`link-diagnostics.yaml` の `unevaluated_claims` にある対向 hostname／interface と coverage を照合する。
-5. conflict がある local interface は LLDP と description の両方を確認する。
-6. mapping 適用後の hostname／interface が inventory の表記と一致することを確認する。
-7. rule 変更後は同一 raw から再生成し、CSV、`link-diagnostics.yaml`、`mismatch-links.md` の差分を確認する。
+4. 個別明細の A-side claim／LLDP observed、Expected reverse、Actual reverse、Difference を比較する。
+5. candidate、赤い claim、`link-diagnostics.yaml` の `unevaluated_claims` にある対向 hostname／interface と coverage を照合する。
+6. conflict がある local interface は LLDP と description の両方を確認する。
+7. mapping 適用後の hostname／interface が inventory の表記と一致することを確認する。
+8. rule 変更後は同一 raw から再生成し、CSV、`link-diagnostics.yaml`、`mismatch-links.md` の差分を確認する。
 
 CSV と diagnostic は決定的に sort し、処理完了後に atomic に置換する。入力 CSV header validation は未実装である。
 

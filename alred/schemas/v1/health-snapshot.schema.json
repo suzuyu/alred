@@ -27,6 +27,63 @@
       "type": "string",
       "pattern": "^sha256:[0-9a-f]{64}$"
     },
+    "link_evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "normalizer_version",
+        "builder_version",
+        "policy_hashes",
+        "host_map",
+        "source_status",
+        "confirmed_links",
+        "candidate_links",
+        "diagnostics"
+      ],
+      "properties": {
+        "normalizer_version": {"type": "string", "minLength": 1},
+        "builder_version": {"type": "string", "minLength": 1},
+        "policy_hashes": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mappings", "description_rules"],
+          "properties": {
+            "mappings": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+            "description_rules": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+          }
+        },
+        "host_map": {
+          "type": "object",
+          "additionalProperties": {"type": "string", "minLength": 1}
+        },
+        "source_status": {"type": "object"},
+        "health_scope": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["eligible_hosts", "excluded_hosts"],
+          "properties": {
+            "eligible_hosts": {
+              "type": "array",
+              "items": {"type": "string", "minLength": 1},
+              "uniqueItems": true
+            },
+            "excluded_hosts": {
+              "type": "object",
+              "additionalProperties": {"type": "string", "minLength": 1}
+            }
+          }
+        },
+        "confirmed_links": {
+          "type": "array",
+          "items": {"type": "object"}
+        },
+        "candidate_links": {
+          "type": "array",
+          "items": {"type": "object"}
+        },
+        "diagnostics": {"type": "object"}
+      }
+    },
     "hosts": {
       "type": "object",
       "additionalProperties": {

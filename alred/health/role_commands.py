@@ -23,6 +23,29 @@ EVPN_RR_COMMAND_IDS = {
     "bgp_l2vpn_evpn_summary",
     "bgp_l2vpn_evpn",
 }
+BASE_COLLECT_COMMAND_IDS = {
+    "running_config",
+}
+RUNNING_CONFIG_PLAN_COMMENTS = (
+    "# Base collection: executed once; "
+    "output: raw/config/<hostname>_run.txt|json",
+    "# show running-config",
+)
+
+
+def _ordered_command_ids(
+    command_ids: set[str] | list[str],
+) -> list[str]:
+    """Keep base LLDP first, then retain deterministic command ordering."""
+    selected = set(command_ids)
+    return [
+        *(["lldp_neighbors_detail"] if "lldp_neighbors_detail" in selected else []),
+        *(
+            identifier
+            for identifier in sorted(selected)
+            if identifier != "lldp_neighbors_detail"
+        ),
+    ]
 
 
 def build_role_command_groups(
@@ -36,16 +59,22 @@ def build_role_command_groups(
     by_id = {
         str(item["id"]): str(item["command"])
         for item in commands
-        if item["id"] != "running_config"
+        if item["id"] not in BASE_COLLECT_COMMAND_IDS
     }
     if role_config is None or int(role_config.get("schema_version", 1)) == 1:
-        return {"device_type:nxos": [by_id[key] for key in sorted(by_id)]}
+        return {
+            "device_type:nxos": [
+                by_id[key] for key in _ordered_command_ids(list(by_id))
+            ]
+        }
 
+    base_ids = {
+        key for key in by_id if key not in OVERLAY_COMMAND_IDS
+    }
     groups: dict[str, list[str]] = {
         "device_type:nxos": [
             by_id[key]
-            for key in sorted(by_id)
-            if key not in OVERLAY_COMMAND_IDS
+            for key in _ordered_command_ids(base_ids)
         ]
     }
     for role, rule in role_config.get("role_detection", {}).items():
@@ -66,6 +95,8 @@ def render_role_command_groups(groups: Mapping[str, list[str]]) -> str:
     lines: list[str] = []
     for group, commands in groups.items():
         lines.append(f"[{group}]")
+        if group == "device_type:nxos":
+            lines.extend(RUNNING_CONFIG_PLAN_COMMENTS)
         lines.extend(commands)
         lines.append("")
     return "\n".join(lines).rstrip() + "\n"

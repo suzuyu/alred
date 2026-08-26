@@ -23,6 +23,7 @@ from alred.health.manifest import build_collect_manifest
 from alred.health.execution_context import HealthExecutionContextError
 from alred.health.profile import ProfileResolutionError, load_resolved_profiles
 from alred.health.parsers import ParserError, parse_nxos_command
+from alred.parsing import parse_lldp_file
 from alred.health.snapshot import (
     SnapshotBuildError,
     build_health_snapshot,
@@ -99,6 +100,58 @@ def _write_external_transcript(path):
             ]
         )
     path.write_text("\n".join(sections), encoding="utf-8")
+
+
+def _write_link_health_transcript(path):
+    path.write_text(
+        """\
+leaf01# show running-config
+hostname leaf01
+interface Ethernet1/1
+  description TO_spine01_Ethernet1/99
+leaf01# show lldp neighbors detail
+Local Port id: Ethernet1/1
+Port id: Ethernet1/2
+System Name: spine01
+
+spine01# show running-config
+hostname spine01
+interface Ethernet1/2
+  description TO_leaf01_Ethernet1/1
+spine01# show lldp neighbors detail
+Local Port id: Ethernet1/2
+Port id: Ethernet1/1
+System Name: leaf01
+""",
+        encoding="utf-8",
+    )
+
+
+def _write_mixed_nxos_eos_link_transcript(path):
+    eos_lldp = (
+        Path(__file__).parent
+        / "fixtures/eos/show_lldp_neighbors_detail/veos_4_32_2f.txt"
+    ).read_text(encoding="utf-8").rstrip()
+    path.write_text(
+        f"""\
+leaf01# show running-config
+hostname leaf01
+interface Ethernet1/1
+  description TO_spine01_Ethernet1
+leaf01# show lldp neighbors detail
+Local Port id: Ethernet1/1
+Port id: Ethernet1
+System Name: spine01
+
+spine01# show running-config
+hostname spine01
+interface Ethernet1
+   description TO_leaf01_Ethernet1/1
+spine01# show lldp neighbors detail
+{eos_lldp}
+""",
+        encoding="utf-8",
+    )
 
 
 def _build_collect_snapshot(tmp_path):
@@ -223,6 +276,323 @@ def test_external_transcript_matches_inventory_alias_and_same_state(tmp_path):
         transcript_snapshot["hosts"]["leaf01"]["profiles"]
         == collect_snapshot["hosts"]["leaf01"]["profiles"]
     )
+
+
+def test_health_before_nxos_transcript_evaluates_lldp_description(tmp_path):
+    transcript = tmp_path / "links.log"
+    _write_link_health_transcript(transcript)
+    hosts = tmp_path / "hosts.yaml"
+    hosts.write_text(
+        yaml.safe_dump(
+            {
+                "all": {
+                    "hosts": {
+                        "leaf01": {"device_type": "nxos"},
+                        "spine01": {"device_type": "nxos"},
+                    }
+                }
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+    operations_root = tmp_path / "operations"
+    args = build_parser().parse_args(
+        [
+            "health-check",
+            "before",
+            "--purpose",
+            "inspection",
+            "--input",
+            str(transcript),
+            "--input-format",
+            "nxos-transcript",
+            "--hosts",
+            str(hosts),
+            "--change-id",
+            "INS-LLDP-TRANSCRIPT",
+            "--operations-root",
+            str(operations_root),
+        ]
+    )
+
+    cmd_health_check_phase(args)
+
+    phase_root = (
+        open_operation_workspace(
+            operations_root,
+            "INS-LLDP-TRANSCRIPT",
+        ).operation_root
+        / "health/before"
+    )
+    collection = yaml.safe_load(
+        (phase_root / "collection-manifest.yaml").read_text(encoding="utf-8")
+    )
+    snapshot = json.loads((phase_root / "snapshot.json").read_text())
+    health_result = json.loads(
+        (phase_root / "health-result.json").read_text()
+    )
+    diagnostics = yaml.safe_load(
+        (phase_root / "link-diagnostics.yaml").read_text(encoding="utf-8")
+    )
+
+    assert set(collection["spec"]["hosts"]["leaf01"]["commands"]) == {
+        "lldp_neighbors_detail",
+        "running_config",
+    }
+    assert snapshot["hosts"]["leaf01"]["sources"][
+        "lldp_neighbors_detail"
+    ]["parse_status"] == "parsed"
+    assert snapshot["link_evidence"]["diagnostics"]["spec"]["result"] == (
+        "conflict"
+    )
+    assert {
+        item["result"]
+        for item in health_result["checks"]
+        if item["check_id"] == "lldp_description_consistency"
+    } == {"WARN"}
+    assert {
+        item["result"]
+        for item in health_result["checks"]
+        if item["check_id"] == "lldp_evidence_completeness"
+    } == {"PASS"}
+    assert {
+        item["code"] for item in diagnostics["spec"]["diagnostics"]
+    } == {"LLDP_DESC_INTERFACE_CONFLICT"}
+    assert (phase_root / "links_confirmed.csv").is_file()
+    assert (phase_root / "links_candidates.csv").is_file()
+
+
+def test_health_before_nxos_transcript_does_not_evaluate_clock_offset(tmp_path):
+    transcript = tmp_path / "clock.log"
+    transcript.write_text(
+        "leaf01# show clock\n"
+        "10:02:03.000 JST Sun Aug 02 2026\n",
+        encoding="utf-8",
+    )
+    hosts = tmp_path / "hosts.yaml"
+    hosts.write_text(
+        yaml.safe_dump(
+            {
+                "all": {
+                    "hosts": {
+                        "leaf01": {"device_type": "nxos"},
+                    }
+                }
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+    operations_root = tmp_path / "operations"
+    args = build_parser().parse_args(
+        [
+            "health-check",
+            "before",
+            "--purpose",
+            "inspection",
+            "--input",
+            str(transcript),
+            "--input-format",
+            "nxos-transcript",
+            "--hosts",
+            str(hosts),
+            "--change-id",
+            "INS-CLOCK-TRANSCRIPT",
+            "--operations-root",
+            str(operations_root),
+        ]
+    )
+
+    cmd_health_check_phase(args)
+
+    phase_root = (
+        open_operation_workspace(
+            operations_root,
+            "INS-CLOCK-TRANSCRIPT",
+        ).operation_root
+        / "health/before"
+    )
+    snapshot = json.loads((phase_root / "snapshot.json").read_text())
+    health_result = json.loads(
+        (phase_root / "health-result.json").read_text()
+    )
+    clock_check = next(
+        item
+        for item in health_result["checks"]
+        if item["host"] == "leaf01" and item["check_id"] == "clock_health"
+    )
+
+    assert snapshot["hosts"]["leaf01"]["sources"]["clock"]["source"] == (
+        "external_transcript"
+    )
+    assert clock_check["result"] == "NOT_APPLICABLE"
+    assert clock_check["message"] == (
+        "Clock offset is not evaluated for nxos-transcript input"
+    )
+
+
+def test_health_before_transcript_uses_eos_lldp_as_peer_evidence(tmp_path):
+    transcript = tmp_path / "mixed-links.log"
+    _write_mixed_nxos_eos_link_transcript(transcript)
+    hosts = tmp_path / "hosts.yaml"
+    hosts.write_text(
+        yaml.safe_dump(
+            {
+                "all": {
+                    "hosts": {
+                        "leaf01": {"device_type": "nxos"},
+                        "spine01": {"device_type": "eos"},
+                    }
+                }
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+    operations_root = tmp_path / "operations"
+    args = build_parser().parse_args(
+        [
+            "health-check",
+            "before",
+            "--purpose",
+            "inspection",
+            "--input",
+            str(transcript),
+            "--input-format",
+            "nxos-transcript",
+            "--hosts",
+            str(hosts),
+            "--change-id",
+            "INS-MIXED-LLDP",
+            "--operations-root",
+            str(operations_root),
+        ]
+    )
+
+    cmd_health_check_phase(args)
+
+    phase_root = (
+        open_operation_workspace(
+            operations_root,
+            "INS-MIXED-LLDP",
+        ).operation_root
+        / "health/before"
+    )
+    snapshot = json.loads((phase_root / "snapshot.json").read_text())
+    health_result = json.loads(
+        (phase_root / "health-result.json").read_text()
+    )
+
+    assert snapshot["hosts"]["spine01"]["sources"][
+        "lldp_neighbors_detail"
+    ]["parse_status"] == "parsed"
+    assert snapshot["link_evidence"]["confirmed_links"][0]["evidence"] == (
+        "bidirectional-lldp"
+    )
+    checks = {
+        item["check_id"]: item
+        for item in health_result["checks"]
+        if item["host"] == "leaf01"
+    }
+    assert checks["lldp_evidence_completeness"]["result"] == "PASS"
+    assert checks["lldp_description_consistency"]["result"] == "PASS"
+    assert not [
+        item
+        for item in health_result["checks"]
+        if item["host"] == "spine01"
+        and item["profile"] == "network-baseline-nxos"
+    ]
+
+
+def test_lldp_health_parser_distinguishes_empty_and_broken_output():
+    common, profiles = parse_nxos_command(
+        "lldp_neighbors_detail",
+        "Total entries displayed: 0\n",
+    )
+
+    assert common["lldp"] == {
+        "neighbor_count": 0,
+        "empty_observation": True,
+    }
+    assert profiles == {}
+    with pytest.raises(ParserError, match="complete neighbor stanza"):
+        parse_nxos_command(
+            "lldp_neighbors_detail",
+            "Local Port id: Ethernet1/1\nSystem Name: spine01\n",
+        )
+
+
+def test_eos_lldp_health_parser_reads_neighbor_fixture():
+    fixture = (
+        Path(__file__).parent
+        / "fixtures/eos/show_lldp_neighbors_detail/veos_4_32_2f.txt"
+    ).read_text(encoding="utf-8")
+
+    common, profiles = parse_nxos_command(
+        "lldp_neighbors_detail",
+        fixture,
+        device_type="eos",
+    )
+
+    assert common["lldp"] == {
+        "neighbor_count": 1,
+        "empty_observation": False,
+    }
+    assert profiles == {}
+    assert parse_lldp_file(fixture, "spine01", "eos", {}) == [
+        {
+            "src_node": "spine01",
+            "src_if": "Ethernet1",
+            "dst_node": "leaf01",
+            "dst_if": "Ethernet1/1",
+            "protocol": "lldp",
+            "confidence": "",
+            "evidence": "",
+            "remote_mgmt_ip": "192.0.2.11",
+            "rule_name": "",
+        }
+    ]
+
+
+def test_eos_lldp_health_parser_distinguishes_empty_and_broken_output():
+    common, _profiles = parse_nxos_command(
+        "lldp_neighbors_detail",
+        "Interface Ethernet1 detected 0 LLDP neighbors:\n",
+        device_type="eos",
+    )
+
+    assert common["lldp"] == {
+        "neighbor_count": 0,
+        "empty_observation": True,
+    }
+    with pytest.raises(ParserError, match="complete neighbor stanza"):
+        parse_nxos_command(
+            "lldp_neighbors_detail",
+            "Interface Ethernet1 detected 1 LLDP neighbors:\n",
+            device_type="eos",
+        )
+
+
+def test_direct_health_collection_runs_connect_check_by_default():
+    parser = build_parser()
+
+    default_args = parser.parse_args(
+        ["health-check", "before", "--collect", "--change-id", "CHG-1"]
+    )
+    skipped_args = parser.parse_args(
+        [
+            "health-check",
+            "before",
+            "--collect",
+            "--skip-connect-check",
+            "--change-id",
+            "CHG-1",
+        ]
+    )
+
+    assert default_args.skip_connect_check is False
+    assert skipped_args.skip_connect_check is True
 
 
 def test_external_transcript_deduplicates_identical_output_and_tracks_preamble(
@@ -1126,7 +1496,18 @@ def test_health_before_collect_reuses_existing_runner(
     assert commands.startswith("[device_type:nxos]\n")
     assert "show version" in commands
     assert "show logging" in commands
-    assert "show running-config\n" not in commands
+    assert "show running-config" not in [
+        line
+        for line in commands.splitlines()
+        if line and not line.startswith("#")
+    ]
+    command_lines = commands.splitlines()
+    assert command_lines[1] == (
+        "# Base collection: executed once; "
+        "output: raw/config/<hostname>_run.txt|json"
+    )
+    assert command_lines[2] == "# show running-config"
+    assert command_lines[3] == "show lldp neighbors detail"
     assert "show running-config diff unified" in commands
     assert (phase_root / "raw").is_dir()
     assert (phase_root / "snapshot.json").is_file()

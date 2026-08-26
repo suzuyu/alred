@@ -66,7 +66,25 @@ fixtureにより検証してから実装する。
 [Link Discovery and Normalization Design](../topology/LINK_DISCOVERY_AND_NORMALIZATION_DESIGN.md)の
 Canonical Link Evidenceを共用し、Health専用parserを重複実装しない。
 
-Health判定の既定対象は、inventoryで識別できるmanaged network device間のlinkとする。
+直接収集と offline 入力は同じ command ID と Canonical Link Evidence builder を使用する。
+新規の`alred-collect`では通常のcommand artifactである
+`<host>/commands/<sequence>_lldp_neighbors_detail.txt`と専用の`config/*_run.txt`を使用する。既存Topology
+consumerとの互換性のため`lldp/*_lldp.txt|json`も同じ実行結果から更新するが、Manifestには登録しない。
+command artifactが存在しない過去成果物だけ、`lldp/*_lldp.txt|json`をfallbackとして使用する。
+`nxos-transcript`では prompt 付きの`show lldp neighbors detail`と`show running-config`の
+選択済み command 区間を使用する。transcript adapter は正規化後 command をそれぞれ
+`lldp_neighbors_detail`、`running_config`として Collection Manifest へ登録し、source file、hash、
+command／output行範囲を保持する。同一 host・command の重複は共通 transcript duplicate policyで
+解決し、曖昧な LLDP または running config 区間を推測で採用しない。
+
+どちらの入力形式でも、成功済みの両 command を同じ Snapshot 世代から読み、Canonical Link Evidence、
+`LinkDiagnostics`、Health checkを生成する。LLDP commandの欠落、失敗、空output、CLI error、必要anchorの
+欠落、または曖昧なduplicateは`UNKNOWN`とする。明示的にneighbor 0件を示す対応済みoutputは正常な空集合と
+して扱い、破損outputと区別する。
+
+Health判定の既定対象は、inventoryで識別できるmanaged network device間のlinkとする。NX-OS profileを
+EOS host自身へ適用しないが、NX-OSとの対向確認に使用するEOSのLLDP／interface description evidenceは
+platform対応parserで解析する。
 
 ```yaml
 link_health:
@@ -80,17 +98,28 @@ link_health:
 
 `network_functions: auto`では、LLDPでneighborとして観測され、inventoryから一意に識別でき、対応parserで
 解析できる場合だけ対象へ含める。両端が収集対象なら双方向LLDPと両側descriptionを照合する。remote側が
-収集対象外ならlocal LLDPとlocal descriptionだけを照合し、逆方向証拠の欠落を異常にしない。
-server、inventory未登録endpoint、外部回線は既定でHealth判定から除外するが、raw evidenceとTopologyの
-candidateから削除しない。
+収集対象外ならlocal LLDPとlocal descriptionをTopology evidenceへ保持するが、Healthの
+`lldp_description_consistency`では評価しない。
+server、inventory未登録endpoint、`wan-provider`などの外部回線、role競合hostは既定でHealth判定から
+除外するが、raw evidenceとTopologyのcandidateから削除しない。
+
+Health checkはevidenceの完全性と、評価可能なlinkの不一致を分離する。
+
+- `lldp_evidence_completeness`: LLDP／running configの取得・parse、managed peerの逆方向LLDP、
+  description ambiguityを評価する。取得・parse不能および対向evidence不足は`UNKNOWN`、両端を正常収集した
+  片方向LLDPは`WARN`とする。
+- `lldp_description_consistency`: `evidence: bidirectional-lldp`のconfirmed linkだけを対象に、各local
+  interfaceのLLDP remote device／interfaceと解釈可能なdescriptionを比較する。対象linkがないhostは
+  `NOT_APPLICABLE`とし、completeness不足を重複して`UNKNOWN`にしない。
 
 | 観測状態 | 既定判定 |
 |---|---|
 | 双方向LLDPと解釈可能な両側descriptionが一致 | `PASS` |
 | 双方向LLDPが一致し、descriptionがない | `PASS`。欠落を補足情報へ記録 |
-| 同じlocal interfaceのLLDPとdescriptionが異なる | `WARN`。policyで`FAIL`へ厳格化可能 |
+| 双方向LLDPが成立した同じlocal interfaceのLLDPとdescriptionが異なる | `WARN`。policyで`FAIL`へ厳格化可能 |
 | 両端を正常収集済みだがLLDPが片方向だけ | `WARN` |
-| 対向が inventory 外、または対向の LLDP／description link record がない片方向 claim | `UNKNOWN`／`N/A`。mismatch として扱わない |
+| 対向がinventory内のmanaged deviceだが、対向のLLDP link recordがない片方向claim | completenessを`UNKNOWN`。consistencyでは評価しない |
+| 対向がinventory外、外部回線、server、またはHealth対象外 | `N/A`。mismatchとして扱わない |
 | LLDP command取得失敗、破損、対応parserで解釈不能 | `UNKNOWN` |
 | description ruleに一致しない | `N/A`。不一致と推測しない |
 | Health対象外endpoint | `N/A`。除外理由を記録 |
@@ -624,10 +653,10 @@ thresholds:
 | 項目 | 値 |
 |---|---|
 | profile | `network-baseline-nxos` |
-| current profile version | `1.3` |
+| current profile version | `1.6` |
 | check ID | `interface_health` |
 | evaluator | `interface_health` |
-| current parser | `nxos.interface_status`／`NXOS_PARSER_VERSION: 1.16` |
+| current parser | `nxos.interface_status`／`NXOS_PARSER_VERSION: 1.19` |
 | platform scope | `nxos` |
 | current implementation | `implemented`。ただし SVI の単独 profile 収集と policy 指定は未完了 |
 | resource | `interfaces` |
@@ -823,10 +852,13 @@ profile が check を定義しているにもかかわらず対応 command が C
 機能が対象外とは判定せず `UNKNOWN / collection_error` とする。`NOT_APPLICABLE` は、収集済み出力、
 running config、platform capability のいずれかから機能未設定または非対応を確認できた場合だけ使用する。
 
-`clock_health`は`show clock`のdevice時刻をcollection開始・完了時刻の範囲と比較し、timezoneを
-正規化してoffsetを記録する。初期既定は60秒超を`WARN`、300秒超を`FAIL`とし、profileで変更可能
-とする。安全にtimezoneまたは時刻を解釈できない場合は`UNKNOWN`とする。`show version`のuptimeが
-beforeより短くなった場合は、明示した再起動作業を除き`FAIL / regression`とする。
+`clock_health`は直接収集または`alred-collect`の`show clock`について、device時刻をcommand artifactの
+`COLLECTED_AT`と比較し、timezoneを正規化してoffsetを記録する。初期既定は60秒超を`WARN`、300秒超を
+`FAIL`とし、profileで変更可能とする。安全にtimezoneまたは時刻を解釈できない場合は`UNKNOWN`とする。
+`nxos-transcript`は実際の取得時刻を入力契約として保証しないため、`show clock`やtimestampの有無にかかわらず
+`clock_health`を評価せず`NOT_APPLICABLE`とする。transcriptのimport時刻やfile mtimeを取得時刻として
+代用しない。`show clock`のparse結果はNTP補助evidenceなど、offset以外の用途には保持する。
+`show version`のuptimeがbeforeより短くなった場合は、明示した再起動作業を除き`FAIL / regression`とする。
 
 ```yaml
 thresholds:
@@ -1039,7 +1071,12 @@ spec:
 ## 10. 既存show_commands.txtとの関係
 
 既存の`alred/sample_configs/show_commands.example.txt`には、本一覧の多くがすでに含まれている。現行の
-収集計画は同じコマンド文字列を二重実行せず、次をマージする。
+`show lldp neighbors detail`と`show running-config`は既存collectorのbase collectionが1回収集する。
+Health profileから生成する`show-commands.txt`にはLLDPを先頭に表示するが、collectorはbase collection結果を
+再利用し、追加commandとして再実行しない。running configはbase collectionと`raw/config/`の保存先を
+`# show running-config`とともにコメント表示するが、実行可能なshow listには加えない。専用artifactを
+Collection Manifestへ登録し、通常のcommand artifactや統合show logへ複製しない。
+その他の収集計画は同じコマンド文字列を二重実行せず、次をマージする。
 
 ```text
 既存show_commands.txt

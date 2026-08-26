@@ -478,40 +478,56 @@ Type-5 の例:
 
 ### 6.1 Link health結果
 
-LLDP／description整合性は`profile: network-baseline-nxos`のcheckとして`health-result.json`へ格納し、
-Canonical Link Evidenceのrecord IDとsourceを参照する。外部・serverなどの対象外linkをPASSへ数えず、
-`N/A`と除外理由を保持する。
+LLDP／descriptionの判定は`profile: network-baseline-nxos`の2つのcheckとして`health-result.json`へ格納し、
+Canonical Link Evidenceの診断IDとsourceを参照する。`lldp_evidence_completeness`は取得、parse、managed peerの
+逆方向evidenceを評価し、`lldp_description_consistency`は`evidence: bidirectional-lldp`のconfirmed linkだけを
+評価する。外部・serverなどの対象外linkをPASSへ数えず、対象linkがないhostは`N/A`と除外理由を保持する。
+
+phase directoryには`link-diagnostics.yaml`、`links_confirmed.csv`、`links_candidates.csv`を保存する。
+Snapshotの`link_evidence`はnormalizer／builder version、mappings／description rulesのhash、元hostから
+正規化hostへのmapping、host・source別parse状態、Health対象／除外hostと理由、confirmed／candidate link、
+`LinkDiagnostics`を保持する。
+`nxos-transcript`では各sourceの元file、hash、command／output行範囲をCollection Manifestと
+Snapshotの`sources`から追跡できるようにする。
+
+`clock_health`は直接収集と`alred-collect`で`PASS`／`WARN`／`FAIL`／`UNKNOWN`を出力する。
+`nxos-transcript`では取得時刻を保証できないため`NOT_APPLICABLE`とし、messageに
+`Clock offset is not evaluated for nxos-transcript input`を記録する。`show clock`のSnapshot fieldと
+source provenanceは省略しない。
+
+```json
+{
+  "check_id": "lldp_evidence_completeness",
+  "profile": "network-baseline-nxos",
+  "resource": "links/leaf01",
+  "result": "UNKNOWN",
+  "classification": "collection_error",
+  "message": "Link source data is unavailable: lldp_neighbors_detail: session initialization failed",
+  "evidence": []
+}
+```
+
+同じhostで双方向LLDPが成立し、description不一致を検出した場合は別checkに記録する。
 
 ```json
 {
   "check_id": "lldp_description_consistency",
   "profile": "network-baseline-nxos",
-  "resource": "link/leaf01:Ethernet1/1--spine01:Ethernet1/1",
+  "resource": "links/leaf01",
   "result": "WARN",
-  "classification": "mismatch",
-  "message": "LLDP and interface description identify different remote endpoints",
-  "before": null,
+  "classification": "pre_existing",
+  "message": "1 LLDP/description inconsistency diagnostic(s) were observed",
   "after": {
-    "lldp_endpoint": "spine01:Ethernet1/1",
-    "description_endpoint": "spine02:Ethernet1/1",
-    "confidence": "low"
-  },
-  "evidence": [
-    {
-      "command": "show lldp neighbors detail",
-      "source_id": "lldp_neighbors_detail"
-    },
-    {
-      "command": "show running-config",
-      "source_id": "running_config"
-    }
-  ]
+    "normalized_host": "leaf01",
+    "eligible_link_count": 1,
+    "diagnostic_ids": ["linkdiag-example"]
+  }
 }
 ```
 
-before／after比較では`neighbor_removed`、`neighbor_changed`、`interface_changed`、
-`new_mismatch`、`mismatch_resolved`を区別する。両端が収集対象だったかをrecordへ保持し、remote未収集を
-片方向LLDP異常として表示しない。mappings、description rules、normalizer versionがbeforeと一致しない
+before／after比較では2つのcheckを独立して比較し、悪化を`regression`、改善を`improvement`とする。
+両端が収集対象だったかをrecordへ保持し、remote未収集をdescription不一致として表示しない。
+mappings、description rules、normalizer versionがbeforeと一致しない
 場合は比較結果を生成せず、入力条件不一致としてfail closedにする。
 
 ## 7. execution.json

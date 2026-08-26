@@ -10,6 +10,7 @@ from .schema import API_VERSION, validate_document
 
 
 Endpoint = tuple[str, str]
+DescriptionClaim = tuple[Endpoint, Endpoint]
 
 
 def _endpoint(record: Mapping[str, Any], prefix: str) -> Endpoint:
@@ -29,6 +30,17 @@ def _endpoint_text(endpoint: Endpoint | None) -> str:
     if endpoint is None:
         return "-"
     return f"{endpoint[0]}:{endpoint[1]}" if endpoint[1] else endpoint[0]
+
+
+def _description_claim_document(claim: DescriptionClaim) -> dict[str, Any]:
+    return {
+        "local_endpoint": _endpoint_document(claim[0]),
+        "configured_endpoint": _endpoint_document(claim[1]),
+    }
+
+
+def _description_claim_text(claim: DescriptionClaim) -> str:
+    return f"{_endpoint_text(claim[0])} -> {_endpoint_text(claim[1])}"
 
 
 def _canonical_endpoints(first: Endpoint, second: Endpoint) -> tuple[Endpoint, Endpoint]:
@@ -74,6 +86,8 @@ def _diagnostic(
     message: str,
     group_value: Any | None = None,
     candidate_endpoints: Sequence[Endpoint] = (),
+    expected_reciprocal_claim: DescriptionClaim | None = None,
+    actual_reciprocal_claims: Sequence[DescriptionClaim] = (),
 ) -> dict[str, Any]:
     canonical = _canonical_endpoints(*link_endpoints)
     identity = {
@@ -115,6 +129,14 @@ def _diagnostic(
     if candidate_endpoints:
         document["candidate_endpoints"] = [
             _endpoint_document(endpoint) for endpoint in candidate_endpoints
+        ]
+    if expected_reciprocal_claim is not None:
+        document["expected_reciprocal_claim"] = _description_claim_document(
+            expected_reciprocal_claim
+        )
+        document["actual_reciprocal_claims"] = [
+            _description_claim_document(claim)
+            for claim in sorted(actual_reciprocal_claims)
         ]
     return document
 
@@ -178,6 +200,28 @@ def _has_reciprocal_description(
         for remote_local, remotes in descriptions_by_local.items()
         if remote_local[0] == configured[0]
         for remote in remotes
+    )
+
+
+def _reciprocal_description_claims(
+    configured: Endpoint,
+    descriptions_by_local: Mapping[Endpoint, Sequence[Endpoint]],
+) -> list[DescriptionClaim]:
+    """Return peer-side claims comparable with an expected reverse claim."""
+    if configured[1]:
+        local_endpoints = (configured,)
+    else:
+        local_endpoints = tuple(
+            local
+            for local in descriptions_by_local
+            if local[0] == configured[0]
+        )
+    return sorted(
+        {
+            (peer_local, remote)
+            for peer_local in local_endpoints
+            for remote in descriptions_by_local.get(peer_local, ())
+        }
     )
 
 
@@ -458,6 +502,10 @@ def build_link_diagnostics(
                     )
                 )
             elif local[0] in config_coverage:
+                expected_reciprocal_claim = (configured, local)
+                actual_reciprocal_claims = _reciprocal_description_claims(
+                    configured, desc_by_local
+                )
                 diagnostics.append(
                     _diagnostic(
                         code="DESCRIPTION_NOT_RECIPROCAL",
@@ -470,10 +518,13 @@ def build_link_diagnostics(
                         inventory_hosts=inventory,
                         message=(
                             f"Description claim {_endpoint_text(local)} -> "
-                            f"{_endpoint_text(configured)} has no reciprocal claim "
+                            f"{_endpoint_text(configured)} does not match expected "
+                            f"reverse claim {_description_claim_text(expected_reciprocal_claim)} "
                             "although both endpoint running configs were collected"
                         ),
                         group_value=tuple(sorted((local[0], configured[0]))),
+                        expected_reciprocal_claim=expected_reciprocal_claim,
+                        actual_reciprocal_claims=actual_reciprocal_claims,
                     )
                 )
 
@@ -636,6 +687,139 @@ def _recommended_check(code: str) -> str:
             "Add or correct the inventory or hostname mapping, then regenerate diagnostics."
         ),
     }.get(code, "Inspect the referenced evidence and regenerate diagnostics.")
+
+
+def _document_endpoint(value: Mapping[str, Any] | None) -> Endpoint | None:
+    if not value:
+        return None
+    node = str(value.get("node", ""))
+    if not node:
+        return None
+    return node, str(value.get("interface", ""))
+
+
+def _document_description_claim(value: Mapping[str, Any]) -> DescriptionClaim:
+    local = _document_endpoint(value.get("local_endpoint"))
+    configured = _document_endpoint(value.get("configured_endpoint"))
+    if local is None or configured is None:
+        raise ValueError("description claim requires two endpoints")
+    return local, configured
+
+
+def _reciprocal_difference(
+    expected_claim: DescriptionClaim,
+    actual_claims: Sequence[DescriptionClaim],
+) -> str:
+    expected_remote = expected_claim[1]
+    if not actual_claims:
+        return "No peer-side description claim was parsed at the expected interface; the description may be absent or unmatched by the active rules."
+    actual_remotes = [claim[1] for claim in actual_claims]
+    if expected_remote in actual_remotes:
+        return "The expected reverse claim is present."
+    same_device = [item for item in actual_remotes if item[0] == expected_remote[0]]
+    if same_device:
+        if expected_remote[1] and any(not item[1] for item in same_device):
+            return "The remote device matches, but the peer-side description does not specify the expected remote interface."
+        return "The remote device matches, but the remote interface differs from the expected reverse claim."
+    return "The peer-side description points to a different remote device."
+
+
+def _diagnostic_comparison_lines(item: Mapping[str, Any]) -> list[str]:
+    code = str(item["code"])
+    local = _document_endpoint(item.get("local_endpoint"))
+    observed = _document_endpoint(item.get("observed_endpoint"))
+    configured = _document_endpoint(item.get("configured_endpoint"))
+
+    if code == "DESCRIPTION_NOT_RECIPROCAL" and local and configured:
+        original_claim = (local, configured)
+        expected_value = item.get("expected_reciprocal_claim")
+        expected_claim = (
+            _document_description_claim(expected_value)
+            if isinstance(expected_value, Mapping)
+            else (configured, local)
+        )
+        lines = [
+            f"- A-side claim: `{_description_claim_text(original_claim)}`",
+            f"- Expected reverse: `{_description_claim_text(expected_claim)}`",
+        ]
+        if "actual_reciprocal_claims" not in item:
+            lines.extend(
+                [
+                    "- Actual reverse: `not recorded in this artifact`",
+                    "- Difference: The legacy diagnostic does not contain peer-side comparison evidence.",
+                ]
+            )
+            return lines
+        actual_claims = [
+            _document_description_claim(value)
+            for value in item.get("actual_reciprocal_claims", [])
+        ]
+        if actual_claims:
+            lines.append(
+                "- Actual reverse: "
+                + ", ".join(
+                    f"`{_description_claim_text(claim)}`" for claim in actual_claims
+                )
+            )
+        else:
+            lines.append("- Actual reverse: `(none)`")
+        lines.append(
+            f"- Difference: {_reciprocal_difference(expected_claim, actual_claims)}"
+        )
+        return lines
+
+    if (
+        code in {"LLDP_DESC_DEVICE_CONFLICT", "LLDP_DESC_INTERFACE_CONFLICT"}
+        and local
+        and observed
+        and configured
+    ):
+        lines = [
+            f"- LLDP observed: `{_description_claim_text((local, observed))}`",
+            f"- Description configured: `{_description_claim_text((local, configured))}`",
+        ]
+        field = "remote device" if code == "LLDP_DESC_DEVICE_CONFLICT" else "remote interface"
+        lines.append(
+            f"- Difference: The {field} differs between LLDP and the interface description."
+        )
+        return lines
+
+    if code == "ONE_WAY_LLDP" and local and observed:
+        return [
+            f"- LLDP observed: `{_description_claim_text((local, observed))}`",
+            f"- Expected reverse: `{_description_claim_text((observed, local))}`",
+            "- Actual reverse: `(none)`",
+            "- Difference: The reverse LLDP adjacency was not observed.",
+        ]
+
+    if code == "MULTIPLE_REMOTE_ENDPOINTS" and local:
+        source = "LLDP" if observed else "Description"
+        candidates = [
+            _document_endpoint(value) for value in item.get("candidate_endpoints", [])
+        ]
+        return [
+            f"- Local endpoint: `{_endpoint_text(local)}`",
+            f"- {source} candidates: "
+            + ", ".join(f"`{_endpoint_text(value)}`" for value in candidates),
+            "- Difference: More than one remote endpoint was resolved for the same local endpoint.",
+        ]
+
+    if code == "DESCRIPTION_AMBIGUOUS" and local:
+        candidates = [
+            _document_endpoint(value) for value in item.get("candidate_endpoints", [])
+        ]
+        return [
+            f"- Local endpoint: `{_endpoint_text(local)}`",
+            "- Description candidates: "
+            + ", ".join(f"`{_endpoint_text(value)}`" for value in candidates),
+            "- Difference: The description resolves to multiple endpoint candidates.",
+        ]
+
+    return [
+        f"- Local endpoint: `{_endpoint_text(local)}`",
+        f"- LLDP observed: `{_endpoint_text(observed)}`",
+        f"- Description configured: `{_endpoint_text(configured)}`",
+    ]
 
 
 def render_mismatch_links_markdown(
@@ -824,12 +1008,19 @@ def render_mismatch_links_markdown(
                     f"- Diagnostic: `{item['code']}`",
                     f"- Classification: `{item['classification']}`",
                     f"- Link state: `{item['link_state']}`",
-                    f"- Local endpoint: `{_endpoint_text((item['local_endpoint']['node'], item['local_endpoint']['interface']))}`",
-                    f"- LLDP endpoint: `{_endpoint_text((item['observed_endpoint']['node'], item['observed_endpoint']['interface'])) if item['observed_endpoint'] else '-'}`",
-                    f"- Description endpoint: `{_endpoint_text((item['configured_endpoint']['node'], item['configured_endpoint']['interface'])) if item['configured_endpoint'] else '-'}`",
+                ]
+            )
+            lines.extend(_diagnostic_comparison_lines(item))
+            lines.extend(
+                [
                     f"- Cause: {_escape_markdown(item['message'])}",
                     f"- Recommended check: {_recommended_check(item['code'])}",
-                    f"- Rendered: {'yes' if item['diagnostic_id'] in rendered else 'no'}",
+                    (
+                        "- Rendered as conflict claim: "
+                        if item["link_state"] == "claim"
+                        else "- Rendered in diagram: "
+                    )
+                    + ("yes" if item["diagnostic_id"] in rendered else "no"),
                 ]
             )
             if item["diagnostic_id"] not in rendered:

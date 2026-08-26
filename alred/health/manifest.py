@@ -115,7 +115,7 @@ def _parse_collect_sections(path: Path) -> list[dict[str, Any]]:
         else:
             host = prompt_match.group("host")
             actual_command = prompt_match.group("command").strip()
-            error = None
+            error = metadata.get("error")
             output_start = prompt_index + 2
         normalized_declared = normalize_command(declared_command)
         normalized_actual = normalize_command(actual_command)
@@ -190,14 +190,22 @@ def _running_config_entries(paths: list[Path], collected_at: str) -> list[dict[s
     return entries
 
 
-def _lldp_entries(paths: list[Path], collected_at: str) -> list[dict[str, Any]]:
-    """Select one dedicated LLDP neighbor artifact per host."""
+def _lldp_entries(
+    paths: list[Path],
+    collected_at: str,
+    *,
+    canonical_hosts: set[str] | None = None,
+) -> list[dict[str, Any]]:
+    """Select legacy LLDP artifacts only without a canonical command file."""
+    skipped_hosts = canonical_hosts or set()
     preferred: dict[str, Path] = {}
     for path in paths:
         match = re.fullmatch(r"(?P<host>.+)_lldp\.(?:txt|json)", path.name)
         if not match or "lldp" not in path.parts:
             continue
         host = match.group("host")
+        if host in skipped_hosts:
+            continue
         current = preferred.get(host)
         if current is None or (
             path.suffix.lower() == ".txt"
@@ -378,10 +386,16 @@ def build_collect_manifest(
         if log_host in command_file_hosts:
             continue
         sections.extend(_parse_collect_sections(path))
+    canonical_lldp_hosts = {
+        str(section["host"])
+        for section in sections
+        if section["command_id"] == "lldp_neighbors_detail"
+    }
     sections.extend(
         _lldp_entries(
             files,
             started_at.isoformat(timespec="seconds"),
+            canonical_hosts=canonical_lldp_hosts,
         )
     )
     sections.extend(

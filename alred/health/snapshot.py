@@ -32,7 +32,8 @@ def _source_sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def _read_command_output(record: Mapping[str, Any]) -> str:
+def read_manifest_command_output(record: Mapping[str, Any]) -> str:
+    """Read and hash-verify one full or line-ranged manifest command output."""
     path = Path(record["file"])
     if not path.is_file() or path.is_symlink():
         raise SnapshotBuildError(f"manifest source is missing or unsafe: {path}")
@@ -72,6 +73,7 @@ def build_health_snapshot(
     created_at: datetime,
     timezone: str,
     profile_sha256: str | None = None,
+    link_evidence: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Parse only manifest-pinned command outputs into a v1 Snapshot."""
     validate_document(
@@ -83,6 +85,7 @@ def build_health_snapshot(
     profile_hash = profile_sha256 or canonical_sha256({"profiles": profile_refs})
     hosts: dict[str, Any] = {}
     for hostname, host_record in sorted(manifest["spec"]["hosts"].items()):
+        source_platform = str(host_record.get("platform") or "nxos").strip().lower()
         common: dict[str, Any] = {}
         profiles: dict[str, Any] = {}
         sources: dict[str, Any] = {}
@@ -110,7 +113,12 @@ def build_health_snapshot(
                 )
                 if key in record
             }
-            source.update(parser_provenance(identifier))
+            source.update(
+                parser_provenance(
+                    identifier,
+                    device_type=source_platform,
+                )
+            )
             if record["status"] != "success":
                 source["parse_status"] = "unknown"
                 failed_count += 1
@@ -120,11 +128,12 @@ def build_health_snapshot(
                 sources[identifier] = source
                 continue
             try:
-                output = _read_command_output(record)
+                output = read_manifest_command_output(record)
                 common_update, profile_update = parse_nxos_command(
                     identifier,
                     output,
                     timezone=timezone,
+                    device_type=source_platform,
                 )
             except KeyError:
                 source["parse_status"] = "unsupported"
@@ -191,5 +200,10 @@ def build_health_snapshot(
         "profile_sha256": profile_hash,
         "hosts": hosts,
     }
+    if link_evidence is not None:
+        snapshot["link_evidence"] = dict(link_evidence)
+        parser_versions["link_normalizer"] = str(
+            link_evidence["normalizer_version"]
+        )
     validate_document(snapshot, kind="HealthSnapshot")
     return snapshot

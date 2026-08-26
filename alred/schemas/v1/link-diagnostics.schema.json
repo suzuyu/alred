@@ -89,6 +89,10 @@
     "diagnostic": {
       "type": "object",
       "additionalProperties": false,
+      "dependentRequired": {
+        "expected_reciprocal_claim": ["actual_reciprocal_claims"],
+        "actual_reciprocal_claims": ["expected_reciprocal_claim"]
+      },
       "required": [
         "diagnostic_id", "group_id", "code", "classification", "link_state",
         "link_endpoints", "local_endpoint", "observed_endpoint",
@@ -109,6 +113,12 @@
         "local_endpoint": {"$ref": "#/$defs/endpoint"},
         "observed_endpoint": {"$ref": "#/$defs/endpoint"},
         "configured_endpoint": {"$ref": "#/$defs/endpoint"},
+        "expected_reciprocal_claim": {"$ref": "#/$defs/description_claim"},
+        "actual_reciprocal_claims": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/description_claim"}
+        },
         "candidate_endpoints": {
           "type": "array",
           "minItems": 2,
@@ -121,6 +131,24 @@
           "items": {"type": "string", "minLength": 1}
         },
         "message": {"type": "string", "minLength": 1}
+      }
+    },
+    "description_claim": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["local_endpoint", "configured_endpoint"],
+      "properties": {
+        "local_endpoint": {"$ref": "#/$defs/required_endpoint"},
+        "configured_endpoint": {"$ref": "#/$defs/required_endpoint"}
+      }
+    },
+    "required_endpoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["node", "interface"],
+      "properties": {
+        "node": {"type": "string", "minLength": 1},
+        "interface": {"type": "string"}
       }
     },
     "unevaluated_claim": {

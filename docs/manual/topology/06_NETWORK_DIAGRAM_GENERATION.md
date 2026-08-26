@@ -108,8 +108,8 @@ hub 左列／spoke 右列へ配置する。逆方向 route leak は 2 lane に�
 |---|---|---|---|
 | `links_confirmed.csv` | 常時 | 複数 evidence で確認できた canonical link | [confirmed link](examples/quick-start/links_confirmed.example.csv) |
 | `links_candidates.csv` | 常時 | 片方向または未確定の review 対象 link | [candidate link](examples/quick-start/links_candidates.example.csv) |
-| `link-diagnostics.yaml` | 常時 | coverage、不整合、警告、未評価 claim、影響 device、未解決 peer reference の schema 付き結果 | [Link Normalization](02_LINK_NORMALIZATION.md) |
-| `mismatch-links.md` | 常時 | Summary、Affected Devices、mismatch、warning、unknown、未解決 peer reference。未評価 claim は Summary の件数だけを表示 | [Link Normalization](02_LINK_NORMALIZATION.md) |
+| `link-diagnostics.yaml` | 常時 | coverage、不整合、警告、未評価 claim、影響 device、未解決 peer reference、非相互 description の逆方向比較 evidence を含む schema 付き結果 | [Link Normalization](02_LINK_NORMALIZATION.md) |
+| `mismatch-links.md` | 常時 | Summary、Affected Devices、mismatch、warning、unknown、未解決 peer reference、および診断ごとの期待値／実測値／差分理由。未評価 claim は Summary の件数だけを表示 | [Link Normalization](02_LINK_NORMALIZATION.md) |
 | `normalized-links.regenerated.csv` | Evidence Package 使用時 | Package の固定 source から再生成した confirmed link | [Link Normalization](02_LINK_NORMALIZATION.md) |
 | `link-verification.json` | Evidence Package 使用時 | Package 同梱 link と再生成 link の semantic hash 検証結果 | [Link Normalization](02_LINK_NORMALIZATION.md) |
 | `normalization-manifest.yaml` | Evidence Package 使用時 | normalizer version と検証済み semantic hash | [Link Normalization](02_LINK_NORMALIZATION.md) |
@@ -151,7 +151,7 @@ test -f output/network-diagram-manifest.yaml
 test -d output/overlay-services
 ```
 
-`mismatch-links.md` で evaluation status、影響 device、対象 link、原因、片方向だが未評価の claim を確認する。`network-diagram-manifest.yaml` で source、
+`mismatch-links.md` で evaluation status、影響 device、対象 link、期待値／実測値／差分理由、片方向だが未評価の claim を確認する。`network-diagram-manifest.yaml` で source、
 実効 option、LinkDiagnostics の result／件数、input／artifact hash、Detail の generated／omitted service ID を確認する。
 成果物の意味と troubleshooting は [Output and Troubleshooting](04_OUTPUT_AND_TROUBLESHOOTING.md) を参照する。
 
