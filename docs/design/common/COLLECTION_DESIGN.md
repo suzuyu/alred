@@ -51,11 +51,19 @@ legacy current mirrorの意味を変更しない。
 
 `network-baseline-nxos`の直接収集ではrunning configとLLDPを同一attemptへ保存し、同じCollection Manifestに
 固定する。Health、Topology、Containerlab、Portable Evidence PackageはManifestが指す同一rawを参照し、
-用途ごとに再収集または複製しない。
+用途ごとに再収集しない。
 
-Collection Manifestでは、running configを`source: running-config`、LLDPを`source: lldp`、profileの
-追加show outputを`source: show`として区別する。`source: lldp`のcommand IDは`lldp_neighbors_detail`とし、
-text artifactをJSON sidecarより優先する。
+新規収集のLLDPは追加show outputと同じcommand artifactをcanonical sourceとし、command IDを
+`lldp_neighbors_detail`とする。既存Topology consumerとの互換性のため`lldp/<hostname>_lldp.txt|json`も
+current mirrorとして更新するが、機器でcommandを再実行せず、同じ収集結果から生成する。Collection Manifestは
+canonical command artifactだけを登録し、互換mirrorを同一commandのduplicate候補にしない。過去の
+command artifactを持たないcollect成果物では、`lldp/`をlegacy fallbackとして登録する。
+
+running configはconfig差分、外部import、長いtimeout、取扱いの異なる機密情報を持つため、引き続き
+`config/<hostname>_run.txt|json`をcanonical sourceとする。
+Healthが生成する`show-commands.txt`では全Collection Planを確認できるよう、NX-OS sectionの先頭に
+running configのbase collectionと保存先をコメント表示する。`# show running-config`は可視化だけを目的とし、
+show command loaderは実行対象に含めない。running configの取得回数、保存先、Manifest sourceは変更しない。
 
 ## 4. Command選択
 
@@ -103,13 +111,14 @@ raw rootの基本構造は次とする。
 ```text
 raw/
 ├── lldp/
-│   └── <hostname>_lldp.txt|json
+│   └── <hostname>_lldp.txt|json       # legacy consumer向け互換mirror
 ├── config/
-│   └── <hostname>_run.txt|json
+│   └── <hostname>_run.txt|json        # running configのcanonical source
 ├── show_lists/
 │   └── <hostname>/
 │       ├── <hostname>_shows.log
 │       ├── commands/
+│       │   ├── <sequence>_lldp_neighbors_detail.txt
 │       │   └── <sequence>_<command-id>.txt
 │       └── <command-sidecar>.json
 └── old/
@@ -123,6 +132,12 @@ raw/
   canonical source とする。各 file には1 command だけを格納し、sequence で実行順と同一 command ID の
   衝突を区別する。長い未知 command ID は固定長 hash を付けて filename を制限する。
   `<hostname>_shows.log`は既存 consumer 向けの互換成果物として継続する。
+- base collectionのLLDPも同じsection形式で`<sequence>_lldp_neighbors_detail.txt`へ保存する。Healthの
+  command planではLLDPを先頭に表示して`001`とし、LLDPをshow command listへ含めないlegacy collectionでは
+  base commandを示す`000`とする。`### COMMAND`、`### COLLECTED_AT`、`### STATUS`、
+  `### TRANSPORT`、prompt markerを必須とし、取得失敗時も同pathへ`STATUS: ERROR`を保存する。
+- `lldp/<hostname>_lldp.txt|json`は同じLLDP実行結果から更新する互換mirrorであり、canonical command
+  artifactとの間で内容を独立に選択しない。
 - `auto` transportでSSH transcriptをcanonical textとして必要とするflowでは、SSH textを優先し、
   NX-API JSONはsidecarとして保存できる。
 
@@ -143,6 +158,10 @@ legacy current mirrorは複数fileのatomic publishを保証しない。Health C
 - parserが参照するsource範囲
 - 欠落、重複、旧sidecar混入候補
 
+LLDPの選択優先順位は、成功・失敗を問わず同一generationのcanonical command artifact、legacy
+`lldp/`の順とする。canonical artifactが存在する場合は互換mirrorを無視する。これにより失敗した新規収集を
+古い成功済みmirrorで正常と誤認しない。
+
 directory内に存在するという理由だけで、今回generationのcanonical sourceへ追加しない。
 command 別 file が存在する host では Collection Manifest はそちらを優先し、同じ host の統合 transcript を
 重複登録しない。legacy 収集などで command 別 file がない場合、downstream consumer は統合 show transcript の
@@ -158,6 +177,17 @@ file 全体ではなく Manifest の
 - timeout、接続断、途中成功をhost全体の正常完了とみなさない。
 - collection終了時に成功、失敗、skipを区別して表示する。
 - read-only collectionのretryは可能だが、旧generationと新generationを混ぜて単一attemptにしない。
+- SSH接続またはNetmiko session初期化が最初のcommand実行前に失敗した場合だけ、接続を破棄し、
+  1秒待機して新規sessionで1回再試行する。command送信後のtimeout、CLI error、parser errorは
+  自動再試行しない。
+- SSH command送信後に例外が発生したsessionは状態不明として破棄し、同じhostの残りcommandのために
+  自動再接続しない。残りcommandも失敗として記録し、別attemptで再収集する。
+- retryの各失敗はhost、command、attempt番号、transport、errorをlogへ残す。最終失敗したcommandは
+  Collection Manifestから省略せず`status: failed`として記録する。
+- `health-check before|after|rollback --collect`は、共通のconnect-checkを先に実行して対象を確定する。
+  その後、1 hostにつき収集用sessionを1つ確立し、全commandで再利用する。したがって通常は
+  connect-checkと収集の2 sessionを順番に使用する。収集session初期化retryが発生した場合だけ、
+  失敗sessionを破棄して1回再接続する。`--skip-connect-check`は明示的に事前確認を省略する場合だけ使用する。
 
 ## 7. Security
 

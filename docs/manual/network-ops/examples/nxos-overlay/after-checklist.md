@@ -11,7 +11,7 @@
 
 | Profile | PASS | WARN | FAIL | UNKNOWN | N/A |
 |---|---:|---:|---:|---:|---:|
-| network-baseline-nxos | 136 | 0 | 0 | 0 | 24 |
+| network-baseline-nxos | 144 | 0 | 0 | 0 | 32 |
 | nxos-overlay | 50 | 0 | 0 | 0 | 2 |
 
 ### WARN / FAIL / UNKNOWN Items
@@ -27,6 +27,8 @@
 - [x] `collection_complete`: PASS - All required command outputs were parsed
 - [x] `system_identity`: PASS - NX-OS 10.5(4) model Nexus9000 C9300v was identified
 - [x] `hostname_identity`: PASS - Reported hostname matches inventory hostname: adc-bgrt0101
+- [x] `lldp_evidence_completeness`: PASS - LLDP and description evidence is complete
+- [-] `lldp_description_consistency`: NOT_APPLICABLE - No bidirectional LLDP link is eligible for description evaluation
 - [x] `cpu_utilization`: PASS - CPU one_minute_percent is 24% (warning threshold: 80%)
 - [x] `memory_utilization`: PASS - Memory utilization is 44% (warn: 85%, fail: 95%)
 - [-] `environment_health`: NOT_APPLICABLE - Hardware environment sensors are unavailable on this platform
@@ -52,6 +54,8 @@
 - [x] `collection_complete`: PASS - All required command outputs were parsed
 - [x] `system_identity`: PASS - NX-OS 10.5(4) model Nexus9000 C9300v was identified
 - [x] `hostname_identity`: PASS - Reported hostname matches inventory hostname: adc-bgrt0102
+- [x] `lldp_evidence_completeness`: PASS - LLDP and description evidence is complete
+- [-] `lldp_description_consistency`: NOT_APPLICABLE - No bidirectional LLDP link is eligible for description evaluation
 - [x] `cpu_utilization`: PASS - CPU one_minute_percent is 24% (warning threshold: 80%)
 - [x] `memory_utilization`: PASS - Memory utilization is 44% (warn: 85%, fail: 95%)
 - [-] `environment_health`: NOT_APPLICABLE - Hardware environment sensors are unavailable on this platform
@@ -77,6 +81,8 @@
 - [x] `collection_complete`: PASS - All required command outputs were parsed
 - [x] `system_identity`: PASS - NX-OS 10.5(4) model Nexus9000 C9300v was identified
 - [x] `hostname_identity`: PASS - Reported hostname matches inventory hostname: adc-lfsw0101
+- [x] `lldp_evidence_completeness`: PASS - LLDP and description evidence is complete
+- [-] `lldp_description_consistency`: NOT_APPLICABLE - No bidirectional LLDP link is eligible for description evaluation
 - [x] `cpu_utilization`: PASS - CPU one_minute_percent is 24% (warning threshold: 80%)
 - [x] `memory_utilization`: PASS - Memory utilization is 44% (warn: 85%, fail: 95%)
 - [-] `environment_health`: NOT_APPLICABLE - Hardware environment sensors are unavailable on this platform
@@ -116,6 +122,8 @@
 - [x] `collection_complete`: PASS - All required command outputs were parsed
 - [x] `system_identity`: PASS - NX-OS 10.5(4) model Nexus9000 C9300v was identified
 - [x] `hostname_identity`: PASS - Reported hostname matches inventory hostname: adc-lfsw0102
+- [x] `lldp_evidence_completeness`: PASS - LLDP and description evidence is complete
+- [-] `lldp_description_consistency`: NOT_APPLICABLE - No bidirectional LLDP link is eligible for description evaluation
 - [x] `cpu_utilization`: PASS - CPU one_minute_percent is 24% (warning threshold: 80%)
 - [x] `memory_utilization`: PASS - Memory utilization is 44% (warn: 85%, fail: 95%)
 - [-] `environment_health`: NOT_APPLICABLE - Hardware environment sensors are unavailable on this platform
@@ -155,6 +163,8 @@
 - [x] `collection_complete`: PASS - All required command outputs were parsed
 - [x] `system_identity`: PASS - NX-OS 10.5(4) model Nexus9000 C9300v was identified
 - [x] `hostname_identity`: PASS - Reported hostname matches inventory hostname: adc-lfsw0103
+- [x] `lldp_evidence_completeness`: PASS - LLDP and description evidence is complete
+- [-] `lldp_description_consistency`: NOT_APPLICABLE - No bidirectional LLDP link is eligible for description evaluation
 - [x] `cpu_utilization`: PASS - CPU one_minute_percent is 24% (warning threshold: 80%)
 - [x] `memory_utilization`: PASS - Memory utilization is 44% (warn: 85%, fail: 95%)
 - [-] `environment_health`: NOT_APPLICABLE - Hardware environment sensors are unavailable on this platform
@@ -194,6 +204,8 @@
 - [x] `collection_complete`: PASS - All required command outputs were parsed
 - [x] `system_identity`: PASS - NX-OS 10.5(4) model Nexus9000 C9300v was identified
 - [x] `hostname_identity`: PASS - Reported hostname matches inventory hostname: adc-lfsw0104
+- [x] `lldp_evidence_completeness`: PASS - LLDP and description evidence is complete
+- [-] `lldp_description_consistency`: NOT_APPLICABLE - No bidirectional LLDP link is eligible for description evaluation
 - [x] `cpu_utilization`: PASS - CPU one_minute_percent is 24% (warning threshold: 80%)
 - [x] `memory_utilization`: PASS - Memory utilization is 44% (warn: 85%, fail: 95%)
 - [-] `environment_health`: NOT_APPLICABLE - Hardware environment sensors are unavailable on this platform
@@ -233,6 +245,8 @@
 - [x] `collection_complete`: PASS - All required command outputs were parsed
 - [x] `system_identity`: PASS - NX-OS 10.5(4) model Nexus9000 C9300v was identified
 - [x] `hostname_identity`: PASS - Reported hostname matches inventory hostname: adc-spsw0101
+- [x] `lldp_evidence_completeness`: PASS - LLDP and description evidence is complete
+- [-] `lldp_description_consistency`: NOT_APPLICABLE - No bidirectional LLDP link is eligible for description evaluation
 - [x] `cpu_utilization`: PASS - CPU one_minute_percent is 24% (warning threshold: 80%)
 - [x] `memory_utilization`: PASS - Memory utilization is 44% (warn: 85%, fail: 95%)
 - [-] `environment_health`: NOT_APPLICABLE - Hardware environment sensors are unavailable on this platform
@@ -265,6 +279,8 @@
 - [x] `collection_complete`: PASS - All required command outputs were parsed
 - [x] `system_identity`: PASS - NX-OS 10.5(4) model Nexus9000 C9300v was identified
 - [x] `hostname_identity`: PASS - Reported hostname matches inventory hostname: adc-spsw0102
+- [x] `lldp_evidence_completeness`: PASS - LLDP and description evidence is complete
+- [-] `lldp_description_consistency`: NOT_APPLICABLE - No bidirectional LLDP link is eligible for description evaluation
 - [x] `cpu_utilization`: PASS - CPU one_minute_percent is 24% (warning threshold: 80%)
 - [x] `memory_utilization`: PASS - Memory utilization is 44% (warn: 85%, fail: 95%)
 - [-] `environment_health`: NOT_APPLICABLE - Hardware environment sensors are unavailable on this platform

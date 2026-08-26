@@ -556,6 +556,106 @@ def parse_nxos_lldp_detail(text: str, local_hostname: str, mappings: Dict[str, A
     return records
 
 
+def parse_eos_lldp_detail(
+    text: str,
+    local_hostname: str,
+    mappings: Dict[str, Any],
+) -> List[Dict[str, str]]:
+    """Parse Arista EOS ``show lldp neighbors detail`` output."""
+    records: List[Dict[str, str]] = []
+    local_if = ""
+    remote_hostname = ""
+    remote_if = ""
+    management_address = ""
+
+    def clean(value: str) -> str:
+        return value.strip().strip('"')
+
+    def flush() -> None:
+        nonlocal remote_hostname, remote_if, management_address
+        if local_if and remote_hostname and remote_if:
+            if not (
+                is_excluded_node(local_hostname, mappings)
+                or is_excluded_node(remote_hostname, mappings)
+                or is_excluded_interface(local_if, mappings)
+                or is_excluded_interface(remote_if, mappings)
+            ):
+                records.append(
+                    {
+                        "src_node": normalize_hostname(
+                            local_hostname,
+                            mappings,
+                        ),
+                        "src_if": normalize_interface_name(
+                            local_if,
+                            mappings,
+                        ),
+                        "dst_node": normalize_hostname(
+                            remote_hostname,
+                            mappings,
+                        ),
+                        "dst_if": normalize_interface_name(
+                            remote_if,
+                            mappings,
+                        ),
+                        "protocol": "lldp",
+                        "confidence": "",
+                        "evidence": "",
+                        "remote_mgmt_ip": management_address,
+                        "rule_name": "",
+                    }
+                )
+        remote_hostname = ""
+        remote_if = ""
+        management_address = ""
+
+    for raw_line in text.splitlines():
+        line = raw_line.rstrip()
+        interface_match = re.match(
+            r"^Interface\s+(\S+)\s+detected\s+\d+\s+LLDP\s+neighbors?:\s*$",
+            line,
+            flags=re.IGNORECASE,
+        )
+        if interface_match:
+            flush()
+            local_if = clean(interface_match.group(1))
+            continue
+        if re.match(r"^\s*Neighbor\s+", line, flags=re.IGNORECASE):
+            flush()
+            continue
+        system_match = re.match(
+            r'^\s*-\s*System Name\s*:\s*(.+?)\s*$',
+            line,
+            flags=re.IGNORECASE,
+        )
+        if system_match:
+            remote_hostname = clean(system_match.group(1))
+            continue
+        port_match = re.match(
+            r'^\s*Port ID\s*:\s*(.+?)\s*$',
+            line,
+            flags=re.IGNORECASE,
+        )
+        if port_match and not remote_if:
+            remote_if = clean(port_match.group(1))
+            continue
+        address_match = re.match(
+            r"^\s*Management Address\s*:\s*(\S+)\s*$",
+            line,
+            flags=re.IGNORECASE,
+        )
+        if address_match and not management_address:
+            candidate = clean(address_match.group(1))
+            try:
+                ipaddress.ip_address(candidate)
+            except ValueError:
+                continue
+            management_address = candidate
+
+    flush()
+    return records
+
+
 def parse_linux_lldp(text: str, local_hostname: str, mappings: Dict[str, Any]) -> List[Dict[str, str]]:
     """
     Parse Linux lldpcli output.
@@ -627,7 +727,9 @@ def parse_lldp_file(text: str, local_hostname: str, device_type: str, mappings: 
     Returns:
         Parsed directional LLDP records.
     """
-    if device_type in {"nxos", "ios", "iosxe", "iosxr", "eos", "asa", "asav"}:
+    if device_type == "eos":
+        return parse_eos_lldp_detail(text, local_hostname, mappings)
+    if device_type in {"nxos", "ios", "iosxe", "iosxr", "asa", "asav"}:
         return parse_nxos_lldp_detail(text, local_hostname, mappings)
     if device_type == "linux":
         return parse_linux_lldp(text, local_hostname, mappings)

@@ -13,6 +13,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from .overlay import parse_overlay_running_config
 from ..logging_check import parse_nxos_log_records
+from ..parsing import parse_lldp_file
 
 try:
     import ntc_templates
@@ -25,7 +26,7 @@ except ImportError as exc:
     ParsingException = Exception
     NTC_TEMPLATES_IMPORT_ERROR = exc
 
-NXOS_PARSER_VERSION = "1.17"
+NXOS_PARSER_VERSION = "1.19"
 NTC_TEMPLATES_VERSION = (
     importlib_metadata.version("ntc-templates")
     if NTC_TEMPLATES_IMPORT_ERROR is None
@@ -80,6 +81,45 @@ def _require_output(output: str) -> str:
     return stripped
 
 
+def _parse_lldp_neighbors_detail(
+    output: str,
+    *,
+    device_type: str = "nxos",
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Validate LLDP detail while canonical link parsing remains shared."""
+    stripped = _require_output(output)
+    records = parse_lldp_file(
+        stripped,
+        "__health_local__",
+        device_type,
+        {},
+    )
+    nxos_empty_observation = re.search(
+        r"(?:total\s+entries\s+displayed\s*:\s*0|no\s+lldp\s+neighbors?)",
+        stripped,
+        flags=re.IGNORECASE,
+    )
+    eos_counts = [
+        int(value)
+        for value in re.findall(
+            r"^Interface\s+\S+\s+detected\s+(\d+)\s+LLDP\s+neighbors?:",
+            stripped,
+            flags=re.IGNORECASE | re.MULTILINE,
+        )
+    ]
+    empty_observation = bool(nxos_empty_observation) or (
+        bool(eos_counts) and not any(eos_counts)
+    )
+    if not records and not empty_observation:
+        raise ParserError("LLDP detail output has no complete neighbor stanza")
+    return {
+        "lldp": {
+            "neighbor_count": len(records),
+            "empty_observation": not records,
+        }
+    }, {}
+
+
 def _ntc_template_path(identifier: str) -> Path:
     if ntc_templates is None:
         raise ParserError(
@@ -96,7 +136,11 @@ def _ntc_template_path(identifier: str) -> Path:
     return path
 
 
-def parser_provenance(identifier: str) -> dict[str, Any]:
+def parser_provenance(
+    identifier: str,
+    *,
+    device_type: str = "nxos",
+) -> dict[str, Any]:
     """Return deterministic parser provenance for a supported command ID."""
     if identifier == "license_usage":
         provenance = {
@@ -128,7 +172,11 @@ def parser_provenance(identifier: str) -> dict[str, Any]:
         return provenance
     if identifier in PARSERS or identifier in {"clock", "show_logging"}:
         return {
-            "parser": f"nxos.{identifier}",
+            "parser": (
+                f"{device_type}.lldp_neighbors_detail"
+                if identifier == "lldp_neighbors_detail"
+                else f"nxos.{identifier}"
+            ),
             "parser_version": NXOS_PARSER_VERSION,
         }
     return {"parser": None, "parser_version": None}
@@ -1506,6 +1554,7 @@ PARSERS = {
     "interface_brief": _parse_interface_brief,
     "interface_errors": _parse_interface_errors,
     "port_channel_summary": _parse_port_channel_summary,
+    "lldp_neighbors_detail": _parse_lldp_neighbors_detail,
     "route_summary_ipv4": _parse_route_summary_ipv4,
     "ospf_neighbors": _parse_ospf_neighbors,
     "bgp_ipv4_summary": _parse_bgp_ipv4_summary,
@@ -1529,6 +1578,7 @@ def parse_nxos_command(
     output: str,
     *,
     timezone: str = "Asia/Tokyo",
+    device_type: str = "nxos",
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Parse one supported NX-OS command into common/profile state."""
     parser = PARSERS.get(identifier)
@@ -1536,6 +1586,11 @@ def parse_nxos_command(
         return _parse_show_logging(output, timezone=timezone)
     if identifier == "clock":
         return _parse_clock(output, timezone=timezone)
+    if identifier == "lldp_neighbors_detail":
+        return _parse_lldp_neighbors_detail(
+            output,
+            device_type=device_type,
+        )
     if parser is None:
         raise KeyError(identifier)
     return parser(output)

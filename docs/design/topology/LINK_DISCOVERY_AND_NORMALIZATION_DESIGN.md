@@ -122,6 +122,13 @@ description-only で相互の remote endpoint が一致しない場合は、存�
 | `DESCRIPTION_AMBIGUOUS` | descriptionを複数endpointへ解釈できる | linkを生成せず`UNKNOWN` |
 | `REMOTE_DEVICE_UNRESOLVED` | mapping conflict などにより remote identity 自体を一意に正規化できない既存 diagnostic | unknown として保持。inventory 非登録だけでは生成しない |
 
+`DESCRIPTION_NOT_RECIPROCAL` は、A 側の方向付き claim に加えて、期待する逆方向 claim を
+`expected_reciprocal_claim`、対向 interface から実際に解析した 0 件以上の claim を
+`actual_reciprocal_claims` として保持する。各 claim は `local_endpoint` と `configured_endpoint` を持つ。
+対向 claim を解析できない場合は空配列、remote device だけ解析できた場合は空の interface を保持し、
+「逆方向なし」「device は一致するが interface 不明」「別 endpoint」を区別できるようにする。既存の
+`alred/v1` 成果物との読み取り互換性のため、この 2 field を持たない既存 diagnostic も schema-valid とする。
+
 description rule は定義順を priority とし、最初に 1 件以上 match した rule だけを採用する。その rule が同じ description から
 複数の異なる endpoint を抽出した場合は `DESCRIPTION_AMBIGUOUS` とし、最初の endpoint を暗黙採用しない。この規則により、
 既存の ordered rule fallback を維持しながら 1 rule 内の複数解釈を fail closed にする。
@@ -297,6 +304,11 @@ endpoint、reason、message は `mismatch-links.md` の詳細へ出力せず、`
 local endpointの順で安定sortする。raw description全文、管理address、secretは出力せず、正規化済みendpoint、原因、
 evidence、推奨確認事項、diagramへのrender有無とskip理由を記録する。
 
+個別明細の比較項目は診断 ID に応じて切り替える。`DESCRIPTION_NOT_RECIPROCAL` は A 側 claim、期待する逆方向、
+実際の逆方向 claim、および差分理由を表示する。LLDP と description の conflict は LLDP 実測値と description 設定値、
+`ONE_WAY_LLDP` は観測方向、期待する逆方向、および逆方向がないことを表示する。適用されない source を常に `-` として
+表示しない。description-only の有向 conflict claim は `Rendered as conflict claim` として、検証済み link の描画と区別する。
+
 ## 8. Errorとpartial output
 
 必須入力不足、schema不正、未知confidenceは処理を失敗させる。個別hostのraw file不足や未対応parserは対象hostを
@@ -320,6 +332,7 @@ Evidence Package再生成では、必須artifact不足を`EVIDENCE_INCOMPLETE`�
 - remote interface省略、未解決peer、両端未収集、parser errorのpartial／unknown判定
 - affected device集計の重複排除、未解決peer分離、安定sort
 - mismatch 0 件と not-evaluated を区別し、未評価 claim は件数だけを表示する `mismatch-links.md`
+- 非相互 description の期待する逆方向、実際の逆方向、および interface 省略を区別して表示すること
 - hash seedを変えても同じCSVになること
 - confirmed link の入力順、`src`／`dst` 方向、観測側 `remote_mgmt_ip` が異なっても version 2 semantic hash が一致すること
 - 旧 package の version 1 宣言 hash を旧方式で検証してから version 2 比較へ移行すること

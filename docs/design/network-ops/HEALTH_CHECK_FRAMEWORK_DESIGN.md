@@ -27,6 +27,11 @@ Health、Topology、Containerlabは同じ正規化結果を参照し、hostname�
 description rule、confirmed／candidateの意味を個別に再定義しない。Healthは正規化結果をstatusへ
 変換する対象scopeとpolicyだけを所有する。
 
+HealthのLLDP判定は、evidence取得・parse・相互観測の完全性を`lldp_evidence_completeness`、双方向LLDPが
+成立したlinkのdescription不一致を`lldp_description_consistency`へ分離する。後者は
+`bidirectional-lldp`以外のconfirmed／candidate linkを評価対象に含めない。platformがEOSのhostはNX-OS
+profileの実行対象外だが、NX-OSとの対向evidenceとしてEOS対応LLDP parserの結果を利用できる。
+
 ## 3. アーキテクチャ
 
 ```text
@@ -790,6 +795,9 @@ Python Tracebackを表示しない。`--collect`時の`--hosts`など条件付�
 running-configとLLDPを既存base collectで同じattemptへ取得し、その他のprofile commandをshow listとして
 取得する。重複commandは解決済みCollection Planで1回にまとめる。rawは
 `health/<phase>/raw/`、collect logは`health/<phase>/collect.log`へ保存する。
+同fileのNX-OS sectionには、base collectionで1回取得して`raw/config/<hostname>_run.txt|json`へ保存する
+`show running-config`をコメントとして表示する。コメントは既存show command loaderが無視するため、追加実行や
+統合show logへのconfig複製は発生しない。
 
 health-checkの直接収集では`ssh`を既定transportとする。NX-OSの`show logging`などCLI経由で
 必要な出力を一貫して取得し、`auto`によるNX-APIとSSHの二重収集・fallbackに伴う実行時間増加を
@@ -1209,9 +1217,16 @@ transcript の必須条件とせず、duplicate 選択の主根拠にも使用�
 | 値 | 入力 |
 |---|---|
 | `alred-collect` | alred collect成果物とcollection manifest |
-| `nxos-transcript` | promptと実行コマンドを含む外部NX-OS CLIログ |
+| `nxos-transcript` | promptと実行コマンドを含む外部NX-OS CLIログ。`show lldp neighbors detail`と`show running-config`はcommand区間のままCanonical Link Evidence入力として利用する |
 
 外部ログの認識結果はSnapshot生成前にmanifestへ保存する。`high` confidenceの区間だけで必要データが揃う場合はそのまま続行できる。曖昧区間または必須コマンド不足がある場合は端末と`checklist.md`へ表示し、非対話実行で黙って採用しない。
+LLDP／description評価では、選択済み区間を一時的な専用fileへ変換せず、Collection Manifestが固定した
+source file、hash、output行範囲から読み取る。`alred-collect`と`nxos-transcript`のどちらも同じ
+Canonical Link Evidence parser／normalizer／evaluatorへ渡し、入力adapterごとにendpoint解釈を変更しない。
+
+`nxos-transcript`は実際のcommand取得時刻を保証しない。したがって`clock_health`は入力中の
+`COLLECTED_AT`、file mtime、import時刻を使用せず、常に`NOT_APPLICABLE`とする。`show clock`のparse結果と
+provenanceはSnapshotへ保持し、NTP補助evidenceなどoffset判定以外のconsumerから利用できる。
 
 手動収集時は解析精度を確保するため、コマンドリストの先頭で`terminal length 0`と十分な`terminal width`を設定し、promptと入力コマンドをログへ残すことを推奨する。
 

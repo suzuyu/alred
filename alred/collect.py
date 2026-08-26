@@ -181,6 +181,7 @@ class SshCollector(BaseCollector):
     ) -> None:
         super().__init__(host, username, password, enable_secret, logger)
         self._conn: Any = None
+        self._terminal_error: str | None = None
 
     def _connect(self) -> Any:
         if self._conn is not None:
@@ -245,9 +246,59 @@ class SshCollector(BaseCollector):
 
     def run_command(self, command: str, read_timeout: int) -> CommandResult:
         self.logger.info("RUN %s transport=ssh: %s", self.hostname, command)
+        if self._terminal_error is not None:
+            result = CommandResult(
+                command=command,
+                ok=False,
+                output=self._terminal_error,
+                transport="ssh",
+                error=self._terminal_error,
+            )
+            self.log_command_failure(result)
+            return result
+        connection: Any = None
+        for attempt in range(2):
+            try:
+                connection = self._connect()
+                break
+            except Exception as exc:
+                self.close()
+                if attempt == 0:
+                    self.logger.warning(
+                        "SESSION INIT RETRY %s transport=ssh command=%s "
+                        "attempt=1/2 retry=1/1 wait_seconds=1 error=%s",
+                        self.hostname,
+                        command,
+                        exc,
+                    )
+                    time.sleep(1)
+                    continue
+                self.logger.warning(
+                    "SESSION INIT FAILED %s transport=ssh command=%s "
+                    "attempt=2/2 error=%s",
+                    self.hostname,
+                    command,
+                    exc,
+                )
+                self._terminal_error = str(exc)
+                result = CommandResult(
+                    command=command,
+                    ok=False,
+                    output=str(exc),
+                    transport="ssh",
+                    error=str(exc),
+                )
+                self.log_command_failure(result)
+                return result
+
+        assert connection is not None
         try:
             send_options = dict(SEND_COMMAND_OPTIONS_MAP.get(self.device_type, {}))
-            output = self._connect().send_command(command, read_timeout=read_timeout, **send_options)
+            output = connection.send_command(
+                command,
+                read_timeout=read_timeout,
+                **send_options,
+            )
             return CommandResult(
                 command=command,
                 ok=True,
@@ -255,6 +306,8 @@ class SshCollector(BaseCollector):
                 transport="ssh",
             )
         except Exception as exc:
+            self.close()
+            self._terminal_error = str(exc)
             result = CommandResult(
                 command=command,
                 ok=False,

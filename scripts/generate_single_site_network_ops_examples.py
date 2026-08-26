@@ -460,6 +460,7 @@ def _snapshot(
     addresses: Mapping[str, str],
 ) -> dict[str, Any]:
     prefixes = _all_prefixes(configs)
+    policy_hash = canonical_sha256([])
     return {
         "schema_version": 1,
         "change_id": CHANGE_ID,
@@ -469,6 +470,36 @@ def _snapshot(
         "timezone": "Asia/Tokyo",
         "parser_versions": {"nxos": "1.1"},
         "profile_sha256": resolved["spec"]["resolved"]["effective_sha256"],
+        "link_evidence": {
+            "normalizer_version": "synthetic-example-1.0",
+            "builder_version": "1.1",
+            "policy_hashes": {
+                "mappings": policy_hash,
+                "description_rules": policy_hash,
+            },
+            "host_map": {host: host for host in sorted(configs)},
+            "source_status": {
+                host: {
+                    "lldp_neighbors_detail": {
+                        "status": "parsed",
+                        "message": "Synthetic example evidence was parsed",
+                    },
+                    "running_config": {
+                        "status": "parsed",
+                        "message": "Synthetic example evidence was parsed",
+                    },
+                }
+                for host in sorted(configs)
+            },
+            "confirmed_links": [],
+            "candidate_links": [],
+            "diagnostics": {
+                "spec": {
+                    "diagnostics": [],
+                    "unevaluated_claims": [],
+                }
+            },
+        },
         "hosts": {
             host: {
                 "address": addresses[host],

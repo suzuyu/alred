@@ -231,6 +231,11 @@ BASELINE_COMMAND_FIXTURES = {
     "show running-config": (
         NXOS_FIXTURES / "show_running_config" / "c9300v_10_5_4_minimal.txt"
     ),
+    "show lldp neighbors detail": (
+        NXOS_FIXTURES
+        / "show_lldp_neighbors_detail"
+        / "c9300v_10_5_4_empty.txt"
+    ),
 }
 
 
@@ -277,6 +282,35 @@ def _snapshot(resolved, *, phase="before"):
         "timezone": "Asia/Tokyo",
         "parser_versions": {"nxos": "1.0"},
         "profile_sha256": resolved["spec"]["resolved"]["effective_sha256"],
+        "link_evidence": {
+            "normalizer_version": "1.0",
+            "builder_version": "1.1",
+            "policy_hashes": {
+                "mappings": "sha256:" + "1" * 64,
+                "description_rules": "sha256:" + "2" * 64,
+            },
+            "host_map": {"leaf01": "leaf01"},
+            "source_status": {
+                "leaf01": {
+                    "lldp_neighbors_detail": {
+                        "status": "parsed",
+                        "message": "command output was parsed",
+                    },
+                    "running_config": {
+                        "status": "parsed",
+                        "message": "command output was parsed",
+                    },
+                }
+            },
+            "confirmed_links": [],
+            "candidate_links": [],
+            "diagnostics": {
+                "spec": {
+                    "diagnostics": [],
+                    "unevaluated_claims": [],
+                }
+            },
+        },
         "hosts": {
             "leaf01": {
                 "collection_status": "success",
@@ -369,6 +403,7 @@ def _snapshot(resolved, *, phase="before"):
                     "route_summary_ipv4",
                     "vpc_brief",
                     "running_config",
+                    "lldp_neighbors_detail",
                 ),
                 "parse_warnings": [],
             }
@@ -443,6 +478,7 @@ def test_builtin_profiles_resolve_deterministically():
                 "route_ipv4_all_vrfs",
                 "route_ipv6_all_vrfs",
             "running_config",
+            "lldp_neighbors_detail",
             "running_config_diff",
             "clock",
             "ntp_status",
@@ -885,12 +921,136 @@ def test_single_snapshot_evaluates_baseline_and_cpu_threshold_inclusively():
     )
     assert healthy["result"] == "PASS"
     assert healthy["counts"] == {
-        "pass": 14,
+        "pass": 15,
         "warn": 0,
         "fail": 0,
         "unknown": 0,
-        "not_applicable": 6,
+        "not_applicable": 7,
     }
+
+
+def test_lldp_description_consistency_only_uses_bidirectional_lldp_links():
+    resolved = _resolved()
+    snapshot = _snapshot(resolved)
+    snapshot["link_evidence"]["confirmed_links"] = [
+        {
+            "src_node": "leaf01",
+            "src_if": "Ethernet1/1",
+            "dst_node": "spine01",
+            "dst_if": "Ethernet1/1",
+            "evidence": "lldp-plus-description",
+        }
+    ]
+    snapshot["link_evidence"]["diagnostics"]["spec"]["diagnostics"] = [
+        {
+            "diagnostic_id": "linkdiag-one-way-mismatch",
+            "code": "LLDP_DESC_INTERFACE_CONFLICT",
+            "classification": "conflict",
+            "link_endpoints": [
+                {"node": "leaf01", "interface": "Ethernet1/1"},
+                {"node": "spine01", "interface": "Ethernet1/1"},
+            ],
+            "affected_devices": ["leaf01"],
+        }
+    ]
+
+    result = evaluate_snapshot(
+        snapshot,
+        resolved,
+        started_at=JST_NOW,
+        completed_at=JST_NOW,
+    )
+    checks = {item["check_id"]: item for item in result["checks"]}
+
+    assert checks["lldp_evidence_completeness"]["result"] == "PASS"
+    assert checks["lldp_description_consistency"]["result"] == (
+        "NOT_APPLICABLE"
+    )
+
+
+def test_lldp_unknown_and_bidirectional_description_mismatch_are_separate():
+    resolved = _resolved()
+    snapshot = _snapshot(resolved)
+    snapshot["link_evidence"]["source_status"]["leaf01"][
+        "lldp_neighbors_detail"
+    ] = {"status": "failed", "message": "session initialization failed"}
+    snapshot["link_evidence"]["confirmed_links"] = [
+        {
+            "src_node": "leaf01",
+            "src_if": "Ethernet1/1",
+            "dst_node": "spine01",
+            "dst_if": "Ethernet1/1",
+            "evidence": "bidirectional-lldp",
+        }
+    ]
+    snapshot["link_evidence"]["diagnostics"]["spec"]["diagnostics"] = [
+        {
+            "diagnostic_id": "linkdiag-bidirectional-mismatch",
+            "code": "LLDP_DESC_INTERFACE_CONFLICT",
+            "classification": "conflict",
+            "link_endpoints": [
+                {"node": "leaf01", "interface": "Ethernet1/1"},
+                {"node": "spine01", "interface": "Ethernet1/1"},
+            ],
+            "affected_devices": ["leaf01"],
+        }
+    ]
+
+    result = evaluate_snapshot(
+        snapshot,
+        resolved,
+        started_at=JST_NOW,
+        completed_at=JST_NOW,
+    )
+    checks = {item["check_id"]: item for item in result["checks"]}
+
+    assert checks["lldp_evidence_completeness"]["result"] == "UNKNOWN"
+    assert checks["lldp_description_consistency"]["result"] == "WARN"
+
+
+def test_lldp_health_scope_excludes_non_network_peer_from_consistency():
+    resolved = _resolved()
+    snapshot = _snapshot(resolved)
+    snapshot["link_evidence"]["health_scope"] = {
+        "eligible_hosts": ["leaf01"],
+        "excluded_hosts": {
+            "server01": "platform-outside-network-devices",
+        },
+    }
+    snapshot["link_evidence"]["confirmed_links"] = [
+        {
+            "src_node": "leaf01",
+            "src_if": "Ethernet1/1",
+            "dst_node": "server01",
+            "dst_if": "eth0",
+            "evidence": "bidirectional-lldp",
+        }
+    ]
+    snapshot["link_evidence"]["diagnostics"]["spec"]["diagnostics"] = [
+        {
+            "diagnostic_id": "linkdiag-server-mismatch",
+            "code": "LLDP_DESC_INTERFACE_CONFLICT",
+            "classification": "conflict",
+            "link_endpoints": [
+                {"node": "leaf01", "interface": "Ethernet1/1"},
+                {"node": "server01", "interface": "eth0"},
+            ],
+            "affected_devices": ["leaf01"],
+        }
+    ]
+
+    result = evaluate_snapshot(
+        snapshot,
+        resolved,
+        started_at=JST_NOW,
+        completed_at=JST_NOW,
+    )
+    checks = {item["check_id"]: item for item in result["checks"]}
+
+    assert checks["lldp_evidence_completeness"]["result"] == "PASS"
+    assert checks["lldp_description_consistency"]["result"] == (
+        "NOT_APPLICABLE"
+    )
 
 
 def test_nxos_profile_is_not_executed_for_eos_host():
@@ -1112,6 +1272,34 @@ def test_additional_baseline_parsers_and_evaluators_cover_device_health():
         "NTP is configured but unsynchronized "
         "(operational state: No session; no selected peer; clock time source: NTP)"
     )
+
+
+def test_clock_health_is_not_applicable_for_nxos_transcript():
+    resolved = _resolved()
+    snapshot = _snapshot(resolved)
+    clock_source = snapshot["hosts"]["leaf01"]["sources"]["clock"]
+    clock_source.update(
+        {
+            "source": "external_transcript",
+            "collected_at": "2026-08-02T11:02:03+09:00",
+        }
+    )
+
+    result = evaluate_snapshot(
+        snapshot,
+        resolved,
+        started_at=JST_NOW,
+        completed_at=JST_NOW,
+    )
+    clock_check = next(
+        check for check in result["checks"] if check["check_id"] == "clock_health"
+    )
+
+    assert clock_check["result"] == "NOT_APPLICABLE"
+    assert clock_check["message"] == (
+        "Clock offset is not evaluated for nxos-transcript input"
+    )
+    assert clock_check["after"] == snapshot["hosts"]["leaf01"]["common"]["clock"]
 
 
 def test_interface_status_normalizes_nxos_truncated_not_connected_state():
@@ -1982,6 +2170,20 @@ def test_compare_rejects_profile_and_host_mismatch():
     after["phase"] = "after"
     after["hosts"]["leaf02"] = after["hosts"].pop("leaf01")
     with pytest.raises(HealthEvaluationError, match="host set"):
+        compare_snapshots(
+            before,
+            after,
+            resolved,
+            started_at=JST_NOW,
+            completed_at=JST_NOW,
+        )
+
+    after = deepcopy(before)
+    after["phase"] = "after"
+    after["link_evidence"]["policy_hashes"]["mappings"] = (
+        "sha256:" + "9" * 64
+    )
+    with pytest.raises(HealthEvaluationError, match="link policy hash"):
         compare_snapshots(
             before,
             after,

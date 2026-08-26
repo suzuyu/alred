@@ -40,11 +40,25 @@ alred health-check before \
 Collection Manifest、Snapshot、判定結果を同じoperationへ保存します。
 transportは既定で`ssh`です。`show logging`を含む標準profileでは通常`--transport`指定は不要です。
 
-SSH の事前接続確認では、enable 後の prompt hostname と inventory hostname を大文字・小文字を含めて
-完全一致で照合します。NX-OS の既定 hostname `switch` は初期設定候補として警告しますが、Health Check の
-ような read-only 処理は継続します。既定 hostname 以外の不一致、または prompt を解析できない場合は対象を
-除外します。正当な alias などを意図して接続する場合だけ `--allow-hostname-mismatch` を指定してください。
-`--skip-connect-check` はこの事前確認を省略するため、通常運用では使用しません。
+直接 Health 収集は、既定で共通の事前接続確認を実行してから収集を開始します。事前確認では enable 後の
+prompt hostname と inventory hostname を大文字・小文字を含めて完全一致で照合します。NX-OS の既定
+hostname `switch`は read-only 処理では警告して継続します。既定 hostname 以外の不一致、または prompt を
+解析できない場合は対象を除外します。正当な alias などを意図して接続する場合だけ
+`--allow-hostname-mismatch`を指定してください。`--skip-connect-check`は明示的に事前確認を省略する場合だけ
+使用します。
+
+事前確認の session は確認後に閉じ、収集では別の session を 1 hostにつき1つ確立して、LLDP、running
+config、profileの show commandを順番に実行します。したがって通常は事前確認と収集の2 sessionです。
+収集 session初期化が最初の command前に失敗した場合だけ、1秒後に1回再接続します。command送信後の
+timeoutは自動再実行せず、同じ hostの残り commandのためにも再接続しません。
+
+`show-commands.txt`には`show lldp neighbors detail`を先頭に表示します。collectorはbase collectionで取得した
+同じ結果を通常の`commands/<sequence>_lldp_neighbors_detail.txt`へ保存し、追加show commandとして再実行
+しません。`raw/lldp/<hostname>_lldp.txt|json`は既存Topology処理向けの互換mirrorです。Collection Manifestは
+新しいcommand artifactを優先し、command artifactがない過去のcollect成果物だけ`raw/lldp/`へfallbackします。
+running configは引き続き`raw/config/<hostname>_run.txt|json`をcanonical sourceとします。
+`show-commands.txt`には保存先の説明と`# show running-config`をコメント表示します。コメント行なので追加実行、
+通常のcommand artifact作成、統合show logへのconfig複製は行いません。
 
 接続確認とは別に、`network-baseline-nxos` は `show version` の `Device name` と inventory hostname を
 `hostname_identity` で照合します。この正常性判定では `switch` も特例にせず、不一致を `FAIL` とします。
@@ -140,6 +154,22 @@ alred health-check snapshot \
 
 transcript内のprompt、hostname、実行コマンドを解析します。複数機器が1ファイルに含まれる場合も、
 区間が明確なら機器・コマンド単位に分割します。曖昧な区間は正常と推測せずUNKNOWNにします。
+LLDP／interface descriptionの評価には、対象機器ごとに prompt 付きの
+`show lldp neighbors detail`と`show running-config`を含めます。選択された区間は
+`lldp_neighbors_detail`と`running_config`として同じ Collection Manifestへ固定され、
+`alred-collect`入力と同じparser／normalizerで評価されます。結果は`health-result.json`の
+`lldp_evidence_completeness`と`lldp_description_consistency`、`link-diagnostics.yaml`、`links_confirmed.csv`、
+`links_candidates.csv`で確認します。
+
+`lldp_evidence_completeness`は取得／parse不能やmanaged peerの対向evidence不足を`UNKNOWN`、両端の出力を
+正常に取得できた片方向LLDPを`WARN`とします。`lldp_description_consistency`は
+`evidence: bidirectional-lldp`のlinkだけを評価し、対象linkがないhostは`NOT_APPLICABLE`とします。
+inventory上のEOS hostにはNX-OS profileを適用しませんが、NX-OS linkの対向evidenceとしてEOS形式の
+`show lldp neighbors detail`を解析します。
+
+`nxos-transcript`では`clock_health`を評価せず、`NOT_APPLICABLE`と表示します。transcriptのimport時刻や
+file mtimeをcommand取得時刻として代用しません。`show clock`のparse結果は保持し、NTPの補助evidenceには
+引き続き利用します。直接収集と`alred-collect`ではcommand artifactの`COLLECTED_AT`を使用して評価します。
 
 同じ hostname と command を複数回検出した場合の既定値は
 `--transcript-duplicate-policy safe-latest --transcript-file-order reject`です。出力が同一な

@@ -374,6 +374,303 @@ def _evaluate_collection(
     )
 
 
+def _link_endpoint_key(item: Mapping[str, Any]) -> tuple[tuple[str, str], ...]:
+    endpoints = item.get("link_endpoints", [])
+    if not isinstance(endpoints, list):
+        return ()
+    normalized = []
+    for endpoint in endpoints:
+        if not isinstance(endpoint, Mapping):
+            return ()
+        normalized.append(
+            (
+                str(endpoint.get("node", "")),
+                str(endpoint.get("interface", "")),
+            )
+        )
+    return tuple(sorted(normalized))
+
+
+def _record_endpoint_key(item: Mapping[str, Any]) -> tuple[tuple[str, str], ...]:
+    return tuple(
+        sorted(
+            (
+                (str(item.get("src_node", "")), str(item.get("src_if", ""))),
+                (str(item.get("dst_node", "")), str(item.get("dst_if", ""))),
+            )
+        )
+    )
+
+
+def _link_item_is_in_health_scope(
+    item: Mapping[str, Any],
+    eligible_hosts: set[str] | None,
+) -> bool:
+    if eligible_hosts is None:
+        return True
+    endpoints = item.get("link_endpoints", [])
+    if not isinstance(endpoints, list):
+        return False
+    nodes = {
+        str(endpoint.get("node", ""))
+        for endpoint in endpoints
+        if isinstance(endpoint, Mapping) and endpoint.get("node")
+    }
+    return bool(nodes) and nodes.issubset(eligible_hosts)
+
+
+def _lldp_link_context(
+    snapshot: Mapping[str, Any],
+    host: str,
+) -> tuple[
+    list[dict[str, Any]],
+    Mapping[str, Any] | None,
+    str,
+    list[str],
+    list[Mapping[str, Any]],
+    list[Mapping[str, Any]],
+]:
+    evidence = [
+        *_source_evidence(snapshot, host, "lldp_neighbors_detail"),
+        *_source_evidence(snapshot, host, "running_config"),
+    ]
+    link_evidence = snapshot.get("link_evidence")
+    if not isinstance(link_evidence, Mapping):
+        return evidence, None, host, [], [], []
+    source_status = link_evidence.get("source_status", {}).get(host, {})
+    unavailable = [
+        f"{identifier}: {state.get('message', state.get('status', 'unknown'))}"
+        for identifier in ("lldp_neighbors_detail", "running_config")
+        if (state := source_status.get(identifier, {})).get("status") != "parsed"
+    ]
+    normalized_host = str(link_evidence.get("host_map", {}).get(host, host))
+    spec = link_evidence.get("diagnostics", {}).get("spec", {})
+    diagnostics = [
+        item
+        for item in spec.get("diagnostics", [])
+        if normalized_host in item.get("affected_devices", [])
+    ]
+    claims = [
+        item
+        for item in spec.get("unevaluated_claims", [])
+        if normalized_host in item.get("affected_devices", [])
+    ]
+    return (
+        evidence,
+        link_evidence,
+        normalized_host,
+        unavailable,
+        diagnostics,
+        claims,
+    )
+
+
+def _evaluate_lldp_evidence_completeness(
+    snapshot: Mapping[str, Any],
+    host: str,
+    definition: Mapping[str, Any],
+    _effective_profile: Mapping[str, Any],
+) -> dict[str, Any]:
+    (
+        evidence,
+        link_evidence,
+        normalized_host,
+        unavailable,
+        diagnostics,
+        claims,
+    ) = _lldp_link_context(snapshot, host)
+    if link_evidence is None:
+        return _unknown(
+            definition,
+            host,
+            "Canonical link evidence is unavailable",
+            evidence,
+            resource=f"links/{host}",
+        )
+    if unavailable:
+        return _unknown(
+            definition,
+            host,
+            "Link source data is unavailable: " + "; ".join(unavailable),
+            evidence,
+            resource=f"links/{normalized_host}",
+        )
+    scope = link_evidence.get("health_scope")
+    eligible_hosts = (
+        {str(item) for item in scope.get("eligible_hosts", [])}
+        if isinstance(scope, Mapping)
+        else None
+    )
+    diagnostics = [
+        item
+        for item in diagnostics
+        if _link_item_is_in_health_scope(item, eligible_hosts)
+    ]
+    claims = [
+        item
+        for item in claims
+        if _link_item_is_in_health_scope(item, eligible_hosts)
+    ]
+    unknown_diagnostics = [
+        item
+        for item in diagnostics
+        if item.get("classification") == "unknown"
+        or item.get("code") == "MULTIPLE_REMOTE_ENDPOINTS"
+    ]
+    incomplete_claims = [
+        item for item in claims if item.get("reason") != "peer-not-in-inventory"
+    ]
+    one_way_lldp = [
+        item for item in diagnostics if item.get("code") == "ONE_WAY_LLDP"
+    ]
+    details = {
+        "normalized_host": normalized_host,
+        "diagnostic_ids": [
+            item["diagnostic_id"]
+            for item in (*unknown_diagnostics, *one_way_lldp)
+        ],
+        "diagnostics": [*unknown_diagnostics, *one_way_lldp],
+        "unevaluated_claims": incomplete_claims,
+    }
+    if unknown_diagnostics or incomplete_claims:
+        return _check(
+            check_id=definition["id"],
+            profile=definition["profile"],
+            host=host,
+            result="UNKNOWN",
+            classification="collection_error",
+            message="LLDP/description evidence could not be evaluated completely",
+            evidence=evidence,
+            resource=f"links/{normalized_host}",
+            after=details,
+        )
+    if one_way_lldp:
+        result = "FAIL" if definition.get("severity") == "fail" else "WARN"
+        return _check(
+            check_id=definition["id"],
+            profile=definition["profile"],
+            host=host,
+            result=result,
+            classification=(
+                "pre_existing"
+                if snapshot["phase"] == "before"
+                else "unexpected_change"
+            ),
+            message=f"{len(one_way_lldp)} one-way LLDP diagnostic(s) were observed",
+            evidence=evidence,
+            resource=f"links/{normalized_host}",
+            after=details,
+        )
+    return _check(
+        check_id=definition["id"],
+        profile=definition["profile"],
+        host=host,
+        result="PASS",
+        classification="normal",
+        message="LLDP and description evidence is complete",
+        evidence=evidence,
+        resource=f"links/{normalized_host}",
+        after=details,
+    )
+
+
+def _evaluate_lldp_description_consistency(
+    snapshot: Mapping[str, Any],
+    host: str,
+    definition: Mapping[str, Any],
+    _effective_profile: Mapping[str, Any],
+) -> dict[str, Any]:
+    (
+        evidence,
+        link_evidence,
+        normalized_host,
+        _unavailable,
+        diagnostics,
+        _claims,
+    ) = _lldp_link_context(snapshot, host)
+    scope = (
+        link_evidence.get("health_scope")
+        if isinstance(link_evidence, Mapping)
+        else None
+    )
+    eligible_hosts = (
+        {str(item) for item in scope.get("eligible_hosts", [])}
+        if isinstance(scope, Mapping)
+        else None
+    )
+    eligible_links = [] if link_evidence is None else [
+        item
+        for item in link_evidence.get("confirmed_links", [])
+        if item.get("evidence") == "bidirectional-lldp"
+        and normalized_host
+        in {str(item.get("src_node", "")), str(item.get("dst_node", ""))}
+        and (
+            eligible_hosts is None
+            or {
+                str(item.get("src_node", "")),
+                str(item.get("dst_node", "")),
+            }.issubset(eligible_hosts)
+        )
+    ]
+    eligible_keys = {_record_endpoint_key(item) for item in eligible_links}
+    mismatches = [
+        item
+        for item in diagnostics
+        if item.get("code")
+        in {"LLDP_DESC_DEVICE_CONFLICT", "LLDP_DESC_INTERFACE_CONFLICT"}
+        and _link_endpoint_key(item) in eligible_keys
+    ]
+    details = {
+        "normalized_host": normalized_host,
+        "eligible_link_count": len(eligible_links),
+        "diagnostic_ids": [item["diagnostic_id"] for item in mismatches],
+        "diagnostics": mismatches,
+    }
+    if not eligible_links:
+        return _check(
+            check_id=definition["id"],
+            profile=definition["profile"],
+            host=host,
+            result="NOT_APPLICABLE",
+            classification="normal",
+            message="No bidirectional LLDP link is eligible for description evaluation",
+            evidence=evidence,
+            resource=f"links/{normalized_host}",
+            after=details,
+        )
+    if mismatches:
+        result = "FAIL" if definition.get("severity") == "fail" else "WARN"
+        return _check(
+            check_id=definition["id"],
+            profile=definition["profile"],
+            host=host,
+            result=result,
+            classification=(
+                "pre_existing"
+                if snapshot["phase"] == "before"
+                else "unexpected_change"
+            ),
+            message=(
+                f"{len(mismatches)} LLDP/description inconsistency "
+                "diagnostic(s) were observed"
+            ),
+            evidence=evidence,
+            resource=f"links/{normalized_host}",
+            after=details,
+        )
+    return _check(
+        check_id=definition["id"],
+        profile=definition["profile"],
+        host=host,
+        result="PASS",
+        classification="normal",
+        message="LLDP and interface description evidence is consistent",
+        evidence=evidence,
+        resource=f"links/{normalized_host}",
+        after=details,
+    )
+
+
 def _evaluate_system(
     snapshot: Mapping[str, Any],
     host: str,
@@ -602,6 +899,19 @@ def _optional_uncollected(
 def _evaluate_clock(snapshot, host, definition, effective):
     value = snapshot["hosts"][host]["common"].get("clock")
     evidence = _source_evidence(snapshot, host, "clock")
+    clock_source = snapshot["hosts"][host].get("sources", {}).get("clock", {})
+    if clock_source.get("source") == "external_transcript":
+        return _check(
+            check_id=definition["id"],
+            profile=definition["profile"],
+            host=host,
+            result="NOT_APPLICABLE",
+            classification="normal",
+            message="Clock offset is not evaluated for nxos-transcript input",
+            evidence=evidence,
+            resource="system/clock",
+            after=value,
+        )
     if value is None:
         if _optional_uncollected(snapshot, host, ("clock",)):
             return _unknown(definition, host, "Device clock was not collected", [], resource="system/clock")
@@ -2353,6 +2663,8 @@ SINGLE_EVALUATORS: dict[
     "collection_complete": _evaluate_collection,
     "system_identity": _evaluate_system,
     "hostname_identity": _evaluate_hostname_identity,
+    "lldp_evidence_completeness": _evaluate_lldp_evidence_completeness,
+    "lldp_description_consistency": _evaluate_lldp_description_consistency,
     "cpu_utilization": _evaluate_cpu,
     "memory_utilization": _evaluate_memory,
     "environment_health": _evaluate_environment,
@@ -3565,6 +3877,21 @@ def compare_snapshots(
         raise HealthEvaluationError("before/after profile hash mismatch")
     if set(before["hosts"]) != set(after["hosts"]):
         raise HealthEvaluationError("before/after host set mismatch")
+    before_links = before.get("link_evidence")
+    after_links = after.get("link_evidence")
+    if isinstance(before_links, Mapping) != isinstance(after_links, Mapping):
+        raise HealthEvaluationError("before/after link evidence availability mismatch")
+    if isinstance(before_links, Mapping) and isinstance(after_links, Mapping):
+        if before_links.get("normalizer_version") != after_links.get(
+            "normalizer_version"
+        ):
+            raise HealthEvaluationError("before/after link normalizer version mismatch")
+        if before_links.get("builder_version") != after_links.get(
+            "builder_version"
+        ):
+            raise HealthEvaluationError("before/after link builder version mismatch")
+        if before_links.get("policy_hashes") != after_links.get("policy_hashes"):
+            raise HealthEvaluationError("before/after link policy hash mismatch")
 
     type5_enabled = any(
         definition.get("evaluator") == "type5_prefix_propagation"
@@ -3684,6 +4011,40 @@ def compare_snapshots(
                 elif before_check["result"] != "PASS" and check["result"] == "PASS":
                     check["classification"] = "improvement"
                 elif before_check["result"] == check["result"] == "FAIL":
+                    check["classification"] = "pre_existing"
+            elif evaluator_name in {
+                "lldp_evidence_completeness",
+                "lldp_description_consistency",
+            }:
+                evaluator = SINGLE_EVALUATORS[evaluator_name]
+                before_check = evaluator(
+                    before,
+                    host,
+                    definition,
+                    effective,
+                )
+                check = evaluator(
+                    after,
+                    host,
+                    definition,
+                    effective,
+                )
+                check["before"] = before_check.get(
+                    "after",
+                    {
+                        "result": before_check["result"],
+                        "message": before_check["message"],
+                    },
+                )
+                if RESULT_ORDER[check["result"]] > RESULT_ORDER[
+                    before_check["result"]
+                ]:
+                    check["classification"] = "regression"
+                elif RESULT_ORDER[check["result"]] < RESULT_ORDER[
+                    before_check["result"]
+                ]:
+                    check["classification"] = "improvement"
+                elif check["result"] in {"WARN", "FAIL", "UNKNOWN"}:
                     check["classification"] = "pre_existing"
             elif evaluator_name == "logging_health":
                 check = _compare_logging(before, after, host, definition, effective)

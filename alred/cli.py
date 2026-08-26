@@ -284,6 +284,7 @@ from .health.snapshot import (
     SnapshotBuildError,
     build_health_snapshot,
 )
+from .health.link_evidence import build_health_link_evidence
 from .health.evaluator import (
     HealthEvaluationError,
     compare_snapshots,
@@ -686,7 +687,7 @@ def collect_from_host(
     show_run_diff: bool = False,
     show_run_diff_comands: bool = False,
     old_generation_id: str = "",
-) -> Dict[str, str]:
+) -> Dict[str, Any]:
     """
     Collect LLDP and optional running-config from one host.
 
@@ -720,9 +721,20 @@ def collect_from_host(
     run_outdir.mkdir(parents=True, exist_ok=True)
     show_outdir.mkdir(parents=True, exist_ok=True)
     collector = build_collector(host, username, password, enable_secret, logger, transport)
-    result: Dict[str, str] = {}
+    result: Dict[str, Any] = {}
+    base_command_failures: list[Any] = []
+    lldp_artifact_result: Any | None = None
+    lldp_artifact_collected_at: str | None = None
+    lldp_artifact_written = False
+    command_failure_count = 0
     rotation_limit = get_log_rotation_limit()
     rotated_output_keys: set[tuple[str, str]] = set()
+    previous_failure_dir = show_outdir / hostname / "commands"
+    if previous_failure_dir.is_dir() and not previous_failure_dir.is_symlink():
+        for previous_failure in previous_failure_dir.glob("000_*.txt"):
+            if previous_failure.is_file() and not previous_failure.is_symlink():
+                previous_failure.unlink()
+                logger.info("REMOVED PREVIOUS FAILURE ARTIFACT %s", previous_failure)
 
     def prune_old_generations(old_dir: Path) -> None:
         """
@@ -835,17 +847,33 @@ def collect_from_host(
         if not show_only:
             if not run_config_only:
                 lldp_cmd = get_lldp_command(device_type)
+                reset_collect_output_variants_once(lldp_outdir, "lldp")
                 lldp_results = collect_base_command_both(lldp_cmd, read_timeout=120)
+                lldp_artifact_collected_at = datetime.now().astimezone().isoformat(
+                    timespec="seconds"
+                )
                 lldp_successes = [item for item in lldp_results if item.ok]
                 if lldp_successes:
                     for item in lldp_successes:
                         save_command_result(lldp_outdir, "lldp", item)
+                    lldp_artifact_result = next(
+                        (
+                            item
+                            for item in lldp_successes
+                            if item.transport == "ssh"
+                        ),
+                        lldp_successes[0],
+                    )
                 else:
+                    lldp_artifact_result = lldp_results[-1]
                     logger.warning("SKIP SAVE %s command=%s", hostname, lldp_cmd)
+                    base_command_failures.append(lldp_results[-1])
+                    command_failure_count += 1
             else:
                 logger.info("SKIP LLDP %s: run-config-only enabled", hostname)
 
             if should_collect_running_config(device_type, policy):
+                reset_collect_output_variants_once(run_outdir, "run")
                 run_results = collect_base_command_both(run_cmd, read_timeout=300)
                 run_successes = [item for item in run_results if item.ok]
                 if run_successes:
@@ -859,6 +887,8 @@ def collect_from_host(
                     run_output_format = preferred_run_result.output_format
                 else:
                     logger.warning("SKIP SAVE %s command=%s", hostname, run_cmd)
+                    base_command_failures.append(run_results[-1])
+                    command_failure_count += 1
 
                 for extra in ADDITIONAL_RUNNING_CONFIG_COMMANDS_MAP.get(device_type, []):
                     extra_cmd = str(extra.get("command", ""))
@@ -867,6 +897,10 @@ def collect_from_host(
                     extra_read_timeout = int(extra.get("read_timeout", 300))
                     if not extra_cmd or not extra_suffix:
                         continue
+                    reset_collect_output_variants_once(
+                        run_outdir,
+                        extra_suffix,
+                    )
                     extra_result = collector.run_command(extra_cmd, read_timeout=extra_read_timeout)
                     if extra_result.ok:
                         if extra_output_format:
@@ -874,6 +908,8 @@ def collect_from_host(
                         save_command_result(run_outdir, extra_suffix, extra_result)
                     else:
                         logger.warning("SKIP SAVE %s command=%s", hostname, extra_cmd)
+                        base_command_failures.append(extra_result)
+                        command_failure_count += 1
             else:
                 logger.info(
                     "SKIP RUNCFG %s: device_type=%s not in collect_running_config_for",
@@ -989,7 +1025,16 @@ def collect_from_host(
             ]
 
             for command_index, cmd in enumerate(show_commands, start=1):
-                if transport == "auto" and is_nxos_host(host):
+                reused_base_lldp = bool(
+                    lldp_artifact_result is not None
+                    and command_id(cmd) == "lldp_neighbors_detail"
+                    and command_id(lldp_artifact_result.command)
+                    == "lldp_neighbors_detail"
+                )
+                if reused_base_lldp:
+                    json_sidecar_result = None
+                    show_result = lldp_artifact_result
+                elif transport == "auto" and is_nxos_host(host):
                     json_sidecar_result = None
                     nxapi_show_collector = build_collector(host, username, password, enable_secret, logger, "nxapi")
                     ssh_show_collector = build_collector(host, username, password, enable_secret, logger, "ssh")
@@ -1016,8 +1061,13 @@ def collect_from_host(
 
                 output = show_result.output
                 status = "OK" if show_result.ok else "ERROR"
-                collected_at_dt = datetime.now().astimezone()
-                collected_at = collected_at_dt.isoformat(timespec="seconds")
+                if not show_result.ok and not reused_base_lldp:
+                    command_failure_count += 1
+                collected_at = (
+                    lldp_artifact_collected_at
+                    if reused_base_lldp and lldp_artifact_collected_at is not None
+                    else datetime.now().astimezone().isoformat(timespec="seconds")
+                )
 
                 json_result = json_sidecar_result or (
                     show_result if show_result.ok and show_result.output_format == "json" else None
@@ -1080,6 +1130,8 @@ def collect_from_host(
                     logger=logger,
                     log_label=f"SHOW COMMAND {hostname} command={cmd}",
                 )
+                if reused_base_lldp:
+                    lldp_artifact_written = True
 
             body = "\n\n".join(sections).strip()
             save_current_and_old_snapshot(
@@ -1091,9 +1143,100 @@ def collect_from_host(
                 logger=logger,
                 log_label=f"SHOW LIST {hostname}",
             )
+
+        if lldp_artifact_result is not None and not lldp_artifact_written:
+            collected_at = lldp_artifact_collected_at or (
+                datetime.now().astimezone().isoformat(timespec="seconds")
+            )
+            status = "OK" if lldp_artifact_result.ok else "ERROR"
+            section = [
+                f"### COMMAND: {lldp_artifact_result.command}",
+                f"### COLLECTED_AT: {collected_at}",
+                f"### STATUS: {status}",
+                f"### TRANSPORT: {lldp_artifact_result.transport}",
+                *(
+                    [f"### OUTPUT_FORMAT: {lldp_artifact_result.output_format}"]
+                    if lldp_artifact_result.output_format
+                    else []
+                ),
+                *(
+                    [f"### FALLBACK_FROM: {lldp_artifact_result.fallback_from}"]
+                    if lldp_artifact_result.fallback_from
+                    else []
+                ),
+                *(
+                    [f"### ERROR: {lldp_artifact_result.error}"]
+                    if lldp_artifact_result.error and not lldp_artifact_result.ok
+                    else []
+                ),
+                f"{hostname}# {lldp_artifact_result.command}",
+                str(lldp_artifact_result.output).rstrip(),
+            ]
+            host_command_outdir = show_outdir / hostname / "commands"
+            host_command_outdir.mkdir(parents=True, exist_ok=True)
+            save_current_and_old_snapshot(
+                output_dir=host_command_outdir,
+                filename=(
+                    "000_"
+                    f"{sanitize_command_for_filename(lldp_artifact_result.command)}.txt"
+                ),
+                content="\n".join(section).rstrip() + "\n",
+                generation=(
+                    old_generation_id
+                    or datetime.now().astimezone().strftime("%Y%m%d%H%M%S")
+                ),
+                keep_generations=rotation_limit,
+                logger=logger,
+                log_label=(
+                    f"BASE LLDP COMMAND {hostname} "
+                    f"command={lldp_artifact_result.command}"
+                ),
+            )
+            lldp_artifact_written = True
+
+        if base_command_failures:
+            host_command_outdir = show_outdir / hostname / "commands"
+            host_command_outdir.mkdir(parents=True, exist_ok=True)
+            for failure in base_command_failures:
+                if (
+                    lldp_artifact_written
+                    and command_id(failure.command) == "lldp_neighbors_detail"
+                ):
+                    continue
+                collected_at = datetime.now().astimezone().isoformat(
+                    timespec="seconds"
+                )
+                error = " ".join(str(failure.error or "unknown error").split())
+                section = [
+                    f"### COMMAND: {failure.command}",
+                    f"### COLLECTED_AT: {collected_at}",
+                    "### STATUS: ERROR",
+                    f"### TRANSPORT: {failure.transport}",
+                    f"### ERROR: {error}",
+                    f"{hostname}# {failure.command}",
+                    str(failure.output).rstrip(),
+                ]
+                save_current_and_old_snapshot(
+                    output_dir=host_command_outdir,
+                    filename=(
+                        "000_"
+                        f"{sanitize_command_for_filename(failure.command)}.txt"
+                    ),
+                    content="\n".join(section).rstrip() + "\n",
+                    generation=(
+                        old_generation_id
+                        or datetime.now().astimezone().strftime("%Y%m%d%H%M%S")
+                    ),
+                    keep_generations=rotation_limit,
+                    logger=logger,
+                    log_label=(
+                        f"FAILED COMMAND {hostname} command={failure.command}"
+                    ),
+                )
     finally:
         collector.close()
 
+    result["command_failure_count"] = command_failure_count
     return result
 
 
@@ -6841,7 +6984,10 @@ def run_collect(args: argparse.Namespace, logger: Logger, old_generation_id: str
                 run_diff_command_no_diff_host = result.get("run_diff_command_no_diff_host", "")
                 if run_diff_command_no_diff_host:
                     run_diff_command_no_change_hosts.append(run_diff_command_no_diff_host)
-                collected += 1
+                if int(result.get("command_failure_count", 0)):
+                    failed += 1
+                else:
+                    collected += 1
             except Exception as exc:
                 logger.exception("FAILED %s: %s", host["hostname"], exc)
                 failed += 1
@@ -14359,6 +14505,7 @@ def cmd_health_check_snapshot(args: argparse.Namespace) -> int:
                 host_addresses: dict[str, str] = {}
                 host_platforms: dict[str, str] = {}
                 host_sites: dict[str, str] = {}
+                inventory_map: dict[str, dict[str, Any]] = {}
                 site_rules = (
                     {}
                     if bool(
@@ -14370,6 +14517,7 @@ def cmd_health_check_snapshot(args: argparse.Namespace) -> int:
                     inventory = load_inventory_data(load_yaml(str(args.hosts)))
                     for inventory_host in inventory:
                         hostname = str(inventory_host["hostname"])
+                        inventory_map[hostname] = dict(inventory_host)
                         host_platforms[str(inventory_host["hostname"])] = str(
                             inventory_host.get("device_type") or "unknown"
                         ).strip().lower()
@@ -14419,18 +14567,40 @@ def cmd_health_check_snapshot(args: argparse.Namespace) -> int:
                         if hostname in host_platforms:
                             host_record["platform"] = host_platforms[hostname]
                     validate_document(manifest, kind="CollectionManifest")
+                resolved_roles, resolved_roles_path = _resolve_health_roles(
+                    args,
+                    workspace,
+                    {"hosts": manifest["spec"]["hosts"]},
+                    resolved_at=manifest_completed_at,
+                )
+                link_evidence = None
+                if any(
+                    check.get("evaluator")
+                    in {
+                        "lldp_evidence_completeness",
+                        "lldp_description_consistency",
+                    }
+                    for check in resolved_profiles["spec"]["resolved"]["effective"][
+                        "spec"
+                    ].get("checks", [])
+                ):
+                    link_evidence = build_health_link_evidence(
+                        manifest,
+                        inventory=inventory_map,
+                        mappings=load_effective_mappings(args),
+                        description_rules=load_description_rules(
+                            getattr(args, "description_rules", None)
+                        ),
+                        normalizer_version=__version__,
+                        resolved_roles=resolved_roles,
+                    )
                 snapshot = build_health_snapshot(
                     manifest,
                     profile_refs=profile_names,
                     created_at=manifest_completed_at,
                     timezone=workspace.timezone,
                     profile_sha256=profile_sha256,
-                )
-                resolved_roles, resolved_roles_path = _resolve_health_roles(
-                    args,
-                    workspace,
-                    snapshot,
-                    resolved_at=manifest_completed_at,
+                    link_evidence=link_evidence,
                 )
                 health_result = evaluate_snapshot(
                     snapshot,
@@ -14443,6 +14613,14 @@ def cmd_health_check_snapshot(args: argparse.Namespace) -> int:
                 health_result["completed_at"] = completed_at.isoformat(
                     timespec="seconds"
                 )
+                if link_evidence is not None:
+                    health_result.setdefault("artifacts", {}).update(
+                        {
+                            "link_diagnostics": "link-diagnostics.yaml",
+                            "confirmed_links": DEFAULT_LINKS_CONFIRMED_FILENAME,
+                            "candidate_links": DEFAULT_LINKS_CANDIDATES_FILENAME,
+                        }
+                    )
                 validate_document(health_result, kind="HealthResult")
                 if getattr(args, "purpose", "change") == "inspection":
                     health_result["operation_gate"] = {
@@ -14500,6 +14678,21 @@ def cmd_health_check_snapshot(args: argparse.Namespace) -> int:
                     health_result,
                     kind="HealthResult",
                 )
+                if link_evidence is not None:
+                    atomic_write_yaml(
+                        workspace.operation_root,
+                        output_dir / DEFAULT_LINK_DIAGNOSTICS_FILENAME,
+                        link_evidence["diagnostics"],
+                        kind="LinkDiagnostics",
+                    )
+                    write_links_csv(
+                        link_evidence["confirmed_links"],
+                        str(output_dir / DEFAULT_LINKS_CONFIRMED_FILENAME),
+                    )
+                    write_links_csv(
+                        link_evidence["candidate_links"],
+                        str(output_dir / DEFAULT_LINKS_CANDIDATES_FILENAME),
+                    )
                 atomic_write_bytes(
                     workspace.operation_root,
                     output_dir / "checklist.md",
@@ -18011,6 +18204,10 @@ def build_parser() -> argparse.ArgumentParser:
             action="store_true",
             default=(
                 None if phase_name in {"after", "rollback"} else False
+            ),
+            help=(
+                "Skip the default pre-flight connectivity/authentication "
+                "check before direct Health collection"
             ),
         )
         phase_parser.add_argument(
