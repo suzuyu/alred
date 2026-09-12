@@ -828,6 +828,8 @@ afterはSnapshot単体判定に続けてbefore/after共通compareを自動実行
 - offline 入力の`transcript_duplicate_policy`と`transcript_file_order`。
   `nxos-transcript`以外では`null`とする
 - transport、target hosts、workers、read / connect timeout
+- 新 context の `collection.target_selection`: `mode`（`exact`／`contains`）と元の `tokens`。
+  `collection.target_hosts` は policy 適用後の完全 hostname に解決して保存する。
 - username、credentials file path、password再入力要否
 
 password、enable secret、credentials fileの内容は保存しない。beforeでCLI passwordを使用した
@@ -835,6 +837,9 @@ password、enable secret、credentials fileの内容は保存しない。before�
 使用した場合は各実行環境で再解決する。inventoryとpolicyはafter / rollbackの機器接続前に
 SHA-256を検証し、不一致、欠落、symlinkではfail closedとする。target hostsはbeforeと同一に
 固定する。transport、workers、timeoutは明示指定時のみafter / rollbackで上書きできる。
+直接収集の context は初回接続前に保存し、初回失敗後の before retry にも使用する。
+旧 context は新 field を必須にせず、従来の完全一致・空配列の全対象という意味を維持する。
+詳細は [対象ホスト選択](../common/INVENTORY_CREDENTIALS_AND_DEVICE_ACCESS_DESIGN.md#31---target-hosts-部分一致の対象選択)を参照する。
 
 inspectionのafterはactive changeから推測せず、`--change-id`を必須とする。beforeで固定したinventory、
 profile、collection条件、mappings、description rules、link health policyを継承し、source hash不一致は
@@ -1100,6 +1105,11 @@ standalone after／rollback は全成果物の公開後に terminal state とす
 成功済み正本を維持し、失敗attemptとerrorだけを追加する。新しいbeforeが正本になった後に生成する
 planは、そのSnapshot hashと改訂後profile hashを改めて固定する。各attemptには、その判定に使用した
 `resolved-profiles.yaml`も保存する。
+
+既存の `current.json` がある場合、legacy before の移行処理は実行しない。metadata の
+`current_attempt` は失敗した最新 attempt を指す場合があり、成功済み current の代用にしない。
+`purpose: inspection` の before 再実行も、上記の固定条件と plan 前制約を満たす場合に許可する。
+この場合だけ完了済み Operation lifecycle を `running` に戻し、新 attempt の完了状態を記録する。
 
 rollback後Health Checkは、初回を含めて
 `health/rollback/attempts/<attempt-id>/`へ収集、Snapshot、単体HealthResultを保存する。共通比較は

@@ -11,6 +11,7 @@ shell completion、エアギャップ環境への持ち込みを確認してく�
 
 | 分野 | 対象 | 入口 |
 |---|---|---|
+| Common | 収集・設定投入・Health Check のホスト選択 | [対象ホストの指定](./common/TARGET_HOSTS.md) |
 | Network Operations | NX-OS の正常性確認、EVPN／VXLAN 変更、設定投入を行う運用者 | [Network Operations Manual](./network-ops/README.md) |
 | Containerlab | 既存ネットワークまたは結線表から検証 lab を生成する利用者 | [Containerlab Manual](./containerlab/README.md) |
 | Topology | Evidence Package、Operation、外部 running config から link を整理し、Mermaid、Graphviz、draw.io 構成図を生成する利用者 | [Topology Manual](./topology/README.md) |

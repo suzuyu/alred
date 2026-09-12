@@ -405,6 +405,10 @@ inventory、profile、入力方式の固定条件が一致しない場合、お�
 変更理由と差分証跡を新attemptへ固定する場合に限って許可する。revision attempt失敗時は以前の
 成功済みcurrentと固定profileを変更しない。
 
+`purpose: inspection` の before retry は、同じ制約を満たす場合に限り Operation lifecycle の
+`completed`／`completed_with_warnings` から `running` への復帰を明示的に許可する。
+この例外を通常の terminal Operation や Overlay workflow の再開には使用しない。
+
 通常`overlay-change plan`はChangeSetの`metadata.change_id`でoperationを決定し、
 `health/before/current.json`とoperation metadataの`before.current_attempt`が一致する最新成功
 attemptだけを参照する。最新retryが`running`、`failed`、`cancelled`、`unknown`の場合は、以前の

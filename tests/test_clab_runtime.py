@@ -170,6 +170,9 @@ def test_clab_apply_records_readiness_interrupt(tmp_path, monkeypatch):
         "wait_for_clab_nodes",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(KeyboardInterrupt()),
     )
+    (tmp_path / "hosts.lab.yaml").write_text(
+        "all:\n  hosts:\n    leaf01:\n      device_type: nxos\n"
+    )
     args = SimpleNamespace(
         topology=str(topology),
         hosts=str(tmp_path / "hosts.lab.yaml"),

@@ -1,5 +1,8 @@
 # Direct Config Push Quick Start
 
+対象 hostname は完全一致または部分一致で複数指定できます。
+使用方法は [対象ホストの指定](../common/TARGET_HOSTS.md)を参照してください。
+
 この章では、host 別 config file を `push-config-dir` で直接投入し、投入前後の Health Check を確認してから
 `write-memory` で明示的に保存するモデルケースを示します。
 

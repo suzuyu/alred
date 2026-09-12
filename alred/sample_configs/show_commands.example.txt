@@ -24,6 +24,7 @@ show ntp peers
 show ntp peer-status
 show license usage
 show license all
+show interface
 show interface status
 show interface brief
 show interface counters errors non-zero
@@ -48,8 +49,8 @@ show running-config diff unified
 # show running-config and show running-config diff unified are retained in the
 # consolidated show log as common before/after work evidence.
 
-# Interface and optical diagnostics. Summary and non-zero errors remain enabled.
-# show interface
+# Additional interface and optical diagnostics. Interface detail, summary and
+# non-zero errors remain enabled above.
 # show interface description
 # show interface switchport
 # show interface counters

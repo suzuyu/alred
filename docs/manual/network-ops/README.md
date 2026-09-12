@@ -18,7 +18,9 @@
 |---|---|---|
 | [00 Common Preparation](./00_COMMON_PREPARATION.md) | すべての利用者 | 実行環境、timezone、認証、inventory、入力方式、保存先 |
 | [02 Health Check Operations](./02_HEALTH_CHECK_OPERATIONS.md) | 作業実施者 | 直接収集、既存ログ解析、時間範囲、rollback確認 |
-| [03 Profile Guide](./03_PROFILE_GUIDE.md) | 判定条件を管理する人 | 組み込みprofile、独自profile、logging範囲 |
+| [03 Profile Guide](./03_PROFILE_GUIDE.md) | 判定条件を管理する人 | profile の指定・合成、独自 profile、logging 範囲、実効閾値の確認 |
+| [Baseline Profile Guide](./profiles/network-baseline-nxos.md) | 共通チェックの内容を確認する人 | 全 22 check ID の目的・判定閾値、Status 解析の参照先、制約 |
+| [Overlay Profile Guide](./profiles/nxos-overlay.md) | Overlay チェックの内容を確認する人 | 組み込み 9 check と role/function 別出力の目的・判定条件、制約 |
 | [04 Output Guide](./04_OUTPUT_GUIDE.md) | 結果をレビューする人 | 端末、Checklist、JSON、判定と終了code |
 | [05 Troubleshooting](./05_TROUBLESHOOTING.md) | 異常を切り分ける人 | UNKNOWN、入力不足、profile不一致、再解析 |
 | [06 NX-OS Overlay Health Check](./06_NXOS_OVERLAY_HEALTH_CHECK.md) | EVPN/VXLAN作業者 | nxos-overlay、VNI map、作業前後の確認 |

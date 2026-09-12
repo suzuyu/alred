@@ -612,6 +612,21 @@ def test_lock_assessment_marks_missing_pid_without_removal(monkeypatch):
     assert "stale candidate" in assess_operation_lock(document)[0]
 
 
+@pytest.mark.parametrize("state", ["completed", "completed_with_warnings", "failed"])
+@pytest.mark.parametrize("purpose,allow", [("inspection", True), ("inspection", False), ("change", True)])
+def test_completed_operation_reopens_only_for_explicit_inspection_retry(tmp_path, state, purpose, allow):
+    workspace = create_operation_workspace(tmp_path / "operations", change_id="RETRY", purpose=purpose, now=JST_NOW)
+    with OperationLock(workspace, "retry", now=JST_NOW) as lock:
+        transition_operation(workspace, "running", lock=lock, now=JST_NOW)
+        transition_operation(workspace, state, lock=lock, now=JST_NOW)
+        if purpose == "inspection" and allow and state != "failed":
+            transition_operation(workspace, "running", lock=lock, now=JST_NOW, allow_inspection_retry=allow)
+            assert load_operation_metadata(workspace.operation_root)["spec"]["lifecycle"] == "running"
+        else:
+            with pytest.raises(OperationStateError, match="invalid operation transition"):
+                transition_operation(workspace, "running", lock=lock, now=JST_NOW, allow_inspection_retry=allow)
+
+
 def test_operation_phase_and_workflow_transitions_require_lock(tmp_path):
     workspace = create_operation_workspace(
         tmp_path / "operations",

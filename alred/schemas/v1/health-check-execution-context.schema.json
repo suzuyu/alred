@@ -103,6 +103,19 @@
                   "items": {"type": "string", "minLength": 1},
                   "uniqueItems": true
                 },
+                "target_selection": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["mode", "tokens"],
+                  "properties": {
+                    "mode": {"enum": ["exact", "contains"]},
+                    "tokens": {
+                      "type": "array",
+                      "items": {"type": "string", "minLength": 1},
+                      "uniqueItems": true
+                    }
+                  }
+                },
                 "workers": {"type": "integer", "minimum": 1},
                 "show_read_timeout": {"type": "integer", "minimum": 1},
                 "skip_connect_check": {"type": "boolean"},

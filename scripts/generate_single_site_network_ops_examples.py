@@ -201,6 +201,14 @@ def _common(host: str, created_at: datetime) -> dict[str, Any]:
             "configured": True,
             "synchronized": True,
             "peers": {"192.168.129.254": {"selected": True, "marker": "*"}},
+            "peer_status": {
+                "applicable": True, "total_peers": 1,
+                "peers": {"192.168.129.254": {
+                    "selected": True, "marker": "*", "stratum": 3,
+                    "reach": 377, "reach_text": "377", "reach_value": 255,
+                    "vrf": "management",
+                }},
+            },
         },
         "interfaces": {
             "mgmt0": {

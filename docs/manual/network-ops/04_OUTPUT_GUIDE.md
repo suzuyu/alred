@@ -56,6 +56,17 @@ UNKNOWNは「異常がない」という意味ではありません。判定に�
 
 ## 4. Checklist
 
+各 check ID が何を確認し、どの条件で判定するかは、次の文書を参照してください。
+
+| 対象 | チェック内容の参照先 |
+|---|---|
+| `network-baseline-nxos` | [全 22 check ID の目的・内容・判定閾値一覧](./profiles/network-baseline-nxos.md)。単体判定と前後比較、閾値の設定先、現行実装の制約を確認。詳細は [NX-OS 共通チェックの判定ポリシー](../../design/network-ops/NXOS_BASELINE_HEALTH_CHECK_COMMANDS.md#7-判定ポリシー)を参照 |
+| `nxos-overlay` | [Overlay のチェック一覧](./profiles/nxos-overlay.md)。組み込み check と role/function に応じた出力、取得コマンド、単体判定、前後比較。詳細は [check catalog](../../design/network-ops/NXOS_OVERLAY_ROLE_HEALTH_CHECK_CATALOG.md#5-共通-check-catalog)を参照 |
+| 実行時の profile・閾値 | [resolved profile の確認](./03_PROFILE_GUIDE.md#7-resolved-profileの確認)。`resolved-profiles.yaml` に保存された実効閾値と CLI override の確認方法 |
+
+設計書には未実装の項目も含まれるため、実装状態を確認してください。今回の実行結果は
+`checklist.md`、判定に使われた値と証跡は `health-result.json` で確認します。
+
 ```text
 ### Device: `leaf01` (192.0.2.11)
 

@@ -85,6 +85,7 @@ As-Is記録をIntegratedとして完了
 
 ## 6. 現在のAs-Is記録
 
+- [NTP Health Check 実装レビュー](./NTP_HEALTH_CHECK_REVIEW.md)（修正前の観測記録、設計へ統合・修正済み）
 - [CLI Framework](./CLI_FRAMEWORK_AS_IS.md)
 - [CLI, Configuration, and Resources](./CLI_CONFIGURATION_AND_RESOURCES_AS_IS.md)
 - [Collect Output](./COLLECT_OUTPUT_AS_IS.md)

@@ -82,6 +82,99 @@ device対象は次の順で絞り込む。
 未知の明示hostnameを黙って別hostへ解決しない。operationでは使用したinventory path、content hash、
 明示target、policy path／hashを固定する。
 
+### 3.1 `--target-hosts` 部分一致の対象選択
+
+Status: **実装済み**（2026-09-12）。既存の完全一致を維持し、明示 option で部分一致を追加する。
+
+#### 従来動作と変更理由
+
+`parse_host_filter()` はカンマ区切りの文字列を分割し、前後の空白と重複を除去する。
+変更前の `select_target_hosts()` と `run_collect()` は inventory の hostname に完全一致する対象を選んでいた。
+複数の完全 hostname は指定できたが、`leaf,spine` のような部分文字列では選択できなかった。
+照合対象は接続先 IP や装置の実 hostname ではなく、inventory の hostname とする。
+
+`--target-hosts` は収集だけでなく設定投入・保存でも使う。既定を部分一致へ変更すると、
+従来 `leaf01` だけを選んでいた指定が `leaf010` や `backup-leaf01` にも広がる。
+この互換性を維持するため、完全一致を既定にして部分一致を明示する方式とする。
+
+#### CLI と照合規則
+
+```bash
+python alred.py collect --hosts hosts.yaml --target-hosts leaf,spine --target-hosts-match contains
+```
+
+| 項目 | 仕様 |
+|---|---|
+| 新 option | `--target-hosts-match {exact,contains}`。通常実行の既定は `exact` |
+| 複数指定 | 既存のカンマ区切り。各文字列の OR 条件で選ぶ |
+| `exact` | 現行の完全一致を維持。部分一致への自動 fallback はしない |
+| `contains` | 各文字列が hostname に含まれるかを照合。大文字・小文字を区別する |
+| 記号 | 正規表現・glob として解釈しない。`*` なども文字そのもの |
+| 重複 | token と解決済み host を重複排除し、host の処理順は inventory 順を維持 |
+| policy | 解決済み host へ既存 include／exclude を適用。部分一致で policy を迂回しない |
+| 表示 | 照合方式、指定文字列、一致 hostname、policy 適用後の hostname と件数を接続前に表示・記録 |
+| 部分一致の入力不備 | 未指定・空 token・空白のみは `VALIDATION_ERROR`／終了 code `2` |
+| 部分一致の不一致 | どれかの token が inventory に 0 件なら、その token を示して接続前に error。残りだけ実行しない |
+| policy 適用後 0 件 | 部分一致では対象なしの error。全 host を選び直す fallback は禁止 |
+
+例えば `site-leaf01`、`site-leaf02`、`site-spine01`、`site-border01` がある場合、
+`leaf,spine` は前の 3 台を選ぶ。`leaf,leaf01` でも `site-leaf01` は 1 回だけ処理する。
+完全一致の既存の空入力・不一致処理は、本機能で暗黙に変更しない。
+option の繰り返し、空白区切り、正規表現、大文字・小文字を無視する照合は今回の変更に含めない。
+
+#### 実装範囲と責務
+
+単純に `hostname in target_hosts` を substring 判定へ置換するだけでは、呼び出し経路間で差が出る。
+[共通 resolver](../../../alred/target_selection.py) が inventory と指定文字列を受け、
+解決済み hostname と一致情報を返す。
+`parse_host_filter()` は `--show-hosts` にも使われるため、文字列分割と照合の責務を分ける。
+内部で確定済み hostname 集合を渡す場合は再度部分一致で展開しない。
+
+| 対象 | 必要な変更 |
+|---|---|
+| 共通 CLI | `--target-hosts` を持つ parser へ mode を追加。help、completion、Namespace の引き継ぎを更新 |
+| collect 系、Health 直接収集 | `run_collect()` の独立した完全一致 filter と共通 selector を同じ resolver に接続 |
+| `check-logging`、`check-clab-startup-config` | 共通 selector 経由の照合と option の引き継ぎを更新 |
+| `push-config`、`push-config-dir`、`write-memory` | 一度解決した完全 hostname を既存の対象表示・投入・保存処理へ渡す |
+| `clab-apply-config` | risk scan の集合積と mutation host 選択を同じ解決結果に統一。後段で設定する完全 hostname を再展開しない |
+| `clab-set-cmds`、`generate-vni-config` の自動収集 | wrapper が mode と解決済み対象を失わないようにする |
+| archive／対象別成果物 | 接続対象と同じ解決済み host 集合で対象を限定する |
+
+ChangeSet の対象 device、`--show-hosts` の追加 show command 対象、offline transcript の
+host 解決には部分一致を流用しない。新しい SSH executor や追加の承認 prompt は導入しない。
+
+#### Health Check の対象固定と互換性
+
+現行の Health execution context は `collection.target_hosts` に分割した指定値を保存し、
+after／retry で同じ指定値か確認する。部分文字列をそのまま保存して後から再解決すると、
+判定方式の変更などによって対象集合が変わるため、初回接続前に完全 hostname へ解決し、context を保存する。失敗した初回収集でも固定条件を残す。
+
+新 context の `collection.target_hosts` には policy 適用後の完全 hostname を保存する。
+新規の Health 直接収集は最終対象 0 件なら開始せず、空集合が全対象へ変換されることを防ぐ。
+元の指定 token と照合 mode は、新しい optional `target_selection` field の `tokens`／`mode` に記録する。
+未指定による全対象収集でも新 context では実際の対象を固定する。
+追加 field は schema v1 の optional field とし、新旧 context の読み取りを検証する。
+
+- after／retry／rollback 検証では inventory と policy の hash を確認し、固定した完全 hostname を使用する。
+- option 省略時は before の選択条件を継承する。argparse の内部 default は省略と明示を区別できる値にする。
+- option の再指定は固定 inventory／policy 上で解決し、before と同じ対象集合の場合だけ許容する。
+- 旧 context の `target_hosts` は従来の完全一致として扱い、空配列の全対象という意味も維持する。
+  新 field を必須にして過去の operation を使えなくしない。
+- 検証エラーは接続・投入前に停止し、既存の正常 attempt／current を変更しない。
+
+#### 受け入れテスト
+
+- 完全一致の既存 CLI 互換性と、部分一致 OR、重複排除、空白、大小文字、記号の扱い。
+- 未指定・空 token・一部 token 不一致・全不一致と、policy include／exclude、最終対象 0 件。
+- inventory hostname と接続先 IP の区別、順序の再現性、解決済み集合を再展開しないこと。
+- 収集・投入・保存・lab wrapper・archive の対象集合一致。executor を mock し、実機へ接続しない。
+- 新旧 execution context、option 継承、対象集合の一致／不一致、inventory／policy の改変。
+- retry の途中失敗時も以前の成功 attempt／current と before の固定対象を保持すること。
+- CLI help、completion、schema validation、利用者向け例と実装状態の更新。
+
+[対象選択テスト](../../../tests/test_target_selection.py)で CLI 各経路と context を確認し、
+既存の retry テストで成功済み成果物の不変性も確認した。実機には接続していない。
+
 ## 4. Credential
 
 ### 4.1 入力
