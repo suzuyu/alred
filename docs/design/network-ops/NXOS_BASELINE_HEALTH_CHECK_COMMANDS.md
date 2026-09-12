@@ -39,12 +39,13 @@ fixtureにより検証してから実装する。
 | `environment` | `show environment` | 温度、fan、power | 新規fail、alarm | Yes |
 | `module` | `show module` | module、status、model | `ok`からの悪化、module消失 | Yes |
 | `feature` | `show feature` | feature有効状態 | 意図しないenable/disable | Yes |
-| `ntp_status` | `show ntp status` | synchronized状態、stratum | 同期状態の悪化 | Yes |
-| `ntp_peers` | `show ntp peers` | peer一覧 | 選択peerの消失 | Yes |
-| `ntp_peer_status` | `show ntp peer-status` | peerごとの状態 | configured peerの状態悪化 | Yes |
+| `ntp_status` | `show ntp status` | 配布状態（時刻同期とは別） | 補助証跡、明示同期行のある従来入力も保持 | Yes |
+| `ntp_peers` | `show ntp peers` | 設定済み peer 一覧 | 設定有無と詳細 peer の整合 | Yes |
+| `ntp_peer_status` | `show ntp peer-status` | 選択 marker、stratum、reach | 同期・選択 peer の健全性と消失 | Yes |
 | `license_usage` | `show license usage` | license利用状態 | Device Summary。license Health判定は未実装 | No |
 | `license_all` | `show license all` | Smart Licensingを含むlicense詳細候補 | 初期Device Summary対象外 | No |
 | `interface_status` | `show interface status` | port state、VLAN、speed | 対象外portのconnectedからnotconnect等への悪化 | Yes |
+| `interface_detail` | `show interface` | 物理 Ethernet の明示的な admin state、operational state、down 理由 | `interface_health` の状態補完・矛盾検出（7.9.10） | No（毎回取得する補完証跡） |
 | `interface_counters_table` | `show interface counters table` | load interval、input／output Mbps・利用率 | 50%以上をINFO、70%以上をWARN、90%以上をFAIL | Yes |
 | `interface_brief` | `show interface brief` | interface、protocol、状態 | up/upからdownへの遷移 | Yes |
 | `interface_errors` | `show interface counters errors non-zero` | error counter | 新規error、増加量・増加率 | Yes |
@@ -137,13 +138,13 @@ LLDP未収束は既存のafter convergence待ちを適用し、timeout後の残�
 
 ### 4.1 NTP
 
-NTPコマンドは作業時刻とログ時刻の信頼性を確認するため、既定で収集する。NTP未設定機器では`not_configured`として扱い、未設定だけをFAILにしない。profileで時刻同期を必須にした場合だけ、未設定または未同期を異常判定する。
+NTP command は作業時刻とログ時刻の信頼性を確認するため、既定で収集する。正常な空の peer 一覧を確認できた場合は未設定として扱い、NTP 任意なら `NOT_APPLICABLE` とする。証跡不足を未設定と扱わず、配布状態と時刻同期を分離する。解析箇所・優先順位・閾値は [7.10](#710-ntpと装置時刻)を参照する。
 
 | ID | コマンド | 取得内容 | 判定 |
 |---|---|---|---|
-| `ntp_status` | `show ntp status` | synchronized状態、stratum | synchronizedからunsynchronizedへの悪化 |
-| `ntp_peers` | `show ntp peers` | peer一覧 | 選択peerの消失 |
-| `ntp_peer_status` | `show ntp peer-status` | peerごとの状態 | configured peerの到達状態悪化 |
+| `ntp_status` | `show ntp status` | 配布状態（時刻同期とは別） | 補助証跡、明示同期行のある従来入力も保持 |
+| `ntp_peers` | `show ntp peers` | 設定済み peer 一覧 | 設定有無と詳細 peer の整合 |
+| `ntp_peer_status` | `show ntp peer-status` | 選択 marker、stratum、reach | 同期・選択 peer の健全性と消失 |
 
 ### 4.2 IPv6
 
@@ -227,7 +228,6 @@ L2 portを運用している場合に取得する。
 
 | 対象 | コマンド例 | 用途 |
 |---|---|---|
-| Interface | `show interface` | counter、flap、line protocol詳細 |
 | Transceiver | `show interface transceiver detail` | optical level、alarm |
 | Hardware | `show hardware capacity` | resource枯渇調査 |
 | Forwarding | `show hardware capacity forwarding` | forwarding resource確認 |
@@ -314,6 +314,8 @@ command の所有 profile と目的を次のように整理する。
 
 `show interface brief`、NVE peer／VNI、VLAN、VRF、EVPN route などにも parser と evaluator があるが、
 C9300v 10.5(4) fixture ではなく documented sample、sanitized synthetic fixture、または role test で確認している。
+`show interface` の `interface_detail` parser と `interface_health` への補完も実装済み。
+[合成 fixture](../../../tests/fixtures/nxos/show_interface/README.md)で検証し、上記の実機由来 23 command には含めない。
 
 Device Summary 向けの `show inventory` と `show license usage` は上記 23 command の
 C9300v 10.5(4) fixture 検証数には含めない。NTC Templates による parser、canonical 正規化、
@@ -653,10 +655,10 @@ thresholds:
 | 項目 | 値 |
 |---|---|
 | profile | `network-baseline-nxos` |
-| current profile version | `1.6` |
+| current profile version | `1.9` |
 | check ID | `interface_health` |
 | evaluator | `interface_health` |
-| current parser | `nxos.interface_status`／`NXOS_PARSER_VERSION: 1.19` |
+| current parser | `nxos.interface_status`／`nxos.interface_detail`、`NXOS_PARSER_VERSION: 1.22` |
 | platform scope | `nxos` |
 | current implementation | `implemented`。ただし SVI の単独 profile 収集と policy 指定は未完了 |
 | resource | `interfaces` |
@@ -670,6 +672,7 @@ admin state と operational state を分けて扱う。
 | source | command | profile | 収集設定 | 判定上の扱い |
 |---|---|---|---|---|
 | primary | `show interface status` | `network-baseline-nxos` | `required: false` | `interface_health` では必須。欠落または parse 不能は `UNKNOWN` |
+| physical supplemental | `show interface` | `network-baseline-nxos` | `required: false` | 明示的な admin state と operational state の照合（7.9.10） |
 | supplemental | `show interface brief` | `nxos-overlay` | `required: false` | 収集された場合だけ SVI の Status／Reason を補完 |
 
 `required: false` は `collection_complete` が command 単体の失敗だけで `FAIL` にならないことを意味する。
@@ -706,9 +709,29 @@ Reason に `Administratively down` が含まれる場合だけ admin-down とし
 | `notconnec`／`notconnect` | `notconnect` | `up` | `down` |
 | `err-disabled` | `err-disabled` | `up` | `down` |
 | `inactive` | `inactive` | `up` | `down` |
-| `sfpAbsent` | `sfpAbsent` | `up` | `down` |
-| `xcvrAbsen`／`xcvrAbsent` | `sfpAbsent` | `up` | `down` |
+| `sfpAbsent` | `sfpAbsent` | `unknown` | `down` |
+| `xcvrAbsen`／`xcvrAbsent` | `sfpAbsent` | `unknown` | `down` |
 | `down` | `down` | `up` | `down` |
+
+SFP 未装着表示だけでは shutdown／no shutdown を識別できないため、admin state は `unknown` とする。
+既知の Status として parse は成功させ、operational-down と未装着の証跡を保持する。
+admin 状態が不明なだけで未使用と推定したり、`PASS` または admin-up に補完したりしない。
+
+この判断の根拠は
+[Cisco Nexus 7000 Interfaces Configuration Guide 7.x](https://www.cisco.com/c/en/us/td/docs/switches/datacenter/sw/nx-os/interfaces/configuration/guide/b-Cisco-Nexus-7000-Series-NX-OS-Interfaces-Configuration-Guide-Book.pdf#page=50)
+の SFP 未装着と admin-down の併存例、および
+[Nexus 3400-S 9.3(x) の公式例](https://www.cisco.com/c/en/us/td/docs/switches/datacenter/nexus3400s/sw/93x/interfaces/configuration/guide/cisco-nexus-3400s-nx-os-interfaces-configuration-guide-93x/m_3400s_overview.html)
+の `xcvrAbsen`／`XCVR not inserted` の対応である。対象 Nexus 9000 の各 release の表示優先順位は未検証。
+
+parser `1.20`／profile `1.7` でこの意味変更を記録する。Snapshot v1 の既存 `common` object 内で
+`admin_state: unknown` を使用するため schema version は維持する。旧 parser の Snapshot を再評価する場合も、
+未装着 Status の admin-up は信用せず `unknown` として評価し、元 Snapshot は変更しない。
+既存 operation の profile hash は書き換えず、before／after の固定 profile を維持する。
+
+profile `1.8`／parser `1.21` では、`show interface` の独立した `admin state is up/down` 行を
+`common.interface_details` に保持し、評価時に物理 port の admin 状態を補完する。
+上表は primary parser の観測値であり、補完後の評価値は `HealthResult.after.interfaces` に保存する。
+詳細証跡がない未装着 port は引き続き `UNKNOWN`。解析 anchor、優先順位、矛盾検出は 7.9.10 を参照する。
 
 `Vlan<id>` の raw Status が `down` の場合は primary source だけで admin state を確定せず、その row を
 primary parser の結果から除外する。supplemental source があれば、Status と Reason から次のように補完する。
@@ -727,7 +750,7 @@ Snapshot 作成時に書き換えない。
   "common": {
     "interfaces": {
       "Eth1/3": {
-        "admin_state": "up",
+        "admin_state": "unknown",
         "operational_state": "down",
         "status": "sfpAbsent"
       }
@@ -750,21 +773,27 @@ Snapshot 作成時に書き換えない。
 | CLI error | `NX-OS command returned an error` | `Interface status could not be parsed` |
 | 対象 row なし | `interface status rows were not recognized` | `Interface status could not be parsed` |
 | 未知 status | `unsupported interface status row(s): <interface>=<status>` | `Interface status could not be parsed` |
+| 同じ interface key の重複 | `duplicate interface status row: <interface>` | `Interface status could not be parsed` |
 
 いずれも `UNKNOWN / collection_error` とし、空集合、admin-down、または正常状態へ補完しない。
 
 #### 7.9.6 単体判定
 
-primary source が `parse_status: parsed` で `common.interfaces` が存在する場合、各 resource を次のように扱う。
+primary source が `parse_status: parsed` で `common.interfaces` が存在する場合、7.9.10 の補完・
+矛盾検出後の評価用 view について各 resource を次のように扱う。
 
 | admin state | operational state | resource の扱い |
 |---|---|---|
 | `down` | `down` | 異常対象から除外 |
 | `up` | `up` | 正常 |
-| `up` | `down` または未知値 | 異常 |
+| `up` | `down` | 異常 |
+| 任意 | 未知値・矛盾 | 状態の証跡不足 |
+| `unknown` または欠落 | 任意 | admin 状態の証跡不足 |
 
 admin-up／operational-down が 1 件以上あれば check は `FAIL / target_not_ready` とし、message に対象
-interface を sort して列挙する。0 件なら `PASS / normal` とする。すべての interface が admin-down の
+interface を sort して列挙する。異常がなく admin 状態不明が 1 件以上なら `UNKNOWN / collection_error`、
+どちらもなければ `PASS / normal` とする。不明 port は message と `after.admin_state_unknown` に列挙し、
+確定した異常と不明 port が混在する場合は `FAIL` とし、両方の対象を残す。すべての interface が admin-down の
 場合も、現行の aggregate check は `NOT_APPLICABLE` ではなく `PASS` である。
 
 ```text
@@ -773,28 +802,34 @@ Admin-up interfaces are down: Eth1/3, Eth1/4
 
 #### 7.9.7 Before／after 比較
 
-resource identity は現行 Snapshot の interface key の完全一致とする。before の
-`operational_state: up` 集合から after の同集合を引き、消失または operational-up でなくなった interface を
-regression とする。1 件以上あれば、after 単体判定の結果にかかわらず `FAIL / regression` とする。
+resource identity は Snapshot の interface key の完全一致とする。各 phase の補完・矛盾検出後、
+before の信頼できる `operational_state: up` 集合から after の同集合を引き、消失または down 遷移を
+regression とする。operational 証跡が不明・矛盾する port はこの差分から除外し、`UNKNOWN` とする。
+確定した稼働喪失が 1 件以上あれば `FAIL / regression` を優先する。
+before が up、after が SFP 未装着で operational-down を確認できれば、admin-down または admin 不明でも
+稼働喪失として `FAIL`。両時点とも未装着・admin-down と確認できれば `PASS` になる。
 
 ```text
 Interface regression: Eth1/49
 ```
 
-before または after の `common.interfaces` が欠落した場合は、after の単体 evaluator が返した結果を維持する。
+before または after の primary source が欠落・解析不能の場合は `UNKNOWN` とする。
 短縮形と完全形の identity 正規化は `interface_utilization` との照合には使用するが、現行の before／after
 `interface_health` 比較には使用しない。
 
 #### 7.9.8 Evidence と追跡性
 
 check の evidence は primary と、存在する場合は supplemental source について、`collection_id`、`command`、
-`file`、`sha256`、`parse_status` を保持する。Snapshot の `sources` にはさらに `collected_at`、transport、
-raw file の line range、parser 名、parser version、`parse_warning` を保持する。原因調査では Checklist の
+`file`、`sha256`、`parse_status`、取得時刻、parser 名・version、行範囲、warning を保持する。
+詳細 port ごとの evidence には採用値の由来、block 行範囲、不足・矛盾理由を追加する。
+Snapshot の `sources` には transport も保持する。原因調査では Checklist の
 message に加えて、次を確認する。
 
 ```text
 hosts.<hostname>.sources.interface_status
 hosts.<hostname>.common.interfaces
+hosts.<hostname>.sources.interface_detail
+hosts.<hostname>.common.interface_details
 hosts.<hostname>.parse_warnings
 ```
 
@@ -807,67 +842,299 @@ hosts.<hostname>.parse_warnings
 - `required_interfaces`、`expected_changes.interfaces`、interface ignore policy は設計候補であり未実装
 - `network-baseline-nxos` 単独での `show interface brief` 収集、SVI source completeness 判定は未実装
 - before／after identity の `Eth`／`Ethernet`、`Po`／`port-channel` 正規化は未実装
-- check evidence への `parse_warning` と raw line range の直接埋め込みは未実装。Snapshot source から追跡する
+- `show interface` の合成 fixture、両入力 adapter、単体・比較判定、失敗時の証跡を offline test で検証。
+  追加 command の 9000v／hardware 接続検証は未実施
+
+#### 7.9.10 `show interface` による admin 状態補完
+
+profile `1.8`／parser `1.21` で収集・parser・補完を実装した。
+Snapshot Builder は `1.3`、補完ロジックの provenance `interface_state` は `1.0` とする。
+合成 fixture と offline test による検証であり、追加 command の実機検証済みを意味しない。
+
+##### a. 選択理由と適用範囲
+
+`show running-config` の shutdown 行の有無から既定値を推定せず、機器が表示する明示的な admin state を
+使用する。`show interface status` は対象一覧と operational 状態の primary source として維持し、
+`show interface` は補完 source とする。両出力の不整合を検出し、片方を黙って優先して正常とはしない。
+
+最初の補完対象は物理 Ethernet と breakout port とする。SVI、port-channel、management、loopback、
+subinterface は既存 evaluator の対象範囲を維持し、今回の詳細補完には含めない。
+全 interface を一括取得するが、対象外 block は境界を認識して読み飛ばす。
+
+根拠は [Cisco Nexus 9000 NX-OS 10.5(x) Interface Guide](https://www.cisco.com/c/en/us/td/docs/dcn/nx-os/nexus9000/105x/configuration/interfaces/cisco-nexus-9000-series-nx-os-interfaces-configuration-guide-release-105x/m_configuring_basic_interface_parameters_93x.html)
+の interface 見出しと独立した admin state の出力例、および 7.9.4 の未装着・admin-down 併存例とする。
+10.5(x) ガイド内にも旧 release の例が含まれるため、文書掲載だけで対象 hardware／release の parser を
+検証済みとはしない。初期 fixture 検証対象は NX-OS 9000v 10.5(4)、hardware は既存方針に従い文書確認とする。
+
+##### b. 収集契約
+
+profile 定義の抜粋:
+
+```yaml
+- id: interface_detail
+  command: show interface
+  required: false
+```
+
+- `network-baseline-nxos` の NX-OS 共通 command group に追加し、before／after／rollback の各収集で
+  host ごとに 1 回取得する。role や SFP 有無を判定してから個別 command を組み立てる方式にはしない。
+- `required: false` は `collection_complete` の全体必須 command にしないための設定であり、
+  `interface_health` の admin 不明を正常にする設定ではない。既存 profile の固定・合成・重複排除を使用する。
+- CLI option、SSH executor、device ごとの接続は追加しない。既存 collector の timeout と paging 制御を使い、
+  transport の成功・失敗を manifest に記録する。出力量は増えるため、多数 port の出力と timeout を検証する。
+- `alred-collect` と `nxos-transcript` の双方で、正規化後に完全一致する `show interface` を
+  `interface_detail` へ対応付ける。`show interface status`／`brief`／`counters ...` と prefix 一致で混同しない。
+  個別 port 指定や任意の pipe filter は初期対応外。既存の `| no-more` 正規化は維持する。
+- 初期 parser 入力は CLI text。構造化 NX-API JSON の直接解析は含めず、既存 transport／adapter が
+  text を提供できない場合は unsupported として証跡を残す。SSH への独自 fallback は追加しない。
+- canonical raw は既存の `commands/<sequence>_interface_detail.txt`、manifest は
+  `hosts.<hostname>.commands.interface_detail` とする。新しい保存ディレクトリは作らない。
+  sequence は既存の command sort に従い、特定の数値へ固定しない。
+
+##### c. 解析 anchor と正規化
+
+設計用の合成入力例:
+
+```text
+Ethernet1/3 is down (XCVR not inserted)
+admin state is down, Dedicated Interface
+  Hardware: Ethernet
+Ethernet1/4 is down (XCVR not inserted)
+admin state is up, Dedicated Interface
+  Hardware: Ethernet
+```
+
+| 取得 field | 解析箇所・規則 |
+|---|---|
+| interface identity | block 先頭の `Ethernet<slot>/<port>` または `Eth<slot>/<port>`。breakout の `/subport` を含む。`.` 付き subinterface は対象外 |
+| operational state | 同じ見出しの `is up`／`is down`／`is administratively down`。最後の形式は operational-down とし、admin は別行から取得 |
+| admin state | 同一 block 内の行頭 `admin state is up`／`admin state is down`。後続の comma と interface 種別などの説明は許容 |
+| down reason | 見出しの括弧内の理由を文字列で保持。空の場合は `null`。未知の理由文字列だけでは解析失敗にしない |
+| line range | block の開始・終了行。manifest の command 出力範囲を基準に raw file の絶対行番号へ変換 |
+
+field 識別と state token は大文字・小文字を区別せず、前後空白を除去する。admin／operational の
+正規化値は `up`／`down`／`unknown`。counter、MTU、速度、光レベルは本 parser の判定 field にしない。
+`SFP not inserted`／`XCVR not inserted` という理由から admin 状態を作らない。
+
+次の interface 見出しで必ず block を閉じ、隣接 port や対象外 interface の admin 行を取り込まない。
+同じ正規化 identity の重複、admin 行の重複、未知 state、必須 admin 行の欠落は当該 port の解析不完全とする。
+境界を認識できない破損、空出力、CLI error、物理 port block が 0 件の場合は source 全体を unknown とする。
+途中切れで最後の port の admin 行がない場合も、その port を削除して正常扱いしない。
+
+parser は `common.interface_details` へ出力し、既存 `common.interfaces` を直接上書きしない。
+詳細 object は次の形式とする:
+
+```json
+{
+  "interface_details": {
+    "Ethernet1/3": {
+      "admin_state": "down",
+      "operational_state": "down",
+      "down_reason": "XCVR not inserted",
+      "parse_status": "parsed",
+      "parse_warning": null,
+      "line_start": 1,
+      "line_end": 3
+    }
+  }
+}
+```
+
+行番号の raw file への変換は Snapshot Builder が行う。parser は入力 text 内の相対行番号を返す。
+不完全な port は `parse_status: unknown` と理由を保持し、source の `parse_warning` と host の
+`parse_warnings` にも記録する。正常 port の結果と不完全 port の結果を分離して保持する。
+source は全対象 port が正常なら parsed、1 件でも不完全なら unknown とし、後者だけに
+`partial_records: true` を記録する。補完には正常な port record
+だけを使用できるが、transport 失敗・source 全体の破損の場合は部分出力を補完に使わない。
+
+##### d. 照合・優先順位・判定
+
+同じ host・collection ID・phase に固定された証跡だけを使用する。`Eth1/3` と `Ethernet1/3` は
+数字部分を維持して照合し、breakout を親 port と混同しない。primary の Snapshot key は書き換えない。
+同一 identity に複数 record が対応する場合は曖昧として `UNKNOWN` にする。
+
+| primary / detail の状態 | 補完と単体判定 |
+|---|---|
+| primary が欠落・解析不能 | 従来どおり `UNKNOWN`。詳細出力だけで対象一覧を置き換えない |
+| `xcvrAbsen` 等、detail は admin-down / oper-down | admin-down を明示証跡で確定し、単体判定の異常対象から除外 |
+| `xcvrAbsen` 等、detail は admin-up / oper-down | admin-up／operational-down として `FAIL` |
+| `xcvrAbsen` 等、detail の source／当該 port／admin 行が不足 | admin 不明の `UNKNOWN` を維持 |
+| `connected` または `disabled` と detail が一致 | 明示的な admin state を採用し、通常の判定を行う |
+| primary の operational state と detail の operational state が不一致 | 収集時点差を含む不整合として当該 port を `UNKNOWN`。新しい方を自動採用しない |
+| `connected` と detail admin-down、または `disabled` と detail admin-up | 明示的な証跡の矛盾として当該 port を `UNKNOWN` |
+| detail 自体が admin-down / oper-up | 内部矛盾として当該 port を `UNKNOWN` |
+| その他の既知 Status と正常な detail | operational 状態の一致を確認し、Status から推定した admin 値より detail の明示値を優先 |
+| detail がない旧ログ、または補完できない detail | primary だけで確定できる既存判定は維持し、未装着の admin 不明は `UNKNOWN`。不足理由を evidence に残す |
+
+Status の未知 token は、detail の有無にかかわらず既存の primary parse error とする。
+detail にしか現れない port は補完対象へ追加せず、未照合の証跡として保持する。
+物理 port 以外は本項による補完を行わず、既存 SVI 補完や他 check の結果を変えない。
+
+補完した値は `interface_health` の評価用 view と `HealthResult.after.interfaces` に保持し、元の
+Snapshot は変更しない。各 port の `after.interface_state_sources` に採用 command ID、admin の由来
+（`interface_detail`／`interface_status`／`unknown`）、詳細 block の行範囲、矛盾・不足理由を記録する。
+旧 Snapshot の未装着 admin-up を無効化する保護は、正常な明示 detail で補完できた場合だけ解除する。
+
+判定は port ごとに確定してから集約する。確定した異常があれば `FAIL`、異常がなく不明・矛盾があれば
+`UNKNOWN`、すべて確認できれば `PASS`。admin-down だけの host は既存どおり `PASS` とする。
+message と `after.admin_state_unknown` に不明 port を残し、矛盾 port は `after.interface_state_conflicts`
+へも理由付きで記録する。`FAIL` と不明が混在しても不明証跡を隠さない。
+
+##### e. 前後比較・証跡・互換性
+
+- before／after それぞれで補完・矛盾検出を行ってから、既存の operational-up 消失判定を行う。
+  before が up、after が未装着で双方の operational 状態を信頼できる場合は、after の admin-down に
+  かかわらず `FAIL / regression`。両時点とも未装着・admin-down と確認できれば `PASS`。
+- operational 証跡が矛盾する port は up 集合の差分から `FAIL` と断定せず `UNKNOWN` とする。
+  admin 証跡だけが不足していても、operational-up から down の変化を両時点で確認できれば `FAIL`。
+  詳細 source 自体の取得漏れを port の消失と扱わず、primary の欠落・破損も `UNKNOWN` にする。
+- 旧 Snapshot の interface key による前後比較は維持する。今回の短縮形照合は同一 Snapshot 内の
+  source 統合だけに使用し、過去の比較 identity を暗黙に変更しない。
+- check evidence に primary と detail の両 source を含め、command、path、hash、取得時刻、parser
+  version、行範囲へ追跡可能にする。`show interface` の原文全体を Checklist へ転載しない。
+- Snapshot schema v1 内の追加 optional object とし、既存 field は削除しない。採用前に object 内の
+  state、型、identity、行範囲を検証する。parser と補完ロジックの version を Snapshot provenance に記録する。
+- baseline profile は `1.9`、NX-OS parser は `1.22`。固定済み profile や過去の
+  Snapshot／HealthResult は上書きしない。
+- 既存 operation の after は before の profile を継承するため、新 command を暗黙追加しない。
+  新規 before または既存の明示 profile revision 手順で新 command を採用する。独自 profile は
+  command の追加が必要。旧ログは import 可能なままとし、未装着の `UNKNOWN` は維持する。
+- command 失敗・解析不能は既存の collection／parser の error 表示を使い、想定済みエラーで Traceback を
+  出さない。追加の承認 prompt や自動設定投入は導入しない。
+- retry は新 attempt を作り、部分収集済みの旧 attempt に追記しない。Snapshot／HealthResult の公開前に
+  必須成果物と hash を検証し、処理失敗時は以前の成功済み current を維持する。rollback phase にも同じ
+  読み取り判定を適用し、設定 rollback の所有範囲は変えない。
+
+##### f. 実装順序・受け入れ条件
+
+1. command ID、profile、role 共通収集、collect／transcript adapter を接続する。追加 command が
+   host ごとに 1 回だけ実行対象となり、baseline 単独と Overlay 併用で同じ証跡を使うことを確認する。
+2. 複数 port の CLI text fixture と parser を追加する。up、shutdown、未装着＋admin-up／down、
+   大文字小文字、breakout、対象外 block、未知理由、未知 state、admin 行欠落、重複、途中切れを検証する。
+3. Snapshot の別 field 保存と統合用 helper を追加し、評価器から raw text を再解析しない。
+   正常 port と破損 port の混在、短縮形、矛盾、詳細だけに現れる port、旧 Snapshot の無変更を検証する。
+4. 単体・比較の表を parameterized test 化する。特に未装着＋admin-down の誤 `FAIL` 解消、
+   未装着＋admin-up の `FAIL`、欠落の `UNKNOWN`、up からの喪失、矛盾と既存異常の混在を検証する。
+5. 収集後／解析前／公開前の失敗を模擬し、旧成功 current と新失敗 attempt の共存、retry の新 attempt、
+   source hash の破損、CLI エラー・成果物への evidence 出力を確認する。
+6. profile／parser version、配布 command sample、manual、設計の現行仕様、実装状況、golden 成果物の
+   provenance を更新し、既存の `interface_health`／utilization／SVI／Overlay 回帰テストを実行する。
+
+9000v／hardware への接続は対象指定を含む承認を得た検証だけで行い、通常の単体テストは offline とする。
+実装前に実機検証済みとは記載しない。光レベル判定、詳細 counter 判定、非物理 interface の補完、
+個別 port の条件付き再収集、構造化 NX-API JSON は今回の範囲外とする。
+
+offline の受け入れ確認は [interface detail test](../../../tests/test_health_interface_detail.py)で実施する。
+1,024 port の合成出力、既存 collector の timeout 伝播と失敗証跡、両入力 adapter、phase 別の行範囲、
+部分解析、矛盾、旧 Snapshot、単体・比較、成功済み current を保持する retry を対象とする。
 
 ### 7.10 NTPと装置時刻
 
-NTPは`show ntp status`、`show ntp peers`、`show ntp peer-status`を同一checkの証跡として使用する。
-profileの`thresholds.ntp.required`は既定`false`とし、未設定機器を一律異常にしない。
-NX-OS の `show ntp status` が `Distribution : Disabled` または
-`Last operational state: No session` を返すことだけでは NTP 未設定と判定しない。この出力は
-operational session がない証跡として保持し、`show ntp peers` に configured peer があれば
-`configured: true`、peer が空なら `configured: false` とする。明示的な `NTP is not configured`
-または同等の出力も未設定とする。command 自体の欠落、command error、その他の未認識形式とは
-区別する。
+`network-baseline-nxos` `1.9`／NX-OS parser `1.22` で、配布状態を時刻未同期と混同する不具合を修正した。
+追加 command や CLI option は不要。既存の同一 host・phase・collection の CLI text を使用する。
+`thresholds.ntp.required` の既定は `false`。調査時の不具合と再現入力は
+[NTP 実装レビュー](../../as-is/NTP_HEALTH_CHECK_REVIEW.md)に記録し、本節を修正仕様の正本とする。
 
-`show clock` の `Time source is NTP` は補助 evidence として保持する。ただし、選択 peer または
-synchronized status がない状態をこの表示だけで `PASS` にしない。configured peer が存在し、
-`No session` または未選択 peer だけが観測された場合は `configured but unsynchronized` として
-`WARN`（`thresholds.ntp.required: true` では `FAIL`）にする。`show ntp peer-status` による詳細確認は
-実装済みであり、selected、mode、remote/local、stratum、poll、reach、delay、VRFを証拠として保持する。
+#### 7.10.1 Command と解析箇所
 
-| 状態 | `required: false` | `required: true` |
+| command / ID | 解析 anchor と取得値 | 利用目的 |
 |---|---|---|
-| 未設定 | `NOT_APPLICABLE` | `FAIL` |
-| synchronized、選択peerあり | `PASS` | `PASS` |
-| configuredだがunsynchronized | `WARN` | `FAIL` |
-| before同期済み / after未同期 | `FAIL / regression` | `FAIL / regression` |
-| beforeの選択peerがafterで消失 | `FAIL / regression` | `FAIL / regression` |
-| 必須出力の欠落・parse不能 | `UNKNOWN` | `UNKNOWN` |
+| `show ntp status` / `ntp_status` | 行頭 `Distribution : <state>`、`Last operational state: <state>` | `common.ntp.distribution` に配布状態を保存。`Disabled`／`No session` から時計の未同期・未設定を推定しない |
+| 同上（従来入力との互換） | `Clock is synchronized`／`Clock is unsynchronized`、`stratum <n>`、`reference is <address>` | 明示された `synchronized` と `status_kind: clock`、stratum、reference を保存。配布状態との併記でも混同しない |
+| 同上 | 明示的な `NTP is not configured`／`No NTP configuration` | `configured: false`、`status_kind: not_configured`。他の出力に peer があれば矛盾 |
+| `show ntp peers` / `ntp_peers` | `Peer IP Address / Serv/Peer` の一覧、または従来の marker 付き address 行 | `common.ntp.peers.<address>`。通常の NX-OS 一覧には選択 marker がないため、marker 不在を非同期の証拠にしない。従来入力の `*` は selected として保持 |
+| `show ntp peer-status` / `ntp_peer_status` | `Total peers`、`remote local st poll reach delay vrf` の列、行頭 `*`／`+`／`-`／`=` | `common.ntp.peer_status.peers.<remote>`。`*` は選択済み、`st` は stratum、`reach` は到達履歴。local、poll、delay、VRF、行範囲も保存 |
+| `show clock` / `clock` | `Time source is ...` | `clock_time_source` に補助証跡として保持。単独では同期／未同期を確定しない |
 
-`show ntp peer-status` は `syncmode`、remote/local address、stratum、poll、reach、delay、VRF を
-正規化する。判定は次のとおりとする。
+大小文字と列間の空白差を許容し、IP address は IPv4／IPv6 として検証して正規化する。
+peer-status の `delay` と `vrf` の連結（例 `0.00107management`）は数値部と VRF 部を分離する。
+未知 marker、壊れた行、未知の数値、`Total peers` と解析行数の不一致を黙って読み飛ばさない。
+同じ正規化 remote address が複数行に現れた場合は、別 VRF でも現在の辞書表現では曖昧なため
+source 全体を parse error とする。上書きや任意の行選択はしない。
 
-| peer-status | 判定 |
-|---|---|
-| status が synchronized、selected peer があり、stratum 1～15、reach 1 以上 | `PASS` |
-| configured peer はあるが selected peer がない、`No session`、reach 0、または stratum 16 | `WARN`。NTP 必須時は `FAIL` |
-| before の selected peer が after で消失、または synchronized から非同期 | `FAIL / regression` |
-| peer-status の command 非対応・parse 不能だが status と peers は解析可能 | primary evidence による判定を継続し、peer-status の不足だけで `UNKNOWN` にしない |
-| status または peers の必須 evidence が欠落・parse 不能 | `UNKNOWN` |
+`reach` の表示は 8 bit の八進表記（`0`～`377`）。互換 field `reach` は従来の表示数字の整数値を維持し、
+`reach_text` に表示文字列、`reach_value` に八進解釈した 0～255 の値を追加する。
+判定は `reach_value > 0` とし、`377` まで埋まっていることは必須にしない。
+`poll`、`delay` に新しい合否閾値は設けない。
 
-field と command の根拠は [Cisco Nexus 9000 Series NX-OS 10.4(x) Show Command Reference](https://www.cisco.com/c/en/us/td/docs/dcn/nx-os/nexus9000/104x/command-reference/show/b_n9k_show_commands_104x/m_n_showcmds.html#wp2274317467) と [Cisco Nexus 9000 Series NX-API CLI Reference - NTP Commands](https://developer.cisco.com/docs/cisco-nexus-9000-series-nx-api-cli-reference/latest/ntp-commands/) とする。
+空 text は取得・解析不能であり、未設定と扱わない。明示的な peer 0 件、空の正規一覧表、
+`No NTP peers` は正常な空集合として区別する。CLI error と transport 失敗は既存 source 証跡を残す。
 
-profile が check を定義しているにもかかわらず対応 command が Collection Manifest にない場合は、
-機能が対象外とは判定せず `UNKNOWN / collection_error` とする。`NOT_APPLICABLE` は、収集済み出力、
-running config、platform capability のいずれかから機能未設定または非対応を確認できた場合だけ使用する。
+外部 transcript の末尾に残る単独 CLI prompt は表の行として扱わない。途中の不明行は
+読み飛ばさず解析不能とし、raw file の行番号は維持する。
 
-`clock_health`は直接収集または`alred-collect`の`show clock`について、device時刻をcommand artifactの
-`COLLECTED_AT`と比較し、timezoneを正規化してoffsetを記録する。初期既定は60秒超を`WARN`、300秒超を
-`FAIL`とし、profileで変更可能とする。安全にtimezoneまたは時刻を解釈できない場合は`UNKNOWN`とする。
-`nxos-transcript`は実際の取得時刻を入力契約として保証しないため、`show clock`やtimestampの有無にかかわらず
-`clock_health`を評価せず`NOT_APPLICABLE`とする。transcriptのimport時刻やfile mtimeを取得時刻として
-代用しない。`show clock`のparse結果はNTP補助evidenceなど、offset以外の用途には保持する。
-`show version`のuptimeがbeforeより短くなった場合は、明示した再起動作業を除き`FAIL / regression`とする。
+#### 7.10.2 証跡の優先順位と単体判定
 
-```yaml
-thresholds:
-  clock:
-    warn_offset_seconds: 60
-    fail_offset_seconds: 300
-  ntp:
-    required: false
+- `ntp_status` と `ntp_peers` は check の必須証跡。source の欠落、収集失敗、解析不能は `UNKNOWN`。
+- 正常な `ntp_peer_status` を選択状態と peer 健全性の優先証跡にする。同期可否は配布状態から作らない。
+- peer-status の欠落・transport 失敗・CLI 非対応では、従来の明示同期状態と marker 付き peers が
+  そろっている場合だけ代替評価する。配布状態と通常の peers 一覧だけでは同期不明の `UNKNOWN`。
+- peer-status の壊れた行・重複・件数不一致は `UNKNOWN`。部分集合への fallback で異常を隠さない。
+- 明示的な未設定と peer 存在、明示的な未同期と選択済み健全 peer は矛盾として `UNKNOWN`。
+- 設定済みだが詳細 peer が 0 件、または selected address が通常 peers 一覧にない場合も
+  source 間不整合として `UNKNOWN`。収集時点の違いを推測で解消しない。
+
+| 観測結果 | NTP 任意 | NTP 必須 |
+|---|---|---|
+| 正常な空の peers、明示同期・peer 存在の矛盾なし | `NOT_APPLICABLE` | `FAIL` |
+| 詳細の selected peer あり、全 selected peer の `reach_value > 0`、stratum 1～13 | `PASS` | `PASS` |
+| 詳細 peer は存在するが selected なし、または selected peer の reach 0／stratum 0・14～16 | `WARN` | `FAIL` |
+| 詳細取得不可だが従来入力で明示同期＋selected peer を確認 | `PASS` | `PASS` |
+| 従来入力で明示未同期、または明示同期だが selected なし | `WARN` | `FAIL` |
+| 同期証跡不足、解析不能、source 間矛盾 | `UNKNOWN` | `UNKNOWN` |
+
+stratum 上限 13 は、本 project の対応候補である NX-OS 10.4(5)M 以降に適用する。
+[Cisco の Nexus 9000 向け確認手順](https://www.cisco.com/c/en/us/support/docs/switches/nexus-9000-series-switches/221746-configure-network-time-protocol-on-nexus.html)
+が示す 10.1(1) 以降の制約に従う。範囲外 release の動作保証へ拡張しない。
+local reference clock を禁止する policy は今回追加せず、既存の選択済み peer 判定対象を維持する。
+
+配布状態の command 定義は
+[NX-OS 10.4(x) command reference](https://www.cisco.com/c/en/us/td/docs/dcn/nx-os/nexus9000/104x/command-reference/show/b_n9k_show_commands_104x/m_n_showcmds.html)、
+列と表示例は [NX-API CLI reference](https://developer.cisco.com/docs/cisco-nexus-9000-series-nx-api-cli-reference/latest/ntp-commands/)を参照する。
+
+正常例（架空 address）では、`show ntp status` が `Distribution : Disabled`／
+`Last operational state: No session` でも、`show ntp peers` に `192.0.2.123 Server` があり、
+`show ntp peer-status` が次の内容なら `PASS` とする。
+
+```text
+Total peers : 1
+remote        local       st poll reach delay   vrf
+*192.0.2.123   192.0.2.10  3  64   377   0.00107management
 ```
+
+この例では行頭 `*`、`st=3`、`reach=377`（正規化値 255）を判定し、
+`delay=0.00107` と `vrf=management` を分離して証跡に保存する。
+
+#### 7.10.3 前後比較、証跡と互換性
+
+両 phase に同じ正規化・評価を行い、確定した同期喪失または選択済み peer 消失を `FAIL / regression` とする。
+片側が同期不明・解析不能なら比較も `UNKNOWN` とし、空集合との差分で稼働喪失を捏造しない。
+address は正規化して比較し、両側で VRF が明示されている場合は VRF の変化も peer の変化として扱う。
+旧入力などで VRF がない場合は従来の address 比較を維持する。正常な切替でも旧 selected peer の
+消失を regression にする従来 policy は変更しない。
+
+元 Snapshot を変更せず、評価用の `after.synchronized`、`synchronization_source`、`selected_peers`、
+`unhealthy_selected_peers`、不足・矛盾理由を結果へ保存する。compare の before にも同じ評価値を保存し、
+evidence に両 phase の source file／hash／command／parser version／行範囲を残す。
+詳細 row の行番号は Snapshot Builder が raw file の絶対行番号へ変換する。
+
+旧 Snapshot の `operational_state: No session` に由来する `synchronized: false` は、明示同期の証跡と
+して信用せず、正常な詳細 source があれば再評価する。旧 parser が行を失った場合は `Total peers` との
+不一致も検証し、復元できない field を推測しない。必要時は元 raw を新 parser で別成果物へ再 import する。
+旧 Snapshot に正常な詳細 source がなければ、配布状態だけで正常へ補完しない。
+追加 field は Snapshot schema v1 の optional field とし、旧 `reach` の表現と source／profile 固定は維持する。
+parser `1.22`、profile `1.9`、Snapshot Builder `1.4`、`ntp_state: 1.0` を provenance に記録する。
+
+受け入れテストは正常 selected＋配布 Disabled、列連結、IPv6、stratum と reach 境界、空／破損／重複、
+source 欠落・非対応、NTP 必須、旧 Snapshot、前後比較、両入力 adapter と根拠行を対象とする。
+実機接続は今回の offline テストに含めない。
+
+#### 7.10.4 装置時刻
+
+`clock_health` は直接収集または `alred-collect` の `show clock` について、device 時刻を command artifact の
+`COLLECTED_AT` と比較する。60 秒超を `WARN`、300 秒超を `FAIL` とし、安全に日時を解析できなければ `UNKNOWN`。
+`nxos-transcript` では実際の取得時刻を保証しないため `NOT_APPLICABLE` とし、import 時刻で代用しない。
+`show version` の uptime が before より短い場合は、明示した再起動作業を除き `FAIL / regression` とする。
 
 ### 7.11 interface error counter
 
@@ -879,7 +1146,8 @@ beforeからの増加量を基本判定値とする。既定は増加1以上を`
 - counterが減少し、resetを説明できない場合は`UNKNOWN`とする
 - wrapを安全に識別できるcounter幅がない場合は増加量を推測しない
 - 新規interfaceはbefore値がないためabsolute値を証跡として保持し、既定`WARN`とする
-- diagnosticの`show interface`は原因確認用であり、取得失敗だけで元checkを`UNKNOWN`にしない
+- `show interface` は admin 状態補完に使用するが、詳細 counter は本 check の入力にしない。
+  同 command の取得失敗だけで `interface_error_health` を `UNKNOWN` にしない
 
 ### 7.12 port-channel / LACP
 
@@ -1069,6 +1337,10 @@ spec:
 ```
 
 ## 10. 既存show_commands.txtとの関係
+
+配布用 `alred/sample_configs/show_commands.example.txt` の `[device_type:nxos]` では、
+`show interface` を有効な command として収集する。Health baseline profile `1.8` にも同 command を
+追加し、7.9.10 の詳細 parser・admin 状態補完へ接続している。
 
 既存の`alred/sample_configs/show_commands.example.txt`には、本一覧の多くがすでに含まれている。現行の
 `show lldp neighbors detail`と`show running-config`は既存collectorのbase collectionが1回収集する。

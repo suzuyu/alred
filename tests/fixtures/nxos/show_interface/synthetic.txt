@@ -1,0 +1,21 @@
+
+Ethernet1/1 is up
+admin state is up, Dedicated Interface
+  Hardware: Ethernet
+Ethernet1/2 is administratively down (Administratively down)
+admin state is down, Dedicated Interface
+  Hardware: Ethernet
+eth1/3/1 is DOWN (new reason from future release)
+ ADMIN STATE IS DOWN , Dedicated Interface
+  Hardware: Ethernet
+Ethernet1/4 is down (XCVR not inserted)
+mgmt0 is up
+admin state is up,
+Ethernet1/5.100 is down
+admin state is down,
+port-channel10 is up
+admin state is up,
+Vlan100 is down
+admin state is down,
+loopback0 is up
+admin state is up,

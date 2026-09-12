@@ -1,5 +1,8 @@
 # Startup Config Verification
 
+対象 hostname は完全一致または部分一致で複数指定できます。
+使用方法は [対象ホストの指定](../common/TARGET_HOSTS.md)を参照してください。
+
 ## 1. 目的
 
 lab 起動後の running config と、`clab-transform-config`が生成した期待 config を read-only で比較する。

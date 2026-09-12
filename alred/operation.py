@@ -1689,6 +1689,7 @@ def transition_operation(
     lock: OperationLock,
     reason: str = "",
     now: datetime | None = None,
+    allow_inspection_retry: bool = False,
 ) -> None:
     """Apply one validated common lifecycle transition."""
     lock.assert_held()
@@ -1697,7 +1698,14 @@ def transition_operation(
     metadata = load_operation_metadata(workspace.operation_root)
     execution = load_operation_execution(workspace.operation_root)
     current_state = metadata["spec"]["lifecycle"]
-    if target_state not in OPERATION_TRANSITIONS[current_state]:
+    inspection_retry = (
+        allow_inspection_retry
+        and metadata["spec"].get("purpose") == "inspection"
+        and metadata["spec"].get("workflow_state") is None
+        and current_state in {"completed", "completed_with_warnings"}
+        and target_state == "running"
+    )
+    if target_state not in OPERATION_TRANSITIONS[current_state] and not inspection_retry:
         raise OperationStateError(
             f"invalid operation transition: {current_state} -> {target_state}"
         )

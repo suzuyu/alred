@@ -7,10 +7,13 @@ profileは、収集コマンド、parser、check、閾値、収束条件をま�
 
 ## 1. 組み込みprofile
 
-| 名前 | 用途 |
-|---|---|
-| `network-baseline-nxos` | NX-OS共通baseline。CPU、memory、logging、route、OSPF、BGP、vPCなど |
-| `nxos-overlay` | EVPN/VXLAN。NVE、VNI、EVPN、VRF、SVIなど |
+本書では profile の指定・合成・閾値変更を説明します。各 profile のチェック内容は、専用ガイドの
+冒頭にある一覧から確認してください。
+
+| 名前 | 用途 | チェック一覧・判定条件 |
+|---|---|---|
+| `network-baseline-nxos` | NX-OS 共通 baseline。CPU、memory、logging、route、OSPF、BGP、vPC など | [Baseline Profile Guide](./profiles/network-baseline-nxos.md) |
+| `nxos-overlay` | EVPN/VXLAN。NVE、VNI、EVPN、VRF、SVI など | [Overlay Profile Guide](./profiles/nxos-overlay.md) |
 
 baselineだけを使用:
 

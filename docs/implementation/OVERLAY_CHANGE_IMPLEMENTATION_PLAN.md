@@ -46,6 +46,17 @@ Phase 10の実施済み証跡、配布binary検証、hardware別の文書確認�
 
 ## 4. Phase詳細
 
+### Follow-up: 物理 interface の admin 状態補完（実装済み）
+
+Phase 3 の追加実装として、`network-baseline-nxos` `1.8` へ `show interface` を追加した。
+仕様、入出力、互換性、受け入れ条件は
+[Baseline 設計 7.9.10](../design/network-ops/NXOS_BASELINE_HEALTH_CHECK_COMMANDS.md#7910-show-interface-による-admin-状態補完)を参照する。
+
+既存 collector 接続、詳細 parser、Snapshot field と統合 helper、単体／比較 evaluator、
+証跡と retry の回帰確認、文書・sample・provenance 更新を実施した。
+未装着を admin-up と推定せず、明示 admin 状態を採用して矛盾時は `UNKNOWN` とする。
+合成 fixture による offline 検証を実施。追加 command の機器への接続検証は未実施。
+
 ### 4.1 Phase 0: 現行仕様の固定
 
 - Markdownのlocal linkを自動検証し、CIで既存テストとともに実行する。

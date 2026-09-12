@@ -3,6 +3,9 @@
 この章では、EVPN/VXLAN FabricへL2VNIまたはL3VNIを追加する前後に、
 `network-baseline-nxos`と`nxos-overlay`を併用して正常性を確認する手順を説明します。
 
+check ID ごとの目的・判定条件は [Overlay Profile Guide](./profiles/nxos-overlay.md)、
+装置共通の確認項目は [Baseline Profile Guide](./profiles/network-baseline-nxos.md)を参照してください。
+
 このシナリオでは、既存L2VNI 10010が稼働している2台のLeafへ、VRF `TENANT-B`、
 L3VNI 50002、新しいL2VNI 10020を追加します。VLANは機器ごとに異なり、
 `leaf01`では20、`leaf02`では120を使用する想定です。設定投入はalred外の手動作業または

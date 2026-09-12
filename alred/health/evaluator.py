@@ -9,6 +9,8 @@ import re
 from typing import Any, Callable, Mapping
 
 from .roles import overlay_profile_scope
+from .ntp_state import NtpEvidenceError, ntp_state_view
+from .interface_state import interface_state_view
 
 from ..logging_check import classify_logging_record
 from ..schema import SCHEMA_VERSION, validate_document
@@ -72,6 +74,12 @@ def _source_evidence(
             "file": source.get("file"),
             "sha256": source.get("sha256"),
             "parse_status": source.get("parse_status"),
+            **{
+                key: source[key] for key in (
+                    "collected_at", "parser", "parser_version", "output_start_line",
+                    "output_end_line", "start_line", "end_line", "parse_warning",
+                ) if key in source
+            },
         }
     ]
 
@@ -934,106 +942,74 @@ def _evaluate_clock(snapshot, host, definition, effective):
 
 
 def _evaluate_ntp(snapshot, host, definition, effective):
-    value = snapshot["hosts"][host]["common"].get("ntp")
     evidence = [
-        *_source_evidence(snapshot, host, "ntp_status"),
-        *_source_evidence(snapshot, host, "ntp_peers"),
-        *_source_evidence(snapshot, host, "ntp_peer_status"),
-        *_source_evidence(snapshot, host, "clock"),
+        item
+        for identifier in ("ntp_status", "ntp_peers", "ntp_peer_status", "clock")
+        for item in _source_evidence(snapshot, host, identifier)
     ]
-    if value is None:
-        if _optional_uncollected(snapshot, host, ("ntp_status", "ntp_peers")):
-            return _unknown(definition, host, "NTP was not collected", [], resource="system/ntp")
-        return _unknown(definition, host, "NTP state is unavailable", evidence, resource="system/ntp")
-    sources = snapshot["hosts"][host].get("sources", {})
-    failed_sources = [
-        identifier
-        for identifier in ("ntp_status", "ntp_peers")
-        if identifier in sources and sources[identifier].get("parse_status") != "parsed"
-    ]
-    if failed_sources:
-        return _unknown(
-            definition,
-            host,
-            "NTP evidence is unavailable: " + ", ".join(failed_sources),
-            evidence,
-            resource="system/ntp",
-        )
-    required = bool(effective["spec"].get("thresholds", {}).get("ntp", {}).get("required", False))
-    peers = value.get("peers", {})
-    peer_status = value.get("peer_status", {})
-    detailed_peers = (
-        peer_status.get("peers", {})
-        if peer_status.get("applicable", True)
-        else {}
+    try:
+        normalized = ntp_state_view(snapshot["hosts"][host])
+    except NtpEvidenceError as exc:
+        return _unknown(definition, host, str(exc), evidence, resource="system/ntp")
+    detail_evidence = _source_evidence(snapshot, host, "ntp_peer_status")
+    if detail_evidence and normalized["synchronization_source"] == "ntp_peer_status":
+        for address, peer in normalized["peer_status"]["peers"].items():
+            if "line_start" in peer and "line_end" in peer:
+                evidence.append(
+                    {
+                        **detail_evidence[0],
+                        "resource": address,
+                        "start_line": peer["line_start"],
+                        "end_line": peer["line_end"],
+                    }
+                )
+    required = bool(
+        effective["spec"].get("thresholds", {}).get("ntp", {}).get("required", False)
     )
-    configured = value.get("configured")
-    if configured is None:
-        configured = bool(peers or detailed_peers)
-    normalized = {**value, "configured": configured}
-    clock_source = str(
-        snapshot["hosts"][host]["common"].get("clock", {}).get(
-            "time_source", ""
+    if not normalized["configured"]:
+        result, message = (
+            ("FAIL" if required else "NOT_APPLICABLE"),
+            "NTP is not configured",
         )
-    ).strip()
-    if clock_source:
-        normalized["clock_time_source"] = clock_source
-    if not configured:
-        result = "FAIL" if required else "NOT_APPLICABLE"
-        message = "NTP is not configured"
-    elif value.get("synchronized"):
-        selected = sorted(
-            address
-            for address, peer in (detailed_peers or peers).items()
-            if peer.get("selected")
+    elif normalized["synchronized"] is None:
+        result, message = "UNKNOWN", "NTP synchronization evidence is unavailable"
+    elif normalized["synchronized"]:
+        result, message = (
+            "PASS",
+            "NTP is synchronized to " + ", ".join(normalized["selected_peers"]),
         )
-        unhealthy_selected = sorted(
-            address
-            for address in selected
-            if detailed_peers
-            and (
-                int(detailed_peers[address].get("reach", 0)) < 1
-                or not 1 <= int(detailed_peers[address].get("stratum", 16)) <= 15
-            )
-        )
-        result = "PASS" if selected and not unhealthy_selected else "WARN"
-        message = "NTP is synchronized"
-        if selected:
-            message += f" to {', '.join(selected)}"
-        if unhealthy_selected:
-            message += "; unhealthy selected peer: " + ", ".join(
-                unhealthy_selected
-            )
-        elif not selected:
-            message += "; no selected peer was observed"
     else:
         result = "FAIL" if required else "WARN"
-        message = "NTP is configured but unsynchronized"
-        details = []
-        if value.get("operational_state"):
-            details.append(f"operational state: {value['operational_state']}")
-        if peers and not any(peer.get("selected") for peer in peers.values()):
-            details.append("no selected peer")
-        if detailed_peers:
-            unhealthy = sorted(
-                address
-                for address, peer in detailed_peers.items()
-                if int(peer.get("reach", 0)) < 1
-                or not 1 <= int(peer.get("stratum", 16)) <= 15
+        if normalized["unhealthy_selected_peers"]:
+            message = "NTP selected peer is unhealthy: " + ", ".join(
+                normalized["unhealthy_selected_peers"]
             )
-            if unhealthy:
-                details.append("unhealthy peer-status: " + ", ".join(unhealthy))
-        if clock_source:
-            details.append(f"clock time source: {clock_source}")
-        if details:
-            message += " (" + "; ".join(details) + ")"
-    return _check(check_id=definition["id"], profile=definition["profile"], host=host, result=result, classification="pre_existing" if result in {"WARN", "FAIL"} else "normal", message=message, evidence=evidence, resource="system/ntp", after=normalized)
+        else:
+            message = "NTP is configured but unsynchronized"
+            if not normalized["selected_peers"]:
+                message += "; no selected peer was observed"
+    return _check(
+        check_id=definition["id"],
+        profile=definition["profile"],
+        host=host,
+        result=result,
+        classification="collection_error"
+        if result == "UNKNOWN"
+        else "pre_existing"
+        if result in {"WARN", "FAIL"}
+        else "normal",
+        message=message,
+        evidence=evidence,
+        resource="system/ntp",
+        after=normalized,
+    )
 
 
 def _evaluate_interfaces(snapshot, host, definition, _effective):
     value = snapshot["hosts"][host]["common"].get("interfaces")
     evidence = [
         *_source_evidence(snapshot, host, "interface_status"),
+        *_source_evidence(snapshot, host, "interface_detail"),
         *_source_evidence(snapshot, host, "interface_brief"),
     ]
     status_source = snapshot["hosts"][host]["sources"].get("interface_status")
@@ -1055,10 +1031,44 @@ def _evaluate_interfaces(snapshot, host, definition, _effective):
         )
     if value is None:
         return _unknown(definition, host, "Interface status is unavailable", evidence, resource="interfaces")
-    down = sorted(name for name, item in value.items() if item.get("admin_state") == "up" and item.get("operational_state") != "up")
-    result = "FAIL" if down else "PASS"
-    message = "Admin-up interfaces are operationally up" if not down else "Admin-up interfaces are down: " + ", ".join(down)
-    return _check(check_id=definition["id"], profile=definition["profile"], host=host, result=result, classification="target_not_ready" if down else "normal", message=message, evidence=evidence, resource="interfaces", after={"interfaces": value, "admin_up_oper_down": down})
+    view = interface_state_view(snapshot["hosts"][host])
+    interfaces = view["interfaces"]
+    detail_evidence = _source_evidence(snapshot, host, "interface_detail")
+    if detail_evidence:
+        for name, state_source in view["interface_state_sources"].items():
+            evidence.append({**detail_evidence[0], "interface": name, **state_source})
+    unknown = sorted(
+        name for name, item in interfaces.items()
+        if item.get("admin_state") not in {"up", "down"}
+        or item.get("operational_state") not in {"up", "down"}
+    )
+    down = sorted(
+        name for name, item in interfaces.items()
+        if item.get("admin_state") == "up" and item.get("operational_state") == "down"
+    )
+    if down:
+        result, classification = "FAIL", "target_not_ready"
+        message = "Admin-up interfaces are down: " + ", ".join(down)
+    elif unknown:
+        result, classification = "UNKNOWN", "collection_error"
+        message = "Interface administrative state is unknown: " + ", ".join(unknown)
+    else:
+        result, classification = "PASS", "normal"
+        message = "Admin-up interfaces are operationally up"
+    if down and unknown:
+        message += "; administrative state is unknown: " + ", ".join(unknown)
+    if view["interface_state_conflicts"]:
+        message += "; conflicting interface evidence: " + ", ".join(sorted(view["interface_state_conflicts"]))
+    return _check(
+        check_id=definition["id"], profile=definition["profile"], host=host,
+        result=result, classification=classification, message=message,
+        evidence=evidence, resource="interfaces",
+        after={
+            **view,
+            "admin_up_oper_down": down,
+            "admin_state_unknown": unknown,
+        },
+    )
 
 
 def _evaluate_interface_errors(snapshot, host, definition, effective):
@@ -3242,38 +3252,66 @@ def _compare_reload(
 
 def _compare_interfaces(before, after, host, definition, effective):
     check = _evaluate_interfaces(after, host, definition, effective)
-    before_value = before["hosts"][host]["common"].get("interfaces")
-    after_value = after["hosts"][host]["common"].get("interfaces")
-    if before_value is None or after_value is None:
+    old_check = _evaluate_interfaces(before, host, definition, effective)
+    check["evidence"] = old_check["evidence"] + check["evidence"]
+    if "after" not in check or "after" not in old_check:
+        check.update(result="UNKNOWN", classification="collection_error", message="Interface comparison requires parsed status in both phases")
         return check
+    old_view, new_view = old_check["after"], check["after"]
+    before_value, after_value = old_view["interfaces"], new_view["interfaces"]
     before_up = {name for name, item in before_value.items() if item.get("operational_state") == "up"}
     after_up = {name for name, item in after_value.items() if item.get("operational_state") == "up"}
-    lost = sorted(before_up - after_up)
-    check = deepcopy(check)
+    uncertain = {
+        name for view in (before_value, after_value) for name, item in view.items()
+        if item.get("operational_state") not in {"up", "down"}
+    }
+    lost = sorted(before_up - after_up - uncertain)
     check["before"] = before_value
     if lost:
-        check.update(result="FAIL", classification="regression", message="Interface regression: " + ", ".join(lost))
+        check.update(result="FAIL", classification="regression", message="Interface regression: " + ", ".join(lost) + "; " + check["message"])
+    elif (uncertain or old_view["interface_state_conflicts"]) and check["result"] != "FAIL":
+        check.update(result="UNKNOWN", classification="collection_error", message="Interface comparison has conflicting or unknown state; " + check["message"])
     return check
 
 
 def _compare_ntp(before, after, host, definition, effective):
     check = _evaluate_ntp(after, host, definition, effective)
-    old = before["hosts"][host]["common"].get("ntp")
-    new = after["hosts"][host]["common"].get("ntp")
-    if old is None or new is None:
+    old_check = _evaluate_ntp(before, host, definition, effective)
+    check["evidence"] = old_check["evidence"] + check["evidence"]
+    old, new = old_check.get("after"), check.get("after")
+    if (
+        old is None
+        or new is None
+        or old_check["result"] == "UNKNOWN"
+        or check["result"] == "UNKNOWN"
+    ):
+        check.update(
+            result="UNKNOWN",
+            classification="collection_error",
+            message="NTP comparison requires reliable evidence in both phases",
+        )
+        if old is not None:
+            check["before"] = old
         return check
-    def selected(value):
-        detailed = value.get("peer_status", {}).get("peers", {})
-        candidates = detailed or value.get("peers", {})
-        return {
-            address for address, peer in candidates.items() if peer.get("selected")
-        }
-
-    lost_peers = sorted(selected(old) - selected(new))
-    check = deepcopy(check)
     check["before"] = old
-    if (old.get("synchronized") and not new.get("synchronized")) or lost_peers:
-        check.update(result="FAIL", classification="regression", message="NTP synchronization regression" + (": lost peer " + ", ".join(lost_peers) if lost_peers else ""))
+    lost_peers = set(old["selected_peers"]) - set(new["selected_peers"])
+    if (
+        old["synchronization_source"]
+        == new["synchronization_source"]
+        == "ntp_peer_status"
+    ):
+        for address in set(old["selected_peers"]) & set(new["selected_peers"]):
+            old_vrf = old["peer_status"]["peers"][address].get("vrf")
+            new_vrf = new["peer_status"]["peers"][address].get("vrf")
+            if old_vrf is not None and new_vrf is not None and old_vrf != new_vrf:
+                lost_peers.add(address)
+    if (old["synchronized"] and not new["synchronized"]) or lost_peers:
+        check.update(
+            result="FAIL",
+            classification="regression",
+            message="NTP synchronization regression"
+            + (": lost peer " + ", ".join(sorted(lost_peers)) if lost_peers else ""),
+        )
     return check
 
 

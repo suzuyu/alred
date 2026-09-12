@@ -1,5 +1,8 @@
 # Common Preparation
 
+対象 hostname は完全一致または部分一致で複数指定できます。
+使用方法は [対象ホストの指定](../common/TARGET_HOSTS.md)を参照してください。
+
 この章は、alredのhealth checkを実行するすべてのシナリオに共通する事前準備です。
 直接収集、取得済みrawログ、外部transcript、NX-OS Overlayのいずれを使用する場合も、
 最初にこの章を確認してください。

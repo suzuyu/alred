@@ -102,6 +102,11 @@ hostごとの解決順は次とし、同一commandは最初の出現だけを残
 section前のcommandはformat errorとする。role解決の移行は
 [Role Definition and Resolution Design](./ROLE_DEFINITION_AND_RESOLUTION_DESIGN.md)に従う。
 
+Health baseline profile `1.8` は `show interface` を共通 command として毎回収集する。
+既存の show command 選択・重複排除・command artifact 保存を再利用し、収集 executor は追加しない。
+command ID、必須性、text 入力の条件、Health 固有の判定は
+[Baseline 設計 7.9.10](../network-ops/NXOS_BASELINE_HEALTH_CHECK_COMMANDS.md#7910-show-interface-による-admin-状態補完)を正本とする。
+
 ## 5. Raw成果物
 
 ### 5.1 Current mirror

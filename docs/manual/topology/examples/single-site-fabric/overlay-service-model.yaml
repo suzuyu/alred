@@ -9,7 +9,7 @@ spec:
   parser_versions:
     running_config: '1.0'
     evpn_control_plane: '1.0'
-    operational: '1.19'
+    operational: '1.22'
   services:
   - service_id: adc/controller-vpc1
     site: adc

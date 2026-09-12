@@ -227,6 +227,7 @@ from .operation import (
     resolve_active_change_for_after,
     save_active_change,
 )
+from .target_selection import resolve_target_hosts, TargetSelectionError
 from .parsing import (
     build_description_records,
     get_inventory_device_type,
@@ -247,8 +248,6 @@ from .parsing import (
     parse_lldp_file,
     read_links_csv,
     should_collect_running_config,
-    should_exclude,
-    should_include,
     write_links_csv,
 )
 from .render import (
@@ -2101,38 +2100,18 @@ def select_target_hosts(
     hosts: List[Dict[str, Any]],
     policy: Dict[str, List[str]],
     logger: Logger,
-    target_hosts: Set[str] | None = None,
+    target_hosts: Set[str] | str | None = None,
+    target_hosts_match: str | None = None,
 ) -> tuple[List[Dict[str, Any]], int]:
-    """
-    Filter inventory hosts by explicit hostname and policy.
-
-    Returns:
-        Tuple of selected targets and skipped count.
-    """
-    selected: List[Dict[str, Any]] = []
-    skipped = 0
-    effective_target_hosts = target_hosts or set()
-
-    for host in hosts:
-        hostname = str(host.get("hostname", ""))
-        if effective_target_hosts and hostname not in effective_target_hosts:
-            continue
-
-        include_ok, include_reason = should_include(host, policy)
-        if not include_ok:
-            logger.info("SKIP %s: %s", hostname, include_reason)
-            skipped += 1
-            continue
-
-        exclude_hit, exclude_reason = should_exclude(host, policy)
-        if exclude_hit:
-            logger.info("SKIP %s: %s", hostname, exclude_reason)
-            skipped += 1
-            continue
-
-        selected.append(host)
-
-    return selected, skipped
+    """Resolve explicit targets and policy through the shared selector."""
+    selection = resolve_target_hosts(
+        hosts,
+        policy,
+        logger,
+        targets=target_hosts,
+        mode=target_hosts_match,
+    )
+    return selection.hosts, selection.skipped
 
 
 def resolve_hosts_path(raw: str | None, required: bool = False) -> str | None:
@@ -2663,12 +2642,20 @@ def resolve_archive_filter_hostnames(args: argparse.Namespace, logger: Logger) -
     """
     Resolve effective hostnames used to filter collect-all archive contents.
     """
+    if hasattr(args, "_resolved_archive_hostnames"):
+        return set(args._resolved_archive_hostnames)
     hosts_path = resolve_hosts_path(args.hosts, required=True)
     inventory_data = load_yaml(hosts_path)
     hosts = load_inventory_data(inventory_data)
     policy = load_policy_file(args.policy)
-    target_hosts = parse_host_filter(args.target_hosts)
-    selected_hosts, _skipped = select_target_hosts(hosts, policy, logger, target_hosts=target_hosts)
+    target_hosts = args.target_hosts
+    selected_hosts, _skipped = select_target_hosts(
+        hosts,
+        policy,
+        logger,
+        target_hosts=target_hosts,
+        target_hosts_match=getattr(args, "target_hosts_match", None),
+    )
     return {str(host.get("hostname", "")) for host in selected_hosts if str(host.get("hostname", ""))}
 
 
@@ -6141,6 +6128,19 @@ def cmd_import_running_config(args: argparse.Namespace) -> None:
 def cmd_clab_apply_config(args: argparse.Namespace) -> None:
     """Wait for NX-OS lab readiness, then use the strict direct push path."""
     logger = setup_logging(args.log_file, args.verbose)
+    hosts_path = resolve_hosts_path(args.hosts, required=True)
+    inventory_hosts = {
+        str(host["hostname"]): host
+        for host in load_inventory_data(load_yaml(hosts_path))
+    }
+    selected, _ = select_target_hosts(
+        list(inventory_hosts.values()),
+        load_policy_file(getattr(args, "policy", None)),
+        logger,
+        target_hosts=getattr(args, "target_hosts", None),
+        target_hosts_match=getattr(args, "target_hosts_match", None),
+    )
+    scan_hostnames = {host["hostname"] for host in selected}
     attempt_id = datetime.now().astimezone().strftime("apply-%Y%m%dT%H%M%S%z-%f")
     attempt_root = Path(getattr(args, "output_dir", "output/clab-apply-config")) / attempt_id
     attempt_root.mkdir(parents=True, exist_ok=False, mode=0o700)
@@ -6201,11 +6201,6 @@ def cmd_clab_apply_config(args: argparse.Namespace) -> None:
             state.get("runtime"),
             state.get("health"),
         )
-    hosts_path = resolve_hosts_path(args.hosts, required=True)
-    inventory_hosts = {
-        str(host["hostname"]): host
-        for host in load_inventory_data(load_yaml(hosts_path))
-    }
     manifest_document: Dict[str, Any] | None = None
     config_paths: Dict[str, Path] = {}
     if args.lab_transform_manifest:
@@ -6236,10 +6231,6 @@ def cmd_clab_apply_config(args: argparse.Namespace) -> None:
         str(device["hostname"]): device
         for device in (manifest_document or {}).get("spec", {}).get("devices", [])
     }
-    original_target_hosts = parse_host_filter(getattr(args, "target_hosts", None))
-    scan_hostnames = set(inventory_hosts)
-    if original_target_hosts:
-        scan_hostnames &= set(original_target_hosts)
     risk_by_host: Dict[str, List[Dict[str, str]]] = {}
     missing_risk_configs: List[str] = []
     for hostname in sorted(scan_hostnames):
@@ -6424,6 +6415,7 @@ def cmd_clab_apply_config(args: argparse.Namespace) -> None:
         }
     if mutation_hosts:
         args.target_hosts = ",".join(mutation_hosts)
+        args.target_hosts_match = "exact"
         push_result = cmd_push_config_dir(args)
     else:
         push_result = {
@@ -6823,7 +6815,14 @@ def run_collect(args: argparse.Namespace, logger: Logger, old_generation_id: str
         show_commands_file = None
     show_commands = load_show_commands(show_commands_file)
     show_command_groups = load_show_command_groups(show_commands_file)
-    target_hosts = parse_host_filter(args.target_hosts)
+    target_hosts = args.target_hosts
+    targets, skipped = select_target_hosts(
+        hosts,
+        policy,
+        logger,
+        target_hosts=target_hosts,
+        target_hosts_match=getattr(args, "target_hosts_match", None),
+    )
     show_hosts = parse_host_filter(args.show_hosts)
     roles = load_roles(args.roles)
     if args.show_commands_file and args.show_run_diff:
@@ -6846,7 +6845,7 @@ def run_collect(args: argparse.Namespace, logger: Logger, old_generation_id: str
     logger.info("Policy file: %s", args.policy if args.policy else "(default)")
     logger.info("Transport mode: %s", args.transport)
     if target_hosts:
-        logger.info("Collect target-hosts filter: %d specified hosts", len(target_hosts))
+        logger.info("Collect target-hosts filter: %s", target_hosts)
     if show_commands:
         if show_hosts:
             logger.info(
@@ -6900,31 +6899,11 @@ def run_collect(args: argparse.Namespace, logger: Logger, old_generation_id: str
         run_diff_cmd_output_dir,
         generation_id,
     )
-    collected = skipped = failed = 0
+    collected = failed = 0
     run_diff_sections: List[str] = []
     run_diff_no_change_hosts: List[str] = []
     run_diff_command_sections: List[str] = []
     run_diff_command_no_change_hosts: List[str] = []
-    targets: List[Dict[str, Any]] = []
-
-    for host in hosts:
-        if target_hosts and host["hostname"] not in target_hosts:
-            continue
-
-        include_ok, include_reason = should_include(host, policy)
-        if not include_ok:
-            logger.info("SKIP %s: %s", host["hostname"], include_reason)
-            skipped += 1
-            continue
-
-        exclude_hit, exclude_reason = should_exclude(host, policy)
-        if exclude_hit:
-            logger.info("SKIP %s: %s", host["hostname"], exclude_reason)
-            skipped += 1
-            continue
-
-        targets.append(host)
-
     workers = max(1, args.workers)
     logger.info("Collect targets=%d workers=%d", len(targets), workers)
     targets, connect_failures = filter_hosts_by_connect_check(targets, args, logger)
@@ -7201,8 +7180,14 @@ def run_check_logging(args: argparse.Namespace, logger: Logger) -> tuple[Path, L
     inventory_data = load_yaml(hosts_path)
     hosts = load_inventory_data(inventory_data)
     policy = load_policy_file(args.policy)
-    target_hosts = parse_host_filter(args.target_hosts)
-    targets, skipped = select_target_hosts(hosts, policy, logger, target_hosts=target_hosts)
+    target_hosts = args.target_hosts
+    targets, skipped = select_target_hosts(
+        hosts,
+        policy,
+        logger,
+        target_hosts=target_hosts,
+        target_hosts_match=getattr(args, "target_hosts_match", None),
+    )
 
     logger.info("Loaded %d hosts from %s", len(hosts), hosts_path)
     logger.info("check-logging targets=%d skipped_by_policy=%d workers=%d", len(targets), skipped, max(1, args.workers))
@@ -7424,12 +7409,13 @@ def cmd_check_clab_startup_config(args: argparse.Namespace) -> None:
     inventory_data = load_yaml(hosts_path)
     hosts = load_inventory_data(inventory_data)
     policy = load_policy_file(args.policy)
-    target_hosts = parse_host_filter(args.target_hosts)
+    target_hosts = args.target_hosts
     targets, skipped = select_target_hosts(
         hosts,
         policy,
         logger,
         target_hosts=target_hosts,
+        target_hosts_match=getattr(args, "target_hosts_match", None),
     )
 
     startup_dir = Path(args.startup_dir)
@@ -7577,6 +7563,11 @@ def run_collect_all_flow(args: argparse.Namespace, logger: Logger) -> Path:
     Run all collect-family flows and package current outputs.
     """
     require_collect_all_show_commands(args)
+    if getattr(args, "target_hosts_match", None) == "contains":
+        selected = resolve_archive_filter_hostnames(args, logger)
+        args._resolved_archive_hostnames = selected
+        args.target_hosts = ",".join(sorted(selected))
+        args.target_hosts_match = "exact"
     generation_id = datetime.now().astimezone().strftime("%Y%m%d%H%M%S")
     setattr(args, "_connect_check_cache", {})
     logger.info("START COLLECT-ALL generation=%s", generation_id)
@@ -7776,12 +7767,13 @@ def cmd_push_config(args: argparse.Namespace) -> None:
         getattr(args, "allow_cli_error_pattern", None)
     )
 
-    target_hosts = parse_host_filter(args.target_hosts)
+    target_hosts = args.target_hosts
     targets, skipped = select_target_hosts(
         hosts,
         policy,
         logger,
         target_hosts=target_hosts,
+        target_hosts_match=getattr(args, "target_hosts_match", None),
     )
 
     logger.info("Loaded %d hosts from %s", len(hosts), hosts_path)
@@ -7966,7 +7958,7 @@ def cmd_push_config_dir(args: argparse.Namespace) -> Dict[str, Any]:
         with command_results_lock:
             command_results[hostname] = result
 
-    target_hosts = parse_host_filter(args.target_hosts)
+    target_hosts = args.target_hosts
     suffix = str(args.file_suffix or "")
 
     def resolve_config_path_for_host(hostname: str) -> Path | None:
@@ -8003,6 +7995,7 @@ def cmd_push_config_dir(args: argparse.Namespace) -> Dict[str, Any]:
         policy,
         logger,
         target_hosts=target_hosts,
+        target_hosts_match=getattr(args, "target_hosts_match", None),
     )
     targets: List[Dict[str, Any]] = []
     missing = 0
@@ -8295,12 +8288,13 @@ def cmd_write_memory(args: argparse.Namespace) -> None:
     hosts = load_inventory_data(inventory_data)
     policy = load_policy_file(args.policy)
 
-    target_hosts = parse_host_filter(args.target_hosts)
+    target_hosts = args.target_hosts
     targets, skipped = select_target_hosts(
         hosts,
         policy,
         logger,
         target_hosts=target_hosts,
+        target_hosts_match=getattr(args, "target_hosts_match", None),
     )
 
     logger.info("Loaded %d hosts from %s", len(hosts), hosts_path)
@@ -9480,6 +9474,7 @@ def run_collect_run_config_from_args(args: argparse.Namespace) -> None:
         credentials=getattr(args, "credentials", None),
         transport=args.transport,
         target_hosts=args.target_hosts,
+        target_hosts_match=getattr(args, "target_hosts_match", None),
         output=args.collect_output,
         before_show_run_dir=None,
         workers=args.workers,
@@ -10433,6 +10428,7 @@ def apply_default_evidence_consumer_source(args: argparse.Namespace) -> None:
                 "without_collect",
                 "policy",
                 "target_hosts",
+                "target_hosts_match",
                 "mappings",
                 "description_rules",
                 "roles",
@@ -11491,6 +11487,7 @@ def build_clab_set_step_args(
         "credentials": getattr(args, "credentials", None),
         "transport": getattr(args, "transport", None),
         "target_hosts": getattr(args, "target_hosts", None),
+        "target_hosts_match": getattr(args, "target_hosts_match", None),
         "workers": getattr(args, "workers", None),
         "mappings": getattr(args, "mappings", None),
         "description_rules": getattr(args, "description_rules", None),
@@ -14485,6 +14482,20 @@ def cmd_health_check_snapshot(args: argparse.Namespace) -> int:
                     reason="health_work_resumed",
                     now=started_at,
                 )
+            elif (
+                args.phase == "before"
+                and getattr(args, "_health_retry", False)
+                and getattr(args, "purpose", "change") == "inspection"
+                and current_lifecycle in {"completed", "completed_with_warnings"}
+            ):
+                transition_operation(
+                    workspace,
+                    "running",
+                    lock=lock,
+                    reason="health_inspection_before_retry",
+                    now=started_at,
+                    allow_inspection_retry=True,
+                )
             transition_phase(
                 workspace,
                 phase_state,
@@ -14966,9 +14977,20 @@ def _write_health_execution_context(
             getattr(args, "description_rules", None),
             label="description rules",
         )
+        selection = resolve_target_hosts(
+            load_inventory_data(load_yaml(args.hosts)), load_policy_file(args.policy),
+            None, targets=args.target_hosts,
+            mode=getattr(args, "target_hosts_match", None),
+        )
+        if not selection.hosts:
+            raise TargetSelectionError("No target hosts for direct Health collection")
+        args._health_target_selection = selection.context()
+        args.target_hosts = ",".join(host["hostname"] for host in selection.hosts)
+        args.target_hosts_match = "exact"
         collection = {
             "transport": args.transport,
             "target_hosts": sorted(parse_host_filter(args.target_hosts)),
+            "target_selection": args._health_target_selection,
             "workers": args.workers,
             "show_read_timeout": args.show_read_timeout,
             "skip_connect_check": args.skip_connect_check,
@@ -15046,6 +15068,49 @@ def _inherit_context_source(
             )
         return None
     return verify_source_file(reference, supplied_path, label=label)
+
+
+def _inherit_health_target_selection(args, collection):
+    """Validate pinned choices and resolve overrides against the same inputs."""
+    recorded = collection["target_hosts"]
+    saved = collection.get("target_selection")
+    raw = getattr(args, "target_hosts", None)
+    mode = getattr(args, "target_hosts_match", None)
+    hosts = load_inventory_data(load_yaml(args.hosts))
+    policy = load_policy_file(args.policy)
+    logger = None
+    expected = resolve_target_hosts(hosts, policy, logger, targets=recorded)
+    expected_names = {host["hostname"] for host in expected.hosts}
+    if saved is not None:
+        original = resolve_target_hosts(
+            hosts,
+            policy,
+            logger,
+            targets=saved["tokens"],
+            mode=saved["mode"],
+        )
+        if (
+            not recorded
+            or {host["hostname"] for host in original.hosts} != set(recorded)
+            or expected_names != set(recorded)
+        ):
+            raise HealthExecutionContextError(
+                "Saved target selection does not match before hosts"
+            )
+    if raw is not None or mode is not None:
+        requested = resolve_target_hosts(
+            hosts,
+            policy,
+            logger,
+            targets=raw if raw is not None else saved["tokens"] if saved else recorded,
+            mode=mode or (saved["mode"] if saved else "exact"),
+        )
+        if {host["hostname"] for host in requested.hosts} != expected_names:
+            raise HealthExecutionContextError("target-hosts do not match before")
+    args.target_hosts = ",".join(recorded) if recorded else None
+    args.target_hosts_match = "exact"
+    if saved is not None:
+        args._health_target_selection = saved
 
 
 def _apply_health_followup_execution_context(
@@ -15138,16 +15203,7 @@ def _apply_health_followup_execution_context(
         phase=phase,
     )
     collection = spec["collection"]
-    recorded_targets = collection["target_hosts"]
-    if args.target_hosts is not None:
-        requested_targets = sorted(parse_host_filter(args.target_hosts))
-        if requested_targets != recorded_targets:
-            raise HealthExecutionContextError(
-                f"{phase} target-hosts do not match before"
-            )
-    args.target_hosts = (
-        ",".join(recorded_targets) if recorded_targets else None
-    )
+    _inherit_health_target_selection(args, collection)
     for name in (
         "transport",
         "workers",
@@ -15260,6 +15316,7 @@ def _direct_health_collect(
         ask_become_pass=args.ask_become_pass,
         transport=args.transport,
         target_hosts=args.target_hosts,
+        target_hosts_match=getattr(args, "target_hosts_match", None),
         output=str(raw_dir),
         before_show_run_dir=None,
         workers=args.workers,
@@ -15336,9 +15393,12 @@ def _direct_health_collect(
             allow_retry=bool(getattr(args, "_health_retry", False)),
         )
         try:
+            collect_logger = setup_logging(collect_args.log_file, collect_args.verbose)
+            collect_logger.info("Pinned target selection: %s; hosts=%s",
+                                getattr(args, "_health_target_selection", None), args.target_hosts)
             run_collect(
                 collect_args,
-                setup_logging(collect_args.log_file, collect_args.verbose),
+                collect_logger,
             )
             completed_at = now_in_timezone(workspace.timezone)
             args._health_collection_completed_at = completed_at
@@ -15440,6 +15500,8 @@ def _validate_before_retry_context(args: argparse.Namespace, workspace) -> None:
                 raise HealthExecutionContextError(
                     f"{label} was not fixed by the original before"
                 )
+    if args.collect:
+        _inherit_health_target_selection(args, spec["collection"])
     site_reference = spec.get("sites")
     supplied_sites = getattr(args, "sites", None)
     if site_reference is not None:
@@ -15563,6 +15625,10 @@ def _prepare_before_profiles(
 def _archive_legacy_before_attempt(workspace, metadata: Mapping[str, Any]) -> None:
     phase = metadata["spec"].get("phases", {}).get("before")
     phase_root = workspace.operation_root / "health" / "before"
+    # Metadata may identify a failed retry. An existing published current
+    # needs no legacy migration and must never be repointed to that retry.
+    if (phase_root / "current.json").exists():
+        return
     snapshot_path = phase_root / "snapshot.json"
     if not phase or not snapshot_path.is_file():
         return
@@ -15657,9 +15723,14 @@ def _start_before_attempt(args: argparse.Namespace, workspace) -> dict[str, Any]
     if previous and previous["status"] in {"running", "waiting_for_user"}:
         raise OperationStateError("a before attempt is already in progress")
     retry = previous is not None or phases.get("before_collect") is not None
-    if retry:
+    if retry or (workspace.operation_root / CONTEXT_RELATIVE_PATH).exists():
         _validate_before_retry_context(args, workspace)
+    if retry:
         _archive_legacy_before_attempt(workspace, metadata)
+    if args.collect and not (workspace.operation_root / CONTEXT_RELATIVE_PATH).exists():
+        _write_health_execution_context(
+            args, workspace, recorded_at=now_in_timezone(workspace.timezone),
+        )
     started_at = now_in_timezone(workspace.timezone)
     attempt_id = generate_attempt_id("before", workspace.timezone, now=started_at)
     attempt_dir = (
@@ -16367,6 +16438,8 @@ def cmd_health_check_phase(args: argparse.Namespace) -> int:
         raise OperationStateError("--collect requires --hosts")
     if args.input and not args.input_format:
         raise OperationStateError("--input-format is required with --input")
+    if args.input and getattr(args, "target_hosts_match", None) is not None:
+        raise TargetSelectionError("--target-hosts-match requires direct collection")
     _resolve_transcript_import_options(args)
     before_attempt = None
     rollback_attempt = None
@@ -18190,6 +18263,10 @@ def build_parser() -> argparse.ArgumentParser:
         )
         phase_parser.add_argument("--target-hosts")
         phase_parser.add_argument(
+            "--target-hosts-match", choices=["exact", "contains"], default=None,
+            help="Hostname matching: exact (default) or contains; comma-separated targets use OR; Health follow-up phases inherit before",
+        )
+        phase_parser.add_argument(
             "--workers",
             type=int,
             default=None if phase_name in {"after", "rollback"} else 5,
@@ -18967,6 +19044,10 @@ def build_parser() -> argparse.ArgumentParser:
             help="Comma-separated target hostnames for base collect target selection",
         )
         p.add_argument(
+            "--target-hosts-match", choices=["exact", "contains"], default=None,
+            help="Hostname matching: exact (default) or contains; comma-separated targets use OR; Health follow-up phases inherit before",
+        )
+        p.add_argument(
             "--output",
             default=default_raw_dir,
             help="Raw root directory (collect writes LLDP to <output>/lldp and running-config to <output>/config)",
@@ -19219,6 +19300,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="Comma-separated target hostnames for check-logging target selection",
     )
     p_check_logging.add_argument(
+        "--target-hosts-match", choices=["exact", "contains"], default=None,
+        help="Hostname matching: exact (default) or contains; comma-separated targets use OR; Health follow-up phases inherit before",
+    )
+    p_check_logging.add_argument(
         "--output",
         default=default_raw_dir,
         help="Raw root directory for raw input lookup and report output",
@@ -19304,6 +19389,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_check_clab_startup.add_argument(
         "--target-hosts",
         help="Comma-separated target hostnames for startup-config verification",
+    )
+    p_check_clab_startup.add_argument(
+        "--target-hosts-match", choices=["exact", "contains"], default=None,
+        help="Hostname matching: exact (default) or contains; comma-separated targets use OR; Health follow-up phases inherit before",
     )
     p_check_clab_startup.add_argument(
         "--startup-dir",
@@ -19398,6 +19487,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_clab_set.add_argument(
         "--target-hosts",
         help="Comma-separated target hostnames for collect target selection",
+    )
+    p_clab_set.add_argument(
+        "--target-hosts-match", choices=["exact", "contains"], default=None,
+        help="Hostname matching: exact (default) or contains; comma-separated targets use OR; Health follow-up phases inherit before",
     )
     p_clab_set.add_argument(
         "--output",
@@ -19505,6 +19598,10 @@ def build_parser() -> argparse.ArgumentParser:
         p.add_argument(
             "--target-hosts",
             help="Comma-separated target hostnames (default: all hosts selected by policy)",
+        )
+        p.add_argument(
+            "--target-hosts-match", choices=["exact", "contains"], default=None,
+            help="Hostname matching: exact (default) or contains; comma-separated targets use OR; Health follow-up phases inherit before",
         )
         p.add_argument("--workers", type=int, default=5, help="Number of parallel device operations")
         p.add_argument(
@@ -20363,6 +20460,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_vni_cfg.add_argument(
         "--target-hosts",
         help="Comma-separated target hostnames for auto collect target selection",
+    )
+    p_vni_cfg.add_argument(
+        "--target-hosts-match", choices=["exact", "contains"], default=None,
+        help="Hostname matching: exact (default) or contains; comma-separated targets use OR; Health follow-up phases inherit before",
     )
     p_vni_cfg.add_argument(
         "--collect-output",

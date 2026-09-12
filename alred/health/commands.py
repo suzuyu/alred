@@ -19,6 +19,7 @@ COMMAND_IDS = {
     "show ntp status": "ntp_status",
     "show ntp peers": "ntp_peers",
     "show ntp peer-status": "ntp_peer_status",
+    "show interface": "interface_detail",
     "show interface status": "interface_status",
     "show interface counters table": "interface_counters_table",
     "show interface brief": "interface_brief",

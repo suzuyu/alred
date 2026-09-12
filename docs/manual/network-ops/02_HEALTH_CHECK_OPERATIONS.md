@@ -1,5 +1,8 @@
 # Health Check Operations
 
+対象 hostname は完全一致または部分一致で複数指定できます。
+使用方法は [対象ホストの指定](../common/TARGET_HOSTS.md)を参照してください。
+
 実行前に[Common Preparation](./00_COMMON_PREPARATION.md)を完了し、inventory、認証、
 入力方式、operation保存先を確定してください。
 

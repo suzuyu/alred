@@ -423,6 +423,8 @@ def _write_collect(path, *, cpu_fixture=None, reload_output=None):
             output = reload_output
         else:
             output = fixture.read_text(encoding="utf-8")
+        if command == "show ntp peer-status":
+            output = output.replace("192.168.129.254", "192.0.2.123")
         if command == "show version":
             output = output.replace("Device name: leaf-fixture-01", "Device name: leaf01")
         sections.extend(
@@ -483,8 +485,9 @@ def test_builtin_profiles_resolve_deterministically():
             "clock",
             "ntp_status",
             "ntp_peers",
-            "ntp_peer_status",
-            "interface_status",
+                "ntp_peer_status",
+                "interface_detail",
+                "interface_status",
                 "interface_counters_table",
                 "interface_errors",
                 "port_channel_summary",
@@ -1165,7 +1168,7 @@ def test_additional_baseline_parsers_and_evaluators_cover_device_health():
         "10:02:03.000 JST Sun Aug 2 2026\nTime source is NTP",
         timezone="Asia/Tokyo",
     )
-    no_peers, _ = parse_nxos_command("ntp_peers", "")
+    no_peers, _ = parse_nxos_command("ntp_peers", "Peer IP Address Serv/Peer")
     peer_status, _ = parse_nxos_command(
         "ntp_peer_status",
         (
@@ -1190,7 +1193,8 @@ def test_additional_baseline_parsers_and_evaluators_cover_device_health():
         "Eth1/2",
     ]
     assert ntp_disabled["ntp"] == {
-        "synchronized": False,
+        "distribution": {"state": "Disabled", "operational_state": "No session"},
+        "status_kind": "distribution",
         "operational_state": "No session",
     }
     assert ntp_clock["clock"]["time_source"] == "NTP"
@@ -1205,6 +1209,10 @@ def test_additional_baseline_parsers_and_evaluators_cover_device_health():
         "stratum": 3,
         "poll": 64,
         "reach": 377,
+        "reach_text": "377",
+        "reach_value": 255,
+        "line_start": 6,
+        "line_end": 6,
         "delay": 0.123,
         "vrf": "management",
     }
@@ -1265,12 +1273,11 @@ def test_additional_baseline_parsers_and_evaluators_cover_device_health():
         for check in configured_result["checks"]
         if check["check_id"] == "ntp_health"
     )
-    assert configured_check["result"] == "WARN"
+    assert configured_check["result"] == "UNKNOWN"
     assert configured_check["after"]["configured"] is True
     assert configured_check["after"]["clock_time_source"] == "NTP"
     assert configured_check["message"] == (
-        "NTP is configured but unsynchronized "
-        "(operational state: No session; no selected peer; clock time source: NTP)"
+        "NTP synchronization evidence is unavailable"
     )
 
 
@@ -1391,7 +1398,7 @@ Eth1/2              --                 mystery   1         auto    auto    10g
     assert check["message"] == "Interface status could not be parsed"
 
 
-@pytest.mark.parametrize("raw_status", ["xcvrAbsen", "xcvrAbsent"])
+@pytest.mark.parametrize("raw_status", ["sfpAbsent", "xcvrAbsen", "xcvrAbsent", "SFPABSENT"])
 def test_interface_status_normalizes_transceiver_absent_aliases(raw_status):
     output = f"""\
 Port                Name               Status    Vlan      Duplex  Speed   Type
@@ -1401,10 +1408,91 @@ Eth1/3              --                 {raw_status:<9} 1         auto    auto   
     parsed, _ = parse_nxos_command("interface_status", output)
 
     assert parsed["interfaces"]["Eth1/3"] == {
-        "admin_state": "up",
+        "admin_state": "unknown",
         "operational_state": "down",
         "status": "sfpAbsent",
     }
+
+    resolved = _resolved()
+    snapshot = _snapshot(resolved)
+    snapshot["hosts"]["leaf01"]["common"].update(parsed)
+    result = evaluate_snapshot(
+        snapshot,
+        resolved,
+        started_at=JST_NOW,
+        completed_at=JST_NOW,
+    )
+    check = next(
+        item for item in result["checks"] if item["check_id"] == "interface_health"
+    )
+    assert check["result"] == "UNKNOWN"
+    assert check["classification"] == "collection_error"
+    assert check["after"]["admin_up_oper_down"] == []
+    assert check["after"]["admin_state_unknown"] == ["Eth1/3"]
+    assert "Eth1/3" in check["message"]
+    assert check["evidence"]
+
+
+@pytest.mark.parametrize(
+    ("other_status", "expected"),
+    [("connected", "UNKNOWN"), ("disabled", "UNKNOWN"), ("notconnect", "FAIL")],
+)
+def test_absent_transceiver_preserves_unknown_alongside_other_ports(other_status, expected):
+    parsed, _ = parse_nxos_command(
+        "interface_status",
+        "Port Name Status Vlan Duplex Speed Type\n"
+        "Eth1/3 -- xcvrAbsen 1 auto auto --\n"
+        f"Eth1/4 -- {other_status} 1 auto auto --\n",
+    )
+    resolved = _resolved()
+    snapshot = _snapshot(resolved)
+    snapshot["hosts"]["leaf01"]["common"].update(parsed)
+    result = evaluate_snapshot(snapshot, resolved, started_at=JST_NOW, completed_at=JST_NOW)
+    check = next(item for item in result["checks"] if item["check_id"] == "interface_health")
+    assert check["result"] == expected
+    assert check["after"]["admin_state_unknown"] == ["Eth1/3"]
+    assert check["after"]["admin_up_oper_down"] == (["Eth1/4"] if expected == "FAIL" else [])
+    assert "Eth1/3" in check["message"]
+
+
+@pytest.mark.parametrize("status", ["sfpAbsent", "xcvrAbsen", "xcvrAbsent"])
+def test_old_snapshot_transceiver_admin_inference_is_not_trusted(status):
+    resolved = _resolved()
+    snapshot = _snapshot(resolved)
+    snapshot["hosts"]["leaf01"]["common"]["interfaces"] = {
+        "Eth1/3": {"status": status, "admin_state": "up", "operational_state": "down"},
+    }
+    original = deepcopy(snapshot)
+    result = evaluate_snapshot(snapshot, resolved, started_at=JST_NOW, completed_at=JST_NOW)
+    check = next(item for item in result["checks"] if item["check_id"] == "interface_health")
+    assert check["result"] == "UNKNOWN"
+    assert check["after"]["interfaces"]["Eth1/3"]["admin_state"] == "unknown"
+    assert snapshot == original
+
+
+@pytest.mark.parametrize(
+    ("before_status", "expected"),
+    [("connected", "FAIL"), ("xcvrAbsen", "UNKNOWN"), ("disabled", "UNKNOWN")],
+)
+def test_interface_comparison_with_absent_transceiver(before_status, expected):
+    resolved = _resolved()
+    before = _snapshot(resolved)
+    after = deepcopy(before)
+    after["phase"] = "after"
+    for snapshot, status in ((before, before_status), (after, "xcvrAbsen")):
+        parsed, _ = parse_nxos_command(
+            "interface_status",
+            "Port Name Status Vlan Duplex Speed Type\n"
+            f"Eth1/3 -- {status} 1 auto auto --\n",
+        )
+        snapshot["hosts"]["leaf01"]["common"].update(parsed)
+    originals = deepcopy((before, after))
+    result = compare_snapshots(before, after, resolved, started_at=JST_NOW, completed_at=JST_NOW)
+    check = next(item for item in result["checks"] if item["check_id"] == "interface_health")
+    assert check["result"] == expected
+    assert check["classification"] == ("regression" if expected == "FAIL" else "collection_error")
+    assert check["after"]["admin_state_unknown"] == ["Eth1/3"]
+    assert (before, after) == originals
 
 
 def test_baseline_command_ids_connect_collected_health_outputs() -> None:

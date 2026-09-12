@@ -12,6 +12,7 @@ from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from .overlay import parse_overlay_running_config
+from .interface_state import physical_interface_identity
 from ..logging_check import parse_nxos_log_records
 from ..parsing import parse_lldp_file
 
@@ -26,7 +27,7 @@ except ImportError as exc:
     ParsingException = Exception
     NTC_TEMPLATES_IMPORT_ERROR = exc
 
-NXOS_PARSER_VERSION = "1.19"
+NXOS_PARSER_VERSION = "1.22"
 NTC_TEMPLATES_VERSION = (
     importlib_metadata.version("ntc-templates")
     if NTC_TEMPLATES_IMPORT_ERROR is None
@@ -597,134 +598,243 @@ def _parse_clock(output: str, *, timezone: str) -> tuple[dict[str, Any], dict[st
     return {"clock": clock}, {}
 
 
+def _ntp_output(output: str) -> str:
+    # External transcripts may retain the final idle CLI prompt. Preserve row
+    # offsets and remove only that terminal prompt, never arbitrary table rows.
+    lines = output.splitlines()
+    for index in range(len(lines) - 1, -1, -1):
+        if lines[index].strip():
+            if re.fullmatch(r"[\w.:-]+(?:\([\w-]+\))?[#>]", lines[index].strip()):
+                lines[index] = ""
+            break
+    text = "\n".join(lines)
+    _require_output(text)
+    return text
+
+
 def _parse_ntp_status(output: str) -> tuple[dict[str, Any], dict[str, Any]]:
-    text = _require_output(output)
-    lowered = text.lower()
-    if "ntp is not configured" in lowered or "no ntp" in lowered:
-        return {"ntp": {"configured": False, "synchronized": False}}, {}
-    if (
-        "distribution : disabled" in lowered
-        or "last operational state: no session" in lowered
+    text = _ntp_output(output)
+    ntp: dict[str, Any] = {}
+    distribution = {}
+    for anchor, key in (
+        (r"Distribution", "state"),
+        (r"Last\s+operational\s+state", "operational_state"),
     ):
-        operational_state = re.search(
-            r"Last operational state:\s*(.+)$", text, re.IGNORECASE | re.MULTILINE
+        matches = re.findall(rf"^\s*{anchor}\s*:\s*(\S[^\n]*)$", text, re.I | re.M)
+        if len(matches) > 1:
+            raise ParserError("duplicate NTP distribution field")
+        if matches:
+            distribution[key] = matches[0].strip()
+    if distribution:
+        ntp.update(distribution=distribution, status_kind="distribution")
+        # Keep the old diagnostic field, without deriving clock state from it.
+        if "operational_state" in distribution:
+            ntp["operational_state"] = distribution["operational_state"]
+    states = re.findall(
+        r"^\s*Clock\s+is\s+(synchronized|unsynchronized)\b", text, re.I | re.M
+    )
+    unconfigured = bool(
+        re.search(
+            r"^\s*(?:NTP is not configured|No NTP configuration)\s*\.?\s*$",
+            text,
+            re.I | re.M,
         )
-        return {
-            "ntp": {
-                "synchronized": False,
-                "operational_state": (
-                    operational_state.group(1).strip()
-                    if operational_state
-                    else None
-                ),
-            }
-        }, {}
-    synchronized = "clock is synchronized" in lowered
-    unsynchronized = "clock is unsynchronized" in lowered
-    if not synchronized and not unsynchronized:
-        raise ParserError("NTP synchronization status was not recognized")
-    stratum = re.search(r"stratum\s+(\d+)", text, re.IGNORECASE)
-    reference = re.search(r"reference is\s+(\S+)", text, re.IGNORECASE)
-    return {
-        "ntp": {
-            "configured": True,
-            "synchronized": synchronized,
-            "stratum": int(stratum.group(1)) if stratum else None,
-            "reference": reference.group(1).rstrip(",") if reference else None,
-        }
-    }, {}
+    )
+    if len(states) > 1 or (states and unconfigured):
+        raise ParserError("conflicting or duplicate NTP clock state")
+    if unconfigured:
+        ntp.update(configured=False, synchronized=False, status_kind="not_configured")
+    elif states:
+        stratum = re.search(r"\bstratum\s+(\d+)", text, re.I)
+        reference = re.search(r"\breference is\s+(\S+)", text, re.I)
+        ntp.update(
+            configured=True,
+            synchronized=states[0].lower() == "synchronized",
+            status_kind="clock",
+            stratum=int(stratum[1]) if stratum else None,
+            reference=reference[1].rstrip(",") if reference else None,
+        )
+    elif not distribution:
+        raise ParserError("NTP status fields were not recognized")
+    return {"ntp": ntp}, {}
+
+
+def _ntp_address(value: str) -> str:
+    try:
+        return str(ipaddress.ip_address(value))
+    except ValueError as exc:
+        raise ParserError("invalid NTP IP address") from exc
 
 
 def _parse_ntp_peers(output: str) -> tuple[dict[str, Any], dict[str, Any]]:
-    text = output.strip()
-    if not text:
-        return {"ntp": {"peers": {}}}, {}
-    text = _require_output(text)
-    if "no ntp" in text.lower() or "not configured" in text.lower():
-        return {"ntp": {"peers": {}}}, {}
+    text = _ntp_output(output)
     peers: dict[str, Any] = {}
+    empty_seen = False
+    header_seen = False
     for line in text.splitlines():
-        match = re.match(r"^\s*([*+x#~-]?)\s*([0-9A-Fa-f:.]+)\s+", line)
-        if not match:
+        stripped = line.strip()
+        if not stripped or re.fullmatch(r"[-=]+", stripped):
             continue
-        marker, address = match.groups()
+        if re.fullmatch(
+            r"(?:No NTP peers(?: configured)?|NTP is not configured|No NTP configuration)\.?",
+            stripped,
+            re.I,
+        ):
+            empty_seen = True
+            continue
+        if re.match(
+            r"(?:Peer\s+IP\s+Address\s+Serv/Peer|remote\s+refid\s+st\b)", stripped, re.I
+        ):
+            header_seen = True
+            continue
+        match = re.fullmatch(r"([*+x#~=-]?)\s*([0-9A-Fa-f:.]+)\s+(.+)", stripped)
+        if not match:
+            raise ParserError("unrecognized NTP peer row")
+        marker, raw_address, _rest = match.groups()
+        address = _ntp_address(raw_address)
+        if address in peers:
+            raise ParserError("duplicate NTP peer address")
         peers[address] = {"selected": marker == "*", "marker": marker or None}
-    if not peers:
+    if empty_seen and peers:
+        raise ParserError("NTP peers conflict with empty declaration")
+    if not peers and not (empty_seen or header_seen):
         raise ParserError("NTP peer rows were not recognized")
     return {"ntp": {"peers": peers}}, {}
 
 
-def _parse_ntp_peer_status(
-    output: str,
-) -> tuple[dict[str, Any], dict[str, Any]]:
-    text = _require_output(output)
-    total_match = re.search(r"Total peers\s*:\s*(\d+)", text, re.IGNORECASE)
-    total = int(total_match.group(1)) if total_match else None
+def _parse_ntp_peer_status(output: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    output = _ntp_output(output)
+    totals = []
     peers: dict[str, Any] = {}
-    markers = {"*", "+", "-", "="}
-    modes = {
-        "*": "selected",
-        "+": "active",
-        "-": "passive",
-        "=": "client",
-    }
-    for line in text.splitlines():
-        fields = line.split()
-        if len(fields) < 6:
+    modes = {"*": "selected", "+": "active", "-": "passive", "=": "client"}
+    for line_number, line in enumerate(output.splitlines(), 1):
+        stripped = line.strip()
+        if not stripped or re.fullmatch(r"[-=]+", stripped):
             continue
-        marker = ""
-        remote = fields[0]
-        if remote in markers:
-            if len(fields) < 7:
-                continue
-            marker = remote
-            remote = fields[1]
-            fields = fields[1:]
-        elif remote[0] in markers:
-            marker = remote[0]
-            remote = remote[1:]
-        if not remote or not re.fullmatch(r"[0-9A-Fa-f:.]+", remote):
+        total = re.fullmatch(r"Total\s+peers\s*:\s*(\d+)", stripped, re.I)
+        if total:
+            totals.append(int(total[1]))
             continue
-        try:
-            local = fields[1]
-            stratum = int(fields[2])
-            poll = int(fields[3])
-            reach = int(fields[4])
-            delay = float(fields[5])
-        except (IndexError, ValueError):
+        if re.match(
+            r"(?:\*\s*-\s*selected for sync|[-+]\s*-\s*peer mode|remote\s+local\s+st\b)",
+            stripped,
+            re.I,
+        ):
             continue
+        row = re.fullmatch(
+            r"([*+=-]?)\s*([0-9A-Fa-f:.]+)\s+([0-9A-Fa-f:.]+)\s+"
+            r"(\d+)\s+(\d+)\s+([0-7]{1,3})\s+"
+            r"(\d+(?:\.\d+)?)(?:\s+([A-Za-z0-9_.:-]+)|([A-Za-z_][A-Za-z0-9_.:-]*))?",
+            stripped,
+        )
+        if not row:
+            raise ParserError(f"unrecognized NTP peer-status row at line {line_number}")
+        marker, remote, local, st, poll, reach, delay, vrf, joined_vrf = row.groups()
+        remote, local = _ntp_address(remote), _ntp_address(local)
+        if remote in peers:
+            raise ParserError(
+                "duplicate NTP peer-status address (including VRF ambiguity)"
+            )
+        if int(st) > 16 or int(reach, 8) > 255 or int(poll) < 1:
+            raise ParserError("NTP peer-status numeric field is outside its range")
         peers[remote] = {
             "selected": marker == "*",
             "mode": modes.get(marker, "unspecified"),
             "marker": marker or None,
             "local": local,
-            "stratum": stratum,
-            "poll": poll,
-            "reach": reach,
-            "delay": delay,
-            "vrf": fields[6] if len(fields) > 6 else None,
+            "stratum": int(st),
+            "poll": int(poll),
+            "reach": int(reach),
+            "reach_text": reach,
+            "reach_value": int(reach, 8),
+            "delay": float(delay),
+            "vrf": vrf or joined_vrf,
+            "line_start": line_number,
+            "line_end": line_number,
         }
-    if total == 0:
-        return {
-            "ntp": {
-                "peer_status": {
-                    "applicable": False,
-                    "total_peers": 0,
-                    "peers": {},
-                }
-            }
-        }, {}
-    if not peers:
+    if len(totals) > 1 or (totals and totals[0] != len(peers)):
+        raise ParserError("NTP Total peers does not match parsed rows")
+    if not peers and totals != [0]:
         raise ParserError("NTP peer-status rows were not recognized")
     return {
         "ntp": {
             "peer_status": {
-                "applicable": True,
-                "total_peers": total if total is not None else len(peers),
+                "applicable": bool(peers),
+                "total_peers": len(peers),
                 "peers": peers,
             }
         }
     }, {}
+
+
+def _parse_interface_detail(output: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    _require_output(output)
+    # Do not strip output: relative line numbers include leading blank lines.
+    lines = output.splitlines()
+    blocks: list[tuple[int, str, str]] = []
+    for index, line in enumerate(lines):
+        header = re.match(
+            r"^\s*([A-Za-z][\w./:-]*\d[\w./:-]*)\s+is(?:\s+(.*))?$",
+            line, re.I,
+        )
+        if header:
+            blocks.append((index, header[1], header[2] or ""))
+        elif re.match(
+            r"^\s*(?:Ethernet|Eth|port-channel|Po|mgmt|Vlan|Lo|loopback|nve)\d\S*(?:\s|$)",
+            line, re.I,
+        ):
+            raise ParserError("interface detail contains a broken block boundary")
+        elif not blocks and re.match(r"^\s*admin\s+state\b", line, re.I):
+            raise ParserError("interface detail contains an admin line outside a block")
+    details: dict[str, Any] = {}
+    for position, (start, name, state_text) in enumerate(blocks):
+        end = blocks[position + 1][0] if position + 1 < len(blocks) else len(lines)
+        identity = physical_interface_identity(name)
+        if identity is None:
+            continue
+        state = re.fullmatch(
+            r"(up|down|administratively\s+down)(?:\s*\((.*)\))?\s*",
+            state_text, re.I,
+        )
+        admin_lines = [
+            line for line in lines[start + 1:end]
+            if re.match(r"^\s*admin\s+state\b", line, re.I)
+        ]
+        admin = (
+            re.fullmatch(
+                r"\s*admin\s+state\s+is\s+(up|down)\s*(?:,.*)?",
+                admin_lines[0], re.I,
+            ) if len(admin_lines) == 1 else None
+        )
+        problems = []
+        if not state:
+            problems.append("unknown operational state")
+        if not admin:
+            problems.append("missing, duplicate or unknown admin state")
+        record = {
+            "admin_state": admin[1].lower() if admin else "unknown",
+            "operational_state": (
+                "up" if state and state[1].lower() == "up"
+                else "down" if state else "unknown"
+            ),
+            "down_reason": (
+                (state[2].strip() or None) if state and state[2] is not None else None
+            ),
+            "parse_status": "unknown" if problems else "parsed",
+            "parse_warning": "; ".join(problems) or None,
+            "line_start": start + 1,
+            "line_end": end,
+        }
+        if identity in details:
+            record.update(
+                admin_state="unknown", operational_state="unknown",
+                parse_status="unknown", parse_warning="duplicate interface identity",
+                line_start=details[identity]["line_start"],
+            )
+        details[identity] = record
+    if not details:
+        raise ParserError("physical interface detail blocks were not recognized")
+    return {"interface_details": details}, {}
 
 
 def _parse_interface_status(output: str) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -768,10 +878,17 @@ def _parse_interface_status(output: str) -> tuple[dict[str, Any], dict[str, Any]
             # The Status column alone cannot distinguish an administratively
             # down SVI. ``show interface brief`` owns that classification.
             continue
-        admin_up = status != "disabled"
+        # An absent transceiver can mask either administrative state.
+        admin_state = (
+            "unknown" if status == "sfpAbsent"
+            else "down" if status == "disabled"
+            else "up"
+        )
         operational_up = status == "connected"
+        if fields[0] in interfaces:
+            raise ParserError(f"duplicate interface status row: {fields[0]}")
         interfaces[fields[0]] = {
-            "admin_state": "up" if admin_up else "down",
+            "admin_state": admin_state,
             "operational_state": "up" if operational_up else "down",
             "status": status,
         }
@@ -1549,6 +1666,7 @@ PARSERS = {
     "ntp_status": _parse_ntp_status,
     "ntp_peers": _parse_ntp_peers,
     "ntp_peer_status": _parse_ntp_peer_status,
+    "interface_detail": _parse_interface_detail,
     "interface_status": _parse_interface_status,
     "interface_counters_table": _parse_interface_counters_table,
     "interface_brief": _parse_interface_brief,

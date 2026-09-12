@@ -7,6 +7,8 @@ import hashlib
 from pathlib import Path
 from typing import Any, Mapping
 
+from .interface_state import INTERFACE_STATE_VERSION
+from .ntp_state import NTP_STATE_VERSION
 from .parsers import (
     NTC_PARSER_IDENTIFIERS,
     NTC_TEMPLATES_VERSION,
@@ -19,7 +21,7 @@ from .parsers import (
 from ..schema import SCHEMA_VERSION, canonical_sha256, validate_document
 
 
-SNAPSHOT_BUILDER_VERSION = "1.2"
+SNAPSHOT_BUILDER_VERSION = "1.4"
 
 
 class SnapshotBuildError(ValueError):
@@ -143,13 +145,32 @@ def build_health_snapshot(
                 failed_count += 1
                 warnings.append(f"{identifier}: {exc}")
             else:
+                if identifier == "ntp_peer_status":
+                    offset = int(record.get("output_start_line", 1)) - 1
+                    for peer in common_update["ntp"]["peer_status"]["peers"].values():
+                        peer["line_start"] += offset
+                        peer["line_end"] += offset
+                if identifier == "interface_detail":
+                    detail_warnings = []
+                    offset = int(record.get("output_start_line", 1)) - 1
+                    for name, detail in common_update["interface_details"].items():
+                        detail["line_start"] += offset
+                        detail["line_end"] += offset
+                        if detail["parse_status"] != "parsed":
+                            detail_warnings.append(f"{name}: {detail['parse_warning']}")
+                    if detail_warnings:
+                        # Only port-level parse failures allow using other
+                        # records. Collection/global parse failures never do.
+                        source["partial_records"] = True
+                        source["parse_warning"] = "; ".join(detail_warnings)
+                        warnings.append(f"{identifier}: {source['parse_warning']}")
                 _merge(common, common_update, f"/hosts/{hostname}/common")
                 _merge(
                     profiles,
                     profile_update,
                     f"/hosts/{hostname}/profiles",
                 )
-                source["parse_status"] = "parsed"
+                source["parse_status"] = "unknown" if source.get("partial_records") else "parsed"
                 parsed_count += 1
             sources[identifier] = source
         if failed_count and not parsed_count:
@@ -177,6 +198,8 @@ def build_health_snapshot(
     parser_versions = {
         "snapshot_builder": SNAPSHOT_BUILDER_VERSION,
         "nxos": NXOS_PARSER_VERSION,
+        "interface_state": INTERFACE_STATE_VERSION,
+        "ntp_state": NTP_STATE_VERSION,
     }
     if any(
         identifier in NTC_PARSER_IDENTIFIERS

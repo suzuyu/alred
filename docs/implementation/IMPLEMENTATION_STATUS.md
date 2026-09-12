@@ -5,7 +5,7 @@
 設計書に記載された機能と現行実装の差を管理する。本書の状態はコードとテストで確認できる
 事実を示し、設計の正本としては使用しない。
 
-最終更新日: 2026-08-25
+最終更新日: 2026-09-12
 
 本書は`docs/design/`に記載された新規・変更設計の実装状況を管理するものであり、alredに
 存在する全機能の実装状況一覧ではない。本書に記載がない既存機能を`not_started`または
@@ -23,6 +23,27 @@
 | `needs_audit` | 既存機能はあるが、設計との対応関係をまだ精査していない |
 
 ## 3. 全体状況
+
+`--target-hosts` の部分一致による複数指定は **実装済み（`implemented`）**。
+`--target-hosts-match exact|contains` を追加し、完全一致を既定のまま維持した。
+共通 resolver を収集・投入・保存・lab・archive に接続し、Health の対象を初回接続前に固定する。
+新旧 execution context、初回失敗後の retry、成功済み attempt の不変性を offline で確認した。
+対象選択の追加テスト 59 件、全体 888 件が成功。CLI help・completion・文書リンクも確認済み。
+実機検証は未実施。仕様は
+[Target resolution 3.1](../design/common/INVENTORY_CREDENTIALS_AND_DEVICE_ACCESS_DESIGN.md#31---target-hosts-部分一致の対象選択)、
+使用例は [対象ホストの指定](../manual/common/TARGET_HOSTS.md)を参照する。
+
+`show interface` による物理 Ethernet の admin 状態補完は **実装済み（`implemented`）**。
+profile `1.8`／parser `1.21` で通常収集、専用 parser、別 Snapshot field、明示 admin 状態の採用、
+矛盾時の `UNKNOWN`、旧ログ互換性を実装した。仕様と受け入れ条件は
+[Baseline 設計 7.9.10](../design/network-ops/NXOS_BASELINE_HEALTH_CHECK_COMMANDS.md#7910-show-interface-による-admin-状態補完)に定義した。
+配布用 `show_commands.example.txt` も更新済み。Snapshot Builder `1.3` と
+`interface_state: 1.0` を導入した。現行の parser／Builder version は 3.1 の NTP 修正で更新した。
+合成 fixture と offline test で検証し、追加 command の 9000v／hardware 接続検証は未実施。
+再実行検証で見つかった既存不具合も修正した。before の legacy 移行が失敗 attempt を成功済み current と
+取り違えないようにし、inspection の完了後も固定条件を満たす before retry を開始できるようにした。
+収集中断、収集後の source hash 破損、成果物公開前の失敗について、旧成功 attempt／current の不変性と
+新 attempt での復旧を `tests/test_health_interface_detail.py` で検証する。
 
 新規CLIのうち`health-check snapshot/compare/before/after`、
 `overlay-check discover/evaluate/converge`、`operation status/inspect`、
@@ -59,7 +80,7 @@ linkを正規化し、未使用nodeを除いて既存Topologyとnode 20/20、lin
 | 外部 running config import | `partial` | Host 別任意 filename、複数 host NX-OS transcript、source map、host 別 canonical config、任意 LLDP、resolved inventory、immutable attempt／current／Import Manifest、Topology／Containerlab consumer 接続を実装。Health transcript adapter との内部 code 共用、paging／ANSI／backspace の全 fixture は未実装 |
 | Canonical Health Snapshot | `implemented` | collect/transcript共通manifest、source hash/行範囲、native parser version、NTC Templates／TextFSM version、template file／hash、UNKNOWN provenanceを実装 |
 | 共通baseline health evaluator | `implemented` | CPU、memory、environment、running／startup config差分の`PASS`／`WARN`／`UNKNOWN`、reload-pending、logging（hyphen付きfacility、severityなし非構造化record、all / days / start-time、severity、lookback、include / exclude、作業期間の新規候補）、route count、OSPF、BGP IPv4、vPCの単体・比較判定を実装 |
-| 共通baseline追加check | `partial` | clock、NTP、interface status/error、port-channel の collect command ID を manifest/parser へ接続し、未収集は `UNKNOWN` とする。`clock_health`は直接収集と`alred-collect`だけcommand取得時刻との差を評価し、取得時刻を保証しない`nxos-transcript`では`NOT_APPLICABLE`とする。NTP の `Distribution Disabled`／`No session` は session 状態、configured peer の有無は設定状態として分離し、`show clock` の time source を補助 evidence として保持する。`show ntp peer-status` の selected/mode、remote/local、stratum、poll、reach、delay、VRF と非対応時 fallback を実装。interface admin／operational 状態、NX-OS の `notconnec`／`notconnect`、transceiver 不在の `sfpAbsent`／`xcvrAbsen`／`xcvrAbsent` 正規化、未対応 interface status の fail-closed parse、`show interface brief` の Reason による SVI admin state 補完、NTP 同期・選択 peer、clock offset・意図しない再起動、interface error delta、port-channel bundle/member を実装した。inventory と `show version` の hostname 照合、`show interface counters table` の `InRate`／`OutRate` および C9300v 10.5(4) の `Rx`／`Tx` 表記から input／output Mbps・percent を取得し、50% `INFO`／70% `WARN`／90% `FAIL` の profile 閾値へ接続した。IPv4／IPv6 dynamic BGP range の peer 0 件 `WARN` と全 peer 消失 regression を Checklist へ接続した。NX-OS profile の platform scope を固定し EOS を未実行理由付きで除外する一方、NX-OSの対向evidenceにはEOS形式の`show lldp neighbors detail` parserを使用する。Health直接収集と`nxos-transcript`のLLDPを同じcommand ID、Collection Manifest、Canonical Link Evidence builderへ接続し、取得／parse／相互観測の`lldp_evidence_completeness`と、`bidirectional-lldp`だけを対象とする`lldp_description_consistency`へ分離した。明示的なneighbor 0件と空／破損outputを区別し、`link-diagnostics.yaml`とconfirmed／candidate CSVをphase成果物へ保存する。before／afterではnormalizer／builder versionとpolicy hashをfail closedで照合し、結果悪化をregressionとして比較する。`show inventory` と `show license usage` の任意収集、表形式の NTC Templates parser、feature block 形式の native parser、Device Summary 向け正規化を実装した。license は情報表示のみで、Health／compliance evaluator と `show license all` は未実装。LLDPのlink単位の変化分類、after convergence retry、module、LACP internal、BFD、STPは未実装 |
+| 共通baseline追加check | `partial` | clock、NTP、interface status/error、port-channel の collect command ID を manifest/parser へ接続し、未収集は `UNKNOWN` とする。`clock_health`は直接収集と`alred-collect`だけcommand取得時刻との差を評価し、取得時刻を保証しない`nxos-transcript`では`NOT_APPLICABLE`とする。NTP の `Distribution Disabled`／`No session` は配布状態として保持し、時刻同期は selected peer の証跡から評価する。`show clock` の time source を補助 evidence として保持する。`show ntp peer-status` の selected/mode、remote/local、stratum、poll、reach、delay、VRF と非対応時 fallback を実装。interface admin／operational 状態、NX-OS の `notconnec`／`notconnect`、transceiver 不在の `sfpAbsent`／`xcvrAbsen`／`xcvrAbsent` 正規化、未対応 interface status の fail-closed parse、`show interface brief` の Reason による SVI admin state 補完、NTP 同期・選択 peer、clock offset・意図しない再起動、interface error delta、port-channel bundle/member を実装した。inventory と `show version` の hostname 照合、`show interface counters table` の `InRate`／`OutRate` および C9300v 10.5(4) の `Rx`／`Tx` 表記から input／output Mbps・percent を取得し、50% `INFO`／70% `WARN`／90% `FAIL` の profile 閾値へ接続した。IPv4／IPv6 dynamic BGP range の peer 0 件 `WARN` と全 peer 消失 regression を Checklist へ接続した。NX-OS profile の platform scope を固定し EOS を未実行理由付きで除外する一方、NX-OSの対向evidenceにはEOS形式の`show lldp neighbors detail` parserを使用する。Health直接収集と`nxos-transcript`のLLDPを同じcommand ID、Collection Manifest、Canonical Link Evidence builderへ接続し、取得／parse／相互観測の`lldp_evidence_completeness`と、`bidirectional-lldp`だけを対象とする`lldp_description_consistency`へ分離した。明示的なneighbor 0件と空／破損outputを区別し、`link-diagnostics.yaml`とconfirmed／candidate CSVをphase成果物へ保存する。before／afterではnormalizer／builder versionとpolicy hashをfail closedで照合し、結果悪化をregressionとして比較する。`show inventory` と `show license usage` の任意収集、表形式の NTC Templates parser、feature block 形式の native parser、Device Summary 向け正規化を実装した。license は情報表示のみで、Health／compliance evaluator と `show license all` は未実装。LLDPのlink単位の変化分類、after convergence retry、module、LACP internal、BFD、STPは未実装 |
 | Health Check Profile | `implemented` | builtin／file profile、順序付き合成、checks 省略可能な閾値・policy 差分 profile、`generate-sample-config` 対応 logging 除外 sample、閾値 override、hash 固定、解決元を記録する resolved artifact を実装。NX-OS baseline の running／startup 差分は `show running-config diff unified` を既定とし、旧 command の証跡も同じ command ID で解析する |
 | `health-check` CLI | `partial` | snapshot/compare、offline/direct before/after/rollback、直接収集の SSH 既定と before transport 継承、attempt/current、profile revision、before execution context、inventory/policy hash 固定、active change、Operation Gate、既存 collect raw 保存、profile 別件数と `WARN`／`FAIL`／`UNKNOWN` の check・host summary を持つ Checklist、inventory 明示値優先／固定 `sites.yaml` fallback の site 列、site priority／role priority 順、UTC offset を省略した `collected_at` を含む phase ごとの`device-summary.md`／CSV生成を実装。`--purpose inspection`、mappings／description rules／sites の path と hash 固定、inspection の active change 非登録、Operation Gate 抑止、明示 ID follow-up の purpose 継承を実装。`alred-collect`と`nxos-transcript`からのCanonical Link Evidence自動生成、single-phase評価、version／policy hash固定compareを実装。rollback Health Check は客観判定だけを行い、既存 WARN だけかを監査用 `health_gate.state_warn_eligible` に記録する。link単位のbefore／after変化分類とLLDP convergence retryは未実装 |
 | Overlay ChangeSet loader | `implemented` | inline／外部`device_groups_ref`、group/default/device override、SVI（IPv6 RA suppress選択を含む）、L3 AF、既定値解決、cross-field validationを実装 |
@@ -88,6 +109,37 @@ linkを正規化し、未使用nodeを除いて既存Topologyとnode 20/20、lin
 | Architecture Decision Records | `implemented` | `docs/adr/` に 21 件の設計判断と運用規則を記録 |
 | 用途別設計体系と既存機能の設計統合 | `implemented` | `common`、`network-ops`、`containerlab`、`topology`、`development`へ再編し、CLI、設定、inventory、接続、収集、VNI、Direct Config Push、lab、diagram、packagingのAs-Isと正式設計を追加。Network Operations、Containerlab、Topologyの用途別manual、全体構成、data flow、operation lifecycle、CLI責務を整備し、既知差分は個別行で追跡 |
 | 実装前Decision Tracker | `implemented` | 推奨案、初期NX-OS対象、反映先を管理。機能実装は別途未着手 |
+
+### 3.1 Baseline チェック一覧で確認した差分
+
+2026-09-12 の [NTP 再レビュー](../as-is/NTP_HEALTH_CHECK_REVIEW.md)で確認した誤判定を、
+profile `1.9`／parser `1.22`／Snapshot Builder `1.4`／NTP state `1.0` で修正した。
+配布状態と時刻同期を分離し、`show ntp peer-status` の選択 marker、stratum 1～13、reach 正値を評価する。
+delay／VRF の連結表記、8 進 reach の正規化、source 欠落、破損・重複・件数不一致、
+NTP 必須時の severity、旧 Snapshot と前後比較、絶対行番号の証跡を回帰テストで確認した。
+取得 command の追加はない。正式仕様は [7.10](../design/network-ops/NXOS_BASELINE_HEALTH_CHECK_COMMANDS.md#710-ntpと装置時刻)。
+実機接続は未実施。同一 remote address の複数 VRF は `UNKNOWN` とし、失われた旧解析行は raw の再 import が必要。
+
+2026-09-12 に組み込み `network-baseline-nxos` version `1.9` の全 22 check と evaluator を照合し、
+[Baseline Profile Guide のチェック一覧](../manual/network-ops/profiles/network-baseline-nxos.md)へ
+目的、単体判定、比較判定、既定閾値を整理した。
+[Overlay Profile Guide](../manual/network-ops/profiles/nxos-overlay.md)にも組み込み 9 check と
+role/function に応じた出力を整理し、各 profile 専用ガイドの冒頭へ配置した。
+SFP 未装着の `sfpAbsent`／`xcvrAbsen`／`xcvrAbsent` は、primary parser で
+admin-unknown／operational-down に正規化する。詳細証跡がない場合、確定した異常がなければ
+`UNKNOWN` とし、確定した異常が混在する場合は `FAIL` と不明 port の両方を記録する。
+旧 Snapshot の未装着 Status に対する admin-up 推定も評価時に信用せず、元成果物は変更しない。
+before が up で after が未装着の場合、operational 証跡に矛盾がなければ `FAIL / regression` とする。
+根拠と互換性は [7.9.4 正規化](../design/network-ops/NXOS_BASELINE_HEALTH_CHECK_COMMANDS.md#794-正規化)に記載した。
+7.9.10 の詳細証跡が admin-down なら単体異常対象から除外し、admin-up／operational-down なら
+`FAIL`、不整合なら `UNKNOWN`。元 Snapshot を変更せず、採用根拠と block 行範囲を結果へ記録する。
+機器には接続していない。
+
+OSPF／vPC／BGP の証跡不足時の対象外判定、
+interface error の比較不能時の単体判定と reset 識別、dynamic BGP の一部 peer 消失検出には
+設計との差または未実装部分が残る。具体的な現行動作と影響は
+[現行実装の制約・設計との差](../manual/network-ops/profiles/network-baseline-nxos.md#3-現行実装の制約設計との差)を参照する。
+これらを修正済み、または設計変更として承認済みとは扱わない。
 
 ## 4. Phase進捗
 

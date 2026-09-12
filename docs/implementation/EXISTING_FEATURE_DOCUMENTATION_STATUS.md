@@ -35,6 +35,7 @@ As-Isの証拠、正式設計への統合先、既知の実装差分を機能単
 
 | 機能領域 | 主な実装・入口 | As-Is解析 | 設計書反映 | テスト確認 | 優先度・備考 |
 |---|---|---|---|---|---|
+| NTP Health Check | `alred/health/parsers.py`、`ntp_state.py`、`evaluator.py` | `integrated` | [設計 7.10](../design/network-ops/NXOS_BASELINE_HEALTH_CHECK_COMMANDS.md#710-ntpと装置時刻)へ統合。profile `1.9`／parser `1.22` で修正 | NTP 回帰、両入力 adapter、前後比較、既存 baseline テスト | 実機未検証。同一 remote の複数 VRF は `UNKNOWN` |
 | CLI基盤 | `alred/cli.py`、`alred.py` | `integrated` | [Common設計](../design/common/CLI_CONFIGURATION_AND_RESOURCES_DESIGN.md)へ反映 | command/help fixture、CLI testあり | top-level command、parser、終了code境界を記録 |
 | configuration / resources | `alred/constants.py`、`alred/resources.py`、`CONFIG.md` | `reviewed` | Common設計へ反映 | path、sample、resource testあり | cwd探索とpackage dataを記録。全commandの個別defaultは各設計を正本とする |
 | inventory / hosts | `alred/inventory.py` | `reviewed` | [Inventory設計](../design/common/INVENTORY_CREDENTIALS_AND_DEVICE_ACCESS_DESIGN.md)へ反映 | offline inventory／CLI testあり | `hosts.txt`／YAMLとtarget解決を記録 |
