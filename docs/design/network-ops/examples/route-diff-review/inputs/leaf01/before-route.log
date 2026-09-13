@@ -1,0 +1,36 @@
+leaf01# show ip route vrf all
+'*' denotes best ucast next-hop
+'**' denotes best mcast next-hop
+
+IP Route Table for VRF "TENANT-A"
+198.51.100.0/24, ubest/mbest: 1/0
+    *via 192.0.2.1, Ethernet1/1, [110/20], 00:12:34, ospf-UNDERLAY, intra
+192.0.2.0/24, ubest/mbest: 1/0
+    *via 192.0.2.1, Ethernet1/1, [110/20], 00:12:34, ospf-UNDERLAY, intra
+198.51.100.128/25, ubest/mbest: 2/0
+    *via 192.0.2.1, Ethernet1/1, [110/20], 00:12:34, ospf-UNDERLAY, intra
+    *via 192.0.2.2, Ethernet1/2, [110/20], 00:12:34, ospf-UNDERLAY, intra
+192.0.2.128/25, ubest/mbest: 1/0
+    *via 192.0.2.1, Ethernet1/1, [110/20], 00:12:34, ospf-UNDERLAY, intra
+203.0.113.128/25, ubest/mbest: 2/0
+    *via 192.0.2.1, Ethernet1/1, [110/20], 00:12:34, ospf-UNDERLAY, intra
+    *via 192.0.2.2, Ethernet1/2, [110/20], 00:12:34, ospf-UNDERLAY, intra
+192.0.2.64/26, ubest/mbest: 1/0
+    *via 192.0.2.1, Ethernet1/1, [110/20], 00:12:34, ospf-UNDERLAY, intra
+
+leaf01#
+leaf01# show ipv6 route vrf all
+'*' denotes best ucast next-hop
+'**' denotes best mcast next-hop
+
+IPv6 Routing Table for VRF "TENANT-A"
+2001:db8:100::/64, ubest/mbest: 1/0
+    *via fe80::1, Ethernet1/1, [110/20], 00:12:34, ospf-UNDERLAY, intra
+2001:0DB8:0200:0000:0000:0000:0000:0000/64, ubest/mbest: 1/0
+    *via 2001:0DB8:0000:0000:0000:0000:0000:0001, Ethernet1/3, [110/20], 00:12:34, ospf-UNDERLAY, intra
+2001:db8:300::/64, ubest/mbest: 1/0
+    *via ::ffff:192.0.2.1%default, [200/20], 00:12:34, bgp-65001, internal
+2001:db8:500::/64, ubest/mbest: 1/0
+    *via fe80::5, Ethernet1/5, [110/20], 00:12:34, ospfv3-UNDERLAY, intra
+
+leaf01#

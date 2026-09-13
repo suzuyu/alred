@@ -29,6 +29,14 @@
 | [09 VNI Map Guide](./09_VNI_MAP_GUIDE.md) | VNI 一覧を作成・確認する人 | Health Check／running config からの VNI 一覧、legacy CSV |
 | [10 push-config-dir Guide](./10_PUSH_CONFIG_DIR.md) | host 別 config を直接投入する人 | NX-OS 接続保護 filter、投入前表示、`--force`、投入後確認 |
 
+## 実装前レビュー用ドラフト
+
+以下は機種・release 検証と Health 統合が未完了のためドラフトです。standalone CLI の操作は実行できます。
+
+| 文書 | 対象 | 内容 |
+|---|---|---|
+| [13 Route Diff Guide（ドラフト）](./13_ROUTE_DIFF_GUIDE.md) | IPv4／IPv6 経路比較の利用手順を確認する人 | 入力ログ、5 方式、差分／全文表示、UNKNOWN、終了状態、再実行。比較・オフライン出力 API と standalone CLI は実装済み、Health 統合も実装済み |
+
 ## 最短の利用経路
 
 1. [Common Preparation](./00_COMMON_PREPARATION.md)でinventory、認証、保存先を準備する。

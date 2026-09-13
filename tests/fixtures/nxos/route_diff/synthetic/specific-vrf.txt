@@ -1,0 +1,10 @@
+leaf01# show ip route vrf TENANT-A
+IP Route Table for VRF "TENANT-A"
+192.0.2.0/24, ubest/mbest: 1/0
+    *via Null0, [1/0], static
+leaf01#
+leaf01# show ipv6 route vrf TENANT-A
+IPv6 Routing Table for VRF "TENANT-A"
+2001:db8::/64, ubest/mbest: 1/0
+    *via Null0, [1/0], static
+leaf01#

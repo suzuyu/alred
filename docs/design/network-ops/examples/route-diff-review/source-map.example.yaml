@@ -1,0 +1,28 @@
+# 合成ログの Source Map。route-diff-nxos --source-map で利用できる。
+api_version: alred/v1
+kind: RouteDiffSourceMap
+metadata:
+  name: route-diff-review
+spec:
+  hosts:
+    - host: leaf01
+      before:
+        - path: inputs/leaf01/before-route.log
+          input_format: nxos-transcript
+      after:
+        - path: inputs/leaf01/after-route.log
+          input_format: nxos-transcript
+    - host: leaf02
+      before:
+        - path: inputs/leaf02/before-route.log
+          input_format: nxos-transcript
+      after:
+        - path: inputs/leaf02/after-route.log
+          input_format: nxos-transcript
+    - host: leaf03
+      before:
+        - path: inputs/leaf03/before-route.log
+          input_format: nxos-transcript
+      after:
+        - path: inputs/leaf03/after-route.log
+          input_format: nxos-transcript

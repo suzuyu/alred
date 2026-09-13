@@ -1334,6 +1334,9 @@ def verify_qualification_rollback(
     )
     roles_path = workspace.operation_root / "health" / "resolved-roles.yaml"
     resolved_roles = load_resolved_roles(roles_path) if roles_path.is_file() else None
+    from .health.route_diff import load_health_routes, assess_routes, publish_route_report
+
+    route_bundles = (load_health_routes(before, before_path), load_health_routes(rollback, rollback_path))
     health_result = compare_snapshots(
         before,
         rollback,
@@ -1341,6 +1344,7 @@ def verify_qualification_rollback(
         started_at=verified_at,
         completed_at=verified_at,
         resolved_roles=resolved_roles,
+        route_bundles=route_bundles,
     )
     health_result["phase"] = "rollback"
     report_dir = Path(report_dir) if report_dir else (
@@ -1356,6 +1360,11 @@ def verify_qualification_rollback(
         "after_snapshot": str(rollback_path),
         "summary": str(report_dir / "summary.md"),
     }
+    if all(bundle is not None for bundle in route_bundles):
+        route_assessment = assess_routes(before, rollback,
+            resolved_profiles["spec"]["resolved"]["effective"], route_bundles)
+        health_result["artifacts"].update(publish_route_report(route_assessment, route_bundles,
+            operation_root=workspace.operation_root, report_dir=report_dir))
     validate_document(health_result, kind="HealthResult")
     health_result_path = report_dir / "health-result.json"
     atomic_write_json(

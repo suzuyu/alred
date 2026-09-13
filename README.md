@@ -11,6 +11,9 @@ Containerlab 環境の生成、Overlay（VNI）設定、ネットワーク構成
 > 現在は alpha 版です。機能や仕様は変更される可能性があります。
 > 設定投入機能は、対象機器、Capability、生成 config、rollback 手順を検証したうえで使用してください。
 
+Route Diff の `0.2.0a13` リリース対象は、before / after 各時点の全ホスト・VRF・AF 合計で **1 万 route まで**です。
+機種・NX-OS バージョン別の未検証範囲と移行方法は [リリースノート](docs/releases/0.2.0a13.md)を参照してください。
+
 ## 全体像
 
 ### Observe／Transfer／Reproduce
@@ -153,3 +156,13 @@ Python package、開発環境、shell completion、エアギャップ環境へ�
 ## License
 
 [Apache License 2.0](./LICENSE)
+
+## 保存済み経路ログの比較
+
+`alred route-diff-nxos` は NX-OS の IPv4 / IPv6 経路ログを任意の 2 時点で比較し、
+HTML / Markdown / CSV / JSON をオフライン出力します。Cost、AD、NextHop、ECMP の変化と
+入力不足の UNKNOWN を確認できます。[画像付き利用ガイド](docs/manual/network-ops/13_ROUTE_DIFF_GUIDE.md)を参照してください。
+Health でも追加 profile `route-diff-nxos` で before／after／rollback の詳細比較を利用できます。
+複数ホストのログは before / after の directory 指定で比較できます。全体収集ログにも対応し、
+HTML では対象 route command 区間と入力ログ全体を切り替えられます。
+機種・release 別の詳細ログと大規模入力の検証は継続中です。

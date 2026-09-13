@@ -80,6 +80,24 @@ Schema dialectはJSON Schema Draft 2020-12を使用する。構造、型、必�
 `jsonschema`で検証し、IP prefix、group/device解決、platform capability、running-config競合は
 Python domain validatorで検証する。
 
+Route Diff の入力用 `RouteDiffPolicy` と `RouteDiffSourceMap` を package schema として登録し、
+IP / AF / path、rule 競合、source 区間の domain validation を実装した。`RouteSnapshot` と `RouteDiff` も
+package schema に登録し、hash・品質・証跡・件数と policy 結果の検証を実装した。詳細は
+[Route Diff 比較契約](../network-ops/ROUTE_DIFF_DESIGN.md#15-snapshot比較policy-判定の実装契約p3)を参照する。
+`RouteDiffReview` も package schema に登録し、fingerprint・entry key・mode・日時を domain validation する。
+HTML の import は入力として未知 field を拒否する。CLI の保存 lifecycle は P5 で実装した。Health reader は詳細 Snapshot の参照、hash、adapter version、元 bytes を検証する。
+optional `HealthSnapshot.route_diff`、`HealthCheckProfile.spec.route_diff` と
+RouteSnapshot source の `alred-collect` / `collection_provenance` / `display_name` を追加する。
+旧 Snapshot の既存 check は維持し、詳細証跡がない場合だけ Route check を UNKNOWN とする。
+field と配置は [Route Diff 設計 18](../network-ops/ROUTE_DIFF_DESIGN.md#18-health-統合契約p6)に従う。
+詳細は [Route Diff 入力処理](../network-ops/ROUTE_DIFF_DESIGN.md#14-入力処理の実装契約p1--p2)を参照する。
+
+統合収集ログの [修正設計](../network-ops/ROUTE_DIFF_COLLECTION_LOG_FIX_DESIGN.md#7-互換性再実行実装境界)は
+実装済み。VXLAN path 属性、command の取得・終端証跡、正常空の根拠を package schema に追加し、
+parser / normalizer / comparator / evaluator / renderer / Health adapter の version を更新した。
+schema major は 1 を維持し、旧 Snapshot は domain validation で再解析を要求する。旧成果物を
+default field の追加で書き換えない。Source Map の片側空配列と directory の解決来歴も同設計に従う。
+
 ## 3. Version
 
 - 外部保存するYAMLは`api_version: alred/v1`と`kind`を必須とする。

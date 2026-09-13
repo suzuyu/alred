@@ -1,0 +1,895 @@
+<!doctype html><html lang="ja"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Route diff · 追加ケースレビュー</title><style>
+*{box-sizing:border-box}body{margin:0;background:#f4f7f6;color:#20373d;font:15px/1.65 system-ui,sans-serif}main{max-width:1380px;margin:auto;padding:28px}a{color:#12686c}h1{font-size:28px}.notice,.result{padding:14px;background:#fff1cf;border-radius:6px}.tabs{display:flex;gap:8px;flex-wrap:wrap;margin:22px 0}button,select{font:inherit;padding:10px;border:1px solid #a3bcbc;border-radius:5px;background:white;max-width:100%}button[aria-selected=true]{background:#173d40;color:white}article{background:white;padding:20px;border:1px solid #d1dddd;border-radius:8px;margin:16px 0}.columns,.pair{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px}.columns>div{min-width:0}pre{white-space:pre-wrap;overflow-wrap:anywhere;padding:12px;background:#edf3f2;font:12px/1.6 monospace;margin:0;max-height:480px;overflow:auto}.removed{background:#ffe2e4}.added{background:#dcf5e4}.empty{background:#f4f6f6}.pair-label{margin-top:18px}.check{display:block;margin:15px 0}[hidden]{display:none!important}details{margin-top:16px}@media(max-width:650px){main{padding:14px}.columns{grid-template-columns:1fr}.pair{gap:4px}pre{padding:6px;font-size:11px}h1{font-size:23px}}
+</style><main><a href="index.html">← 全体のレビューへ</a><h1>Route diff · 追加ケースレビュー</h1>
+<p class="notice">合成入力と期待出力を切り替えるモックです。任意ログや policy を解析・評価する機能は未実装です。元の 3 host の集計とは別のケース集です。</p>
+<nav class="tabs" aria-label="追加ケース"><button data-tab="expected" aria-selected="true">期待変更</button><button data-tab="ecmp" aria-selected="false">ECMP の対応</button><button data-tab="terminal" aria-selected="false">端末ログ・Health</button></nav>
+<section data-panel="expected"><p>期待変更と評価対象外を区別し、必須経路違反・証跡不足は免除しません。</p><select id="expected-case"><option value="matched">予定どおりの Cost 変更</option><option value="mismatch">予定外の Cost 変更</option><option value="not-applied">予定した変更が未成立</option><option value="extra-hop">Cost は予定どおりだが NextHop も変更</option><option value="before-mismatch">before が計画と不一致</option><option value="required-fail">予定した削除だが必須経路違反</option><option value="unverified">申告ログでは Health 用証跡不足</option></select><article data-case="matched"><h2>予定どおりの Cost 変更</h2><p class="result">観測 MODIFIED / 期待照合 MATCHED / この check の Health PASS</p><p>必須条件も満たした例。この check の PASS は全体 PASS ではありません。</p><div class="columns"><div><h3>期待 before / after</h3><pre>{
+  &quot;before&quot;: {
+    &quot;prefix&quot;: &quot;192.0.2.64/26&quot;,
+    &quot;paths&quot;: [
+      {
+        &quot;kind&quot;: &quot;ip&quot;,
+        &quot;next_hop_family&quot;: &quot;ipv4&quot;,
+        &quot;address&quot;: &quot;192.0.2.1&quot;,
+        &quot;interface&quot;: &quot;Ethernet1/1&quot;,
+        &quot;next_hop_vrf&quot;: &quot;TENANT-A&quot;,
+        &quot;admin_distance&quot;: 110,
+        &quot;metric&quot;: 20
+      }
+    ]
+  },
+  &quot;after&quot;: {
+    &quot;prefix&quot;: &quot;192.0.2.64/26&quot;,
+    &quot;paths&quot;: [
+      {
+        &quot;kind&quot;: &quot;ip&quot;,
+        &quot;next_hop_family&quot;: &quot;ipv4&quot;,
+        &quot;address&quot;: &quot;192.0.2.1&quot;,
+        &quot;interface&quot;: &quot;Ethernet1/1&quot;,
+        &quot;next_hop_vrf&quot;: &quot;TENANT-A&quot;,
+        &quot;admin_distance&quot;: 110,
+        &quot;metric&quot;: 30
+      }
+    ]
+  }
+}</pre></div><div><h3>観測 before / after</h3><pre>{
+  &quot;before&quot;: {
+    &quot;prefix&quot;: &quot;192.0.2.64/26&quot;,
+    &quot;paths&quot;: [
+      {
+        &quot;kind&quot;: &quot;ip&quot;,
+        &quot;next_hop_family&quot;: &quot;ipv4&quot;,
+        &quot;address&quot;: &quot;192.0.2.1&quot;,
+        &quot;interface&quot;: &quot;Ethernet1/1&quot;,
+        &quot;next_hop_vrf&quot;: &quot;TENANT-A&quot;,
+        &quot;admin_distance&quot;: 110,
+        &quot;metric&quot;: 20
+      }
+    ]
+  },
+  &quot;after&quot;: {
+    &quot;prefix&quot;: &quot;192.0.2.64/26&quot;,
+    &quot;paths&quot;: [
+      {
+        &quot;kind&quot;: &quot;ip&quot;,
+        &quot;next_hop_family&quot;: &quot;ipv4&quot;,
+        &quot;address&quot;: &quot;192.0.2.1&quot;,
+        &quot;interface&quot;: &quot;Ethernet1/1&quot;,
+        &quot;next_hop_vrf&quot;: &quot;TENANT-A&quot;,
+        &quot;admin_distance&quot;: 110,
+        &quot;metric&quot;: 30
+      }
+    ]
+  }
+}</pre></div></div></article><article data-case="mismatch"><h2>予定外の Cost 変更</h2><p class="result">観測 MODIFIED / 期待照合 MISMATCH / この check の Health WARN</p><p>予定は 20 → 30、観測は 20 → 40。metric が不一致。</p><div class="columns"><div><h3>期待 before / after</h3><pre>{
+  &quot;before&quot;: {
+    &quot;prefix&quot;: &quot;192.0.2.64/26&quot;,
+    &quot;paths&quot;: [
+      {
+        &quot;kind&quot;: &quot;ip&quot;,
+        &quot;next_hop_family&quot;: &quot;ipv4&quot;,
+        &quot;address&quot;: &quot;192.0.2.1&quot;,
+        &quot;interface&quot;: &quot;Ethernet1/1&quot;,
+        &quot;next_hop_vrf&quot;: &quot;TENANT-A&quot;,
+        &quot;admin_distance&quot;: 110,
+        &quot;metric&quot;: 20
+      }
+    ]
+  },
+  &quot;after&quot;: {
+    &quot;prefix&quot;: &quot;192.0.2.64/26&quot;,
+    &quot;paths&quot;: [
+      {
+        &quot;kind&quot;: &quot;ip&quot;,
+        &quot;next_hop_family&quot;: &quot;ipv4&quot;,
+        &quot;address&quot;: &quot;192.0.2.1&quot;,
+        &quot;interface&quot;: &quot;Ethernet1/1&quot;,
+        &quot;next_hop_vrf&quot;: &quot;TENANT-A&quot;,
+        &quot;admin_distance&quot;: 110,
+        &quot;metric&quot;: 30
+      }
+    ]
+  }
+}</pre></div><div><h3>観測 before / after</h3><pre>{
+  &quot;before&quot;: {
+    &quot;prefix&quot;: &quot;192.0.2.64/26&quot;,
+    &quot;paths&quot;: [
+      {
+        &quot;kind&quot;: &quot;ip&quot;,
+        &quot;next_hop_family&quot;: &quot;ipv4&quot;,
+        &quot;address&quot;: &quot;192.0.2.1&quot;,
+        &quot;interface&quot;: &quot;Ethernet1/1&quot;,
+        &quot;next_hop_vrf&quot;: &quot;TENANT-A&quot;,
+        &quot;admin_distance&quot;: 110,
+        &quot;metric&quot;: 20
+      }
+    ]
+  },
+  &quot;after&quot;: {
+    &quot;prefix&quot;: &quot;192.0.2.64/26&quot;,
+    &quot;paths&quot;: [
+      {
+        &quot;kind&quot;: &quot;ip&quot;,
+        &quot;next_hop_family&quot;: &quot;ipv4&quot;,
+        &quot;address&quot;: &quot;192.0.2.1&quot;,
+        &quot;interface&quot;: &quot;Ethernet1/1&quot;,
+        &quot;next_hop_vrf&quot;: &quot;TENANT-A&quot;,
+        &quot;admin_distance&quot;: 110,
+        &quot;metric&quot;: 40
+      }
+    ]
+  }
+}</pre></div></div></article><article data-case="not-applied"><h2>予定した変更が未成立</h2><p class="result">観測 UNCHANGED / 期待照合 NOT_APPLIED / この check の Health WARN</p><p>観測差分は UNCHANGED でも rule の結果一覧には残します。</p><div class="columns"><div><h3>期待 before / after</h3><pre>{
+  &quot;before&quot;: {
+    &quot;prefix&quot;: &quot;192.0.2.64/26&quot;,
+    &quot;paths&quot;: [
+      {
+        &quot;kind&quot;: &quot;ip&quot;,
+        &quot;next_hop_family&quot;: &quot;ipv4&quot;,
+        &quot;address&quot;: &quot;192.0.2.1&quot;,
+        &quot;interface&quot;: &quot;Ethernet1/1&quot;,
+        &quot;next_hop_vrf&quot;: &quot;TENANT-A&quot;,
+        &quot;admin_distance&quot;: 110,
+        &quot;metric&quot;: 20
+      }
+    ]
+  },
+  &quot;after&quot;: {
+    &quot;prefix&quot;: &quot;192.0.2.64/26&quot;,
+    &quot;paths&quot;: [
+      {
+        &quot;kind&quot;: &quot;ip&quot;,
+        &quot;next_hop_family&quot;: &quot;ipv4&quot;,
+        &quot;address&quot;: &quot;192.0.2.1&quot;,
+        &quot;interface&quot;: &quot;Ethernet1/1&quot;,
+        &quot;next_hop_vrf&quot;: &quot;TENANT-A&quot;,
+        &quot;admin_distance&quot;: 110,
+        &quot;metric&quot;: 30
+      }
+    ]
+  }
+}</pre></div><div><h3>観測 before / after</h3><pre>{
+  &quot;before&quot;: {
+    &quot;prefix&quot;: &quot;192.0.2.64/26&quot;,
+    &quot;paths&quot;: [
+      {
+        &quot;kind&quot;: &quot;ip&quot;,
+        &quot;next_hop_family&quot;: &quot;ipv4&quot;,
+        &quot;address&quot;: &quot;192.0.2.1&quot;,
+        &quot;interface&quot;: &quot;Ethernet1/1&quot;,
+        &quot;next_hop_vrf&quot;: &quot;TENANT-A&quot;,
+        &quot;admin_distance&quot;: 110,
+        &quot;metric&quot;: 20
+      }
+    ]
+  },
+  &quot;after&quot;: {
+    &quot;prefix&quot;: &quot;192.0.2.64/26&quot;,
+    &quot;paths&quot;: [
+      {
+        &quot;kind&quot;: &quot;ip&quot;,
+        &quot;next_hop_family&quot;: &quot;ipv4&quot;,
+        &quot;address&quot;: &quot;192.0.2.1&quot;,
+        &quot;interface&quot;: &quot;Ethernet1/1&quot;,
+        &quot;next_hop_vrf&quot;: &quot;TENANT-A&quot;,
+        &quot;admin_distance&quot;: 110,
+        &quot;metric&quot;: 20
+      }
+    ]
+  }
+}</pre></div></div></article><article data-case="extra-hop"><h2>Cost は予定どおりだが NextHop も変更</h2><p class="result">観測 MODIFIED / 期待照合 MISMATCH / この check の Health WARN</p><p>AD / Cost だけの一致では期待変更にしません。</p><div class="columns"><div><h3>期待 before / after</h3><pre>{
+  &quot;before&quot;: {
+    &quot;prefix&quot;: &quot;192.0.2.64/26&quot;,
+    &quot;paths&quot;: [
+      {
+        &quot;kind&quot;: &quot;ip&quot;,
+        &quot;next_hop_family&quot;: &quot;ipv4&quot;,
+        &quot;address&quot;: &quot;192.0.2.1&quot;,
+        &quot;interface&quot;: &quot;Ethernet1/1&quot;,
+        &quot;next_hop_vrf&quot;: &quot;TENANT-A&quot;,
+        &quot;admin_distance&quot;: 110,
+        &quot;metric&quot;: 20
+      }
+    ]
+  },
+  &quot;after&quot;: {
+    &quot;prefix&quot;: &quot;192.0.2.64/26&quot;,
+    &quot;paths&quot;: [
+      {
+        &quot;kind&quot;: &quot;ip&quot;,
+        &quot;next_hop_family&quot;: &quot;ipv4&quot;,
+        &quot;address&quot;: &quot;192.0.2.1&quot;,
+        &quot;interface&quot;: &quot;Ethernet1/1&quot;,
+        &quot;next_hop_vrf&quot;: &quot;TENANT-A&quot;,
+        &quot;admin_distance&quot;: 110,
+        &quot;metric&quot;: 30
+      }
+    ]
+  }
+}</pre></div><div><h3>観測 before / after</h3><pre>{
+  &quot;before&quot;: {
+    &quot;prefix&quot;: &quot;192.0.2.64/26&quot;,
+    &quot;paths&quot;: [
+      {
+        &quot;kind&quot;: &quot;ip&quot;,
+        &quot;next_hop_family&quot;: &quot;ipv4&quot;,
+        &quot;address&quot;: &quot;192.0.2.1&quot;,
+        &quot;interface&quot;: &quot;Ethernet1/1&quot;,
+        &quot;next_hop_vrf&quot;: &quot;TENANT-A&quot;,
+        &quot;admin_distance&quot;: 110,
+        &quot;metric&quot;: 20
+      }
+    ]
+  },
+  &quot;after&quot;: {
+    &quot;prefix&quot;: &quot;192.0.2.64/26&quot;,
+    &quot;paths&quot;: [
+      {
+        &quot;kind&quot;: &quot;ip&quot;,
+        &quot;next_hop_family&quot;: &quot;ipv4&quot;,
+        &quot;address&quot;: &quot;192.0.2.2&quot;,
+        &quot;interface&quot;: &quot;Ethernet1/2&quot;,
+        &quot;next_hop_vrf&quot;: &quot;TENANT-A&quot;,
+        &quot;admin_distance&quot;: 110,
+        &quot;metric&quot;: 30
+      }
+    ]
+  }
+}</pre></div></div></article><article data-case="before-mismatch"><h2>before が計画と不一致</h2><p class="result">観測 MODIFIED / 期待照合 MISMATCH / この check の Health WARN</p><p>after だけを照合せず、before の metric 不一致も残します。</p><div class="columns"><div><h3>期待 before / after</h3><pre>{
+  &quot;before&quot;: {
+    &quot;prefix&quot;: &quot;192.0.2.64/26&quot;,
+    &quot;paths&quot;: [
+      {
+        &quot;kind&quot;: &quot;ip&quot;,
+        &quot;next_hop_family&quot;: &quot;ipv4&quot;,
+        &quot;address&quot;: &quot;192.0.2.1&quot;,
+        &quot;interface&quot;: &quot;Ethernet1/1&quot;,
+        &quot;next_hop_vrf&quot;: &quot;TENANT-A&quot;,
+        &quot;admin_distance&quot;: 110,
+        &quot;metric&quot;: 20
+      }
+    ]
+  },
+  &quot;after&quot;: {
+    &quot;prefix&quot;: &quot;192.0.2.64/26&quot;,
+    &quot;paths&quot;: [
+      {
+        &quot;kind&quot;: &quot;ip&quot;,
+        &quot;next_hop_family&quot;: &quot;ipv4&quot;,
+        &quot;address&quot;: &quot;192.0.2.1&quot;,
+        &quot;interface&quot;: &quot;Ethernet1/1&quot;,
+        &quot;next_hop_vrf&quot;: &quot;TENANT-A&quot;,
+        &quot;admin_distance&quot;: 110,
+        &quot;metric&quot;: 30
+      }
+    ]
+  }
+}</pre></div><div><h3>観測 before / after</h3><pre>{
+  &quot;before&quot;: {
+    &quot;prefix&quot;: &quot;192.0.2.64/26&quot;,
+    &quot;paths&quot;: [
+      {
+        &quot;kind&quot;: &quot;ip&quot;,
+        &quot;next_hop_family&quot;: &quot;ipv4&quot;,
+        &quot;address&quot;: &quot;192.0.2.1&quot;,
+        &quot;interface&quot;: &quot;Ethernet1/1&quot;,
+        &quot;next_hop_vrf&quot;: &quot;TENANT-A&quot;,
+        &quot;admin_distance&quot;: 110,
+        &quot;metric&quot;: 10
+      }
+    ]
+  },
+  &quot;after&quot;: {
+    &quot;prefix&quot;: &quot;192.0.2.64/26&quot;,
+    &quot;paths&quot;: [
+      {
+        &quot;kind&quot;: &quot;ip&quot;,
+        &quot;next_hop_family&quot;: &quot;ipv4&quot;,
+        &quot;address&quot;: &quot;192.0.2.1&quot;,
+        &quot;interface&quot;: &quot;Ethernet1/1&quot;,
+        &quot;next_hop_vrf&quot;: &quot;TENANT-A&quot;,
+        &quot;admin_distance&quot;: 110,
+        &quot;metric&quot;: 30
+      }
+    ]
+  }
+}</pre></div></div></article><article data-case="required-fail"><h2>予定した削除だが必須経路違反</h2><p class="result">観測 REMOVED / 期待照合 MATCHED / この check の Health FAIL</p><p>この例だけ期待 after は null。required prefix 欠落は独立して FAIL。</p><div class="columns"><div><h3>期待 before / after</h3><pre>{
+  &quot;before&quot;: {
+    &quot;prefix&quot;: &quot;192.0.2.64/26&quot;,
+    &quot;paths&quot;: [
+      {
+        &quot;kind&quot;: &quot;ip&quot;,
+        &quot;next_hop_family&quot;: &quot;ipv4&quot;,
+        &quot;address&quot;: &quot;192.0.2.1&quot;,
+        &quot;interface&quot;: &quot;Ethernet1/1&quot;,
+        &quot;next_hop_vrf&quot;: &quot;TENANT-A&quot;,
+        &quot;admin_distance&quot;: 110,
+        &quot;metric&quot;: 20
+      }
+    ]
+  },
+  &quot;after&quot;: null
+}</pre></div><div><h3>観測 before / after</h3><pre>{
+  &quot;before&quot;: {
+    &quot;prefix&quot;: &quot;192.0.2.64/26&quot;,
+    &quot;paths&quot;: [
+      {
+        &quot;kind&quot;: &quot;ip&quot;,
+        &quot;next_hop_family&quot;: &quot;ipv4&quot;,
+        &quot;address&quot;: &quot;192.0.2.1&quot;,
+        &quot;interface&quot;: &quot;Ethernet1/1&quot;,
+        &quot;next_hop_vrf&quot;: &quot;TENANT-A&quot;,
+        &quot;admin_distance&quot;: 110,
+        &quot;metric&quot;: 20
+      }
+    ]
+  },
+  &quot;after&quot;: null
+}</pre></div></div></article><article data-case="unverified"><h2>申告ログでは Health 用証跡不足</h2><p class="result">観測 MODIFIED / 期待照合 UNVERIFIABLE / この check の Health UNKNOWN</p><p>構文は完全で観測比較可能でも user_asserted だけでは Health 判定に採用しません。</p><div class="columns"><div><h3>期待 before / after</h3><pre>{
+  &quot;before&quot;: {
+    &quot;prefix&quot;: &quot;192.0.2.64/26&quot;,
+    &quot;paths&quot;: [
+      {
+        &quot;kind&quot;: &quot;ip&quot;,
+        &quot;next_hop_family&quot;: &quot;ipv4&quot;,
+        &quot;address&quot;: &quot;192.0.2.1&quot;,
+        &quot;interface&quot;: &quot;Ethernet1/1&quot;,
+        &quot;next_hop_vrf&quot;: &quot;TENANT-A&quot;,
+        &quot;admin_distance&quot;: 110,
+        &quot;metric&quot;: 20
+      }
+    ]
+  },
+  &quot;after&quot;: {
+    &quot;prefix&quot;: &quot;192.0.2.64/26&quot;,
+    &quot;paths&quot;: [
+      {
+        &quot;kind&quot;: &quot;ip&quot;,
+        &quot;next_hop_family&quot;: &quot;ipv4&quot;,
+        &quot;address&quot;: &quot;192.0.2.1&quot;,
+        &quot;interface&quot;: &quot;Ethernet1/1&quot;,
+        &quot;next_hop_vrf&quot;: &quot;TENANT-A&quot;,
+        &quot;admin_distance&quot;: 110,
+        &quot;metric&quot;: 30
+      }
+    ]
+  }
+}</pre></div><div><h3>観測 before / after</h3><pre>{
+  &quot;before&quot;: {
+    &quot;prefix&quot;: &quot;192.0.2.64/26&quot;,
+    &quot;paths&quot;: [
+      {
+        &quot;kind&quot;: &quot;ip&quot;,
+        &quot;next_hop_family&quot;: &quot;ipv4&quot;,
+        &quot;address&quot;: &quot;192.0.2.1&quot;,
+        &quot;interface&quot;: &quot;Ethernet1/1&quot;,
+        &quot;next_hop_vrf&quot;: &quot;TENANT-A&quot;,
+        &quot;admin_distance&quot;: 110,
+        &quot;metric&quot;: 20
+      }
+    ]
+  },
+  &quot;after&quot;: {
+    &quot;prefix&quot;: &quot;192.0.2.64/26&quot;,
+    &quot;paths&quot;: [
+      {
+        &quot;kind&quot;: &quot;ip&quot;,
+        &quot;next_hop_family&quot;: &quot;ipv4&quot;,
+        &quot;address&quot;: &quot;192.0.2.1&quot;,
+        &quot;interface&quot;: &quot;Ethernet1/1&quot;,
+        &quot;next_hop_vrf&quot;: &quot;TENANT-A&quot;,
+        &quot;admin_distance&quot;: 110,
+        &quot;metric&quot;: 30
+      }
+    ]
+  }
+}</pre></div></div></article></section><section data-panel="ecmp" hidden><p>左右に対応させるのは共通行と、一意な同一 NextHop の属性変更だけです。</p><select id="ecmp-case"><option value="same-hop">同じ NextHop の Cost 変更</option><option value="exchange">共通 path を残して複数 NextHop が交換</option><option value="ambiguous">同じ NextHop に複数の属性候補</option></select><label class="check"><input type="checkbox" id="case-show-common">差分行以外も表示</label><article data-ecmp="same-hop"><h2>同じ NextHop の Cost 変更</h2><p>MODIFIED は 1 prefix。path の対応未確定は、route 比較の UNKNOWN ではありません。</p><div class="pair-label">共通 path</div><div class="pair" data-common="true"><pre class="same">198.51.100.128/25  AD 110  Cost 20  via 192.0.2.2  dev Ethernet1/2  vrf TENANT-A  nh-af ipv4  kind ip</pre><pre class="same">198.51.100.128/25  AD 110  Cost 20  via 192.0.2.2  dev Ethernet1/2  vrf TENANT-A  nh-af ipv4  kind ip</pre></div><div class="pair-label">同じ NextHop の属性変更</div><div class="pair" data-common="false"><pre class="removed">198.51.100.128/25  AD 110  Cost 20  via 192.0.2.1  dev Ethernet1/1  vrf TENANT-A  nh-af ipv4  kind ip</pre><pre class="added">198.51.100.128/25  AD 110  Cost 30  via 192.0.2.1  dev Ethernet1/1  vrf TENANT-A  nh-af ipv4  kind ip</pre></div></article><article data-ecmp="exchange"><h2>共通 path を残して複数 NextHop が交換</h2><p>MODIFIED は 1 prefix。path の対応未確定は、route 比較の UNKNOWN ではありません。</p><div class="pair-label">共通 path</div><div class="pair" data-common="true"><pre class="same">198.51.100.128/25  AD 110  Cost 20  via 192.0.2.5  dev Ethernet1/5  vrf TENANT-A  nh-af ipv4  kind ip</pre><pre class="same">198.51.100.128/25  AD 110  Cost 20  via 192.0.2.5  dev Ethernet1/5  vrf TENANT-A  nh-af ipv4  kind ip</pre></div><div class="pair-label">削除群（対応未確定）</div><div class="pair" data-common="false"><pre class="removed">198.51.100.128/25  AD 110  Cost 20  via 192.0.2.1  dev Ethernet1/1  vrf TENANT-A  nh-af ipv4  kind ip</pre><pre class="empty">—</pre></div><div class="pair-label">削除群（対応未確定）</div><div class="pair" data-common="false"><pre class="removed">198.51.100.128/25  AD 110  Cost 20  via 192.0.2.2  dev Ethernet1/2  vrf TENANT-A  nh-af ipv4  kind ip</pre><pre class="empty">—</pre></div><div class="pair-label">追加群（対応未確定）</div><div class="pair" data-common="false"><pre class="empty">—</pre><pre class="added">198.51.100.128/25  AD 110  Cost 20  via 192.0.2.3  dev Ethernet1/3  vrf TENANT-A  nh-af ipv4  kind ip</pre></div><div class="pair-label">追加群（対応未確定）</div><div class="pair" data-common="false"><pre class="empty">—</pre><pre class="added">198.51.100.128/25  AD 110  Cost 20  via 192.0.2.4  dev Ethernet1/4  vrf TENANT-A  nh-af ipv4  kind ip</pre></div></article><article data-ecmp="ambiguous"><h2>同じ NextHop に複数の属性候補</h2><p>MODIFIED は 1 prefix。path の対応未確定は、route 比較の UNKNOWN ではありません。</p><div class="pair-label">削除群（対応未確定）</div><div class="pair" data-common="false"><pre class="removed">198.51.100.128/25  AD 110  Cost 20  via 192.0.2.1  dev Ethernet1/1  vrf TENANT-A  nh-af ipv4  kind ip</pre><pre class="empty">—</pre></div><div class="pair-label">削除群（対応未確定）</div><div class="pair" data-common="false"><pre class="removed">198.51.100.128/25  AD 110  Cost 40  via 192.0.2.1  dev Ethernet1/1  vrf TENANT-A  nh-af ipv4  kind ip</pre><pre class="empty">—</pre></div><div class="pair-label">追加群（対応未確定）</div><div class="pair" data-common="false"><pre class="empty">—</pre><pre class="added">198.51.100.128/25  AD 110  Cost 30  via 192.0.2.1  dev Ethernet1/1  vrf TENANT-A  nh-af ipv4  kind ip</pre></div><div class="pair-label">追加群（対応未確定）</div><div class="pair" data-common="false"><pre class="empty">—</pre><pre class="added">198.51.100.128/25  AD 110  Cost 50  via 192.0.2.1  dev Ethernet1/1  vrf TENANT-A  nh-af ipv4  kind ip</pre></div></article></section><section data-panel="terminal" hidden><p>制御文字を可視化しています。JSON の raw_text を UTF-8 encode すると元 bytes を再現できます。</p><select id="terminal-case"><option value="sgr-crlf">BOM / CRLF / ANSI の色指定</option><option value="asserted">終端のない本文を完全取得と申告</option><option value="asserted-broken">破損した本文を完全取得と申告</option><option value="wrapped">address が terminal 幅で折り返し</option><option value="pager">ページャー表示の混入</option><option value="cursor">cursor 移動の混入</option><option value="backspace">backspace の混入</option><option value="bare-cr">単独 CR の混入</option></select><article data-terminal="sgr-crlf"><h2>BOM / CRLF / ANSI の色指定</h2><p class="result">解析 COMPLETE / verified / Health 評価可能（他の profile 条件は別途確認）</p><p>既知の SGR と改行だけを解析用に整形。</p><div class="columns"><div><h3>元ログ（制御文字を可視化）</h3><pre>\ufeffleaf01# show ip route vrf all\r
+IP Route Table for VRF &quot;TENANT-A&quot;\r
+\x1b[32m192.0.2.64/26\x1b[0m, ubest/mbest: 1/0\r
+    *via 192.0.2.1, Ethernet1/1, [110/20], 00:01:00, ospf-UNDERLAY, intra\r
+leaf01#\r
+</pre></div><div><h3>解析用 text の期待値</h3><pre>leaf01# show ip route vrf all
+IP Route Table for VRF &quot;TENANT-A&quot;
+192.0.2.64/26, ubest/mbest: 1/0
+    *via 192.0.2.1, Ethernet1/1, [110/20], 00:01:00, ospf-UNDERLAY, intra
+leaf01#
+</pre></div></div><details><summary>入力条件・hash / 行と byte 範囲</summary><pre>{
+  &quot;input_contract&quot;: {
+    &quot;host&quot;: &quot;leaf01&quot;,
+    &quot;input_format&quot;: &quot;nxos-transcript&quot;,
+    &quot;command_id&quot;: &quot;route_ipv4_all_vrfs&quot;,
+    &quot;completeness&quot;: &quot;not_asserted&quot;
+  },
+  &quot;raw_sha256&quot;: &quot;sha256:e08a26db6c31d3ee6626c07df6dfcc74df1db61ce5690e5ebcdf4c208041eb5f&quot;,
+  &quot;mapping&quot;: [
+    {
+      &quot;raw_start_line&quot;: 1,
+      &quot;raw_end_line&quot;: 1,
+      &quot;raw_start_byte&quot;: 0,
+      &quot;raw_end_byte&quot;: 34,
+      &quot;normalized_line&quot;: 1
+    },
+    {
+      &quot;raw_start_line&quot;: 2,
+      &quot;raw_end_line&quot;: 2,
+      &quot;raw_start_byte&quot;: 34,
+      &quot;raw_end_byte&quot;: 69,
+      &quot;normalized_line&quot;: 2
+    },
+    {
+      &quot;raw_start_line&quot;: 3,
+      &quot;raw_end_line&quot;: 3,
+      &quot;raw_start_byte&quot;: 69,
+      &quot;raw_end_byte&quot;: 111,
+      &quot;normalized_line&quot;: 3
+    },
+    {
+      &quot;raw_start_line&quot;: 4,
+      &quot;raw_end_line&quot;: 4,
+      &quot;raw_start_byte&quot;: 111,
+      &quot;raw_end_byte&quot;: 186,
+      &quot;normalized_line&quot;: 4
+    },
+    {
+      &quot;raw_start_line&quot;: 5,
+      &quot;raw_end_line&quot;: 5,
+      &quot;raw_start_byte&quot;: 186,
+      &quot;raw_end_byte&quot;: 195,
+      &quot;normalized_line&quot;: 5
+    }
+  ],
+  &quot;operations&quot;: [
+    {
+      &quot;kind&quot;: &quot;UTF8_BOM&quot;,
+      &quot;raw_start_byte&quot;: 0,
+      &quot;raw_end_byte&quot;: 3
+    },
+    {
+      &quot;kind&quot;: &quot;CRLF_TO_LF&quot;,
+      &quot;raw_start_byte&quot;: 32,
+      &quot;raw_end_byte&quot;: 34
+    },
+    {
+      &quot;kind&quot;: &quot;CRLF_TO_LF&quot;,
+      &quot;raw_start_byte&quot;: 67,
+      &quot;raw_end_byte&quot;: 69
+    },
+    {
+      &quot;kind&quot;: &quot;SGR_REMOVED&quot;,
+      &quot;raw_start_byte&quot;: 69,
+      &quot;raw_end_byte&quot;: 74
+    },
+    {
+      &quot;kind&quot;: &quot;SGR_REMOVED&quot;,
+      &quot;raw_start_byte&quot;: 87,
+      &quot;raw_end_byte&quot;: 91
+    },
+    {
+      &quot;kind&quot;: &quot;CRLF_TO_LF&quot;,
+      &quot;raw_start_byte&quot;: 109,
+      &quot;raw_end_byte&quot;: 111
+    },
+    {
+      &quot;kind&quot;: &quot;CRLF_TO_LF&quot;,
+      &quot;raw_start_byte&quot;: 184,
+      &quot;raw_end_byte&quot;: 186
+    },
+    {
+      &quot;kind&quot;: &quot;CRLF_TO_LF&quot;,
+      &quot;raw_start_byte&quot;: 193,
+      &quot;raw_end_byte&quot;: 195
+    }
+  ],
+  &quot;diagnostics&quot;: []
+}</pre></details></article><article data-terminal="asserted"><h2>終端のない本文を完全取得と申告</h2><p class="result">解析 COMPLETE / user_asserted / Health UNKNOWN / Health 用証跡不足</p><p>構文正常。観測比較は可能、Health 用証跡は不足。</p><div class="columns"><div><h3>元ログ（制御文字を可視化）</h3><pre>IP Route Table for VRF &quot;TENANT-A&quot;
+192.0.2.64/26, ubest/mbest: 1/0
+    *via 192.0.2.1, Ethernet1/1, [110/20], 00:01:00, ospf-UNDERLAY, intra</pre></div><div><h3>解析用 text の期待値</h3><pre>IP Route Table for VRF &quot;TENANT-A&quot;
+192.0.2.64/26, ubest/mbest: 1/0
+    *via 192.0.2.1, Ethernet1/1, [110/20], 00:01:00, ospf-UNDERLAY, intra</pre></div></div><details><summary>入力条件・hash / 行と byte 範囲</summary><pre>{
+  &quot;input_contract&quot;: {
+    &quot;host&quot;: &quot;leaf01&quot;,
+    &quot;input_format&quot;: &quot;nxos-route-text&quot;,
+    &quot;command_id&quot;: &quot;route_ipv4_all_vrfs&quot;,
+    &quot;completeness&quot;: &quot;asserted&quot;
+  },
+  &quot;raw_sha256&quot;: &quot;sha256:fb25c40d3054467a833c45c16c509dea3e19f6ba69526aa5a2ca75fe8de6d62b&quot;,
+  &quot;mapping&quot;: [
+    {
+      &quot;raw_start_line&quot;: 1,
+      &quot;raw_end_line&quot;: 1,
+      &quot;raw_start_byte&quot;: 0,
+      &quot;raw_end_byte&quot;: 34,
+      &quot;normalized_line&quot;: 1
+    },
+    {
+      &quot;raw_start_line&quot;: 2,
+      &quot;raw_end_line&quot;: 2,
+      &quot;raw_start_byte&quot;: 34,
+      &quot;raw_end_byte&quot;: 66,
+      &quot;normalized_line&quot;: 2
+    },
+    {
+      &quot;raw_start_line&quot;: 3,
+      &quot;raw_end_line&quot;: 3,
+      &quot;raw_start_byte&quot;: 66,
+      &quot;raw_end_byte&quot;: 139,
+      &quot;normalized_line&quot;: 3
+    }
+  ],
+  &quot;operations&quot;: [],
+  &quot;diagnostics&quot;: []
+}</pre></details></article><article data-terminal="asserted-broken"><h2>破損した本文を完全取得と申告</h2><p class="result">解析 UNKNOWN / unknown / Health UNKNOWN / Health 用証跡不足</p><p>利用者申告でも途中 path の破損を免除しない。</p><div class="columns"><div><h3>元ログ（制御文字を可視化）</h3><pre>IP Route Table for VRF &quot;TENANT-A&quot;
+192.0.2.64/26, ubest/mbest: 1/0
+    *via 192.0.2.</pre></div><div><h3>解析用 text の期待値</h3><pre>未確定。行の連結や制御文字の除去で補わない。</pre></div></div><details><summary>入力条件・hash / 行と byte 範囲</summary><pre>{
+  &quot;input_contract&quot;: {
+    &quot;host&quot;: &quot;leaf01&quot;,
+    &quot;input_format&quot;: &quot;nxos-route-text&quot;,
+    &quot;command_id&quot;: &quot;route_ipv4_all_vrfs&quot;,
+    &quot;completeness&quot;: &quot;asserted&quot;
+  },
+  &quot;raw_sha256&quot;: &quot;sha256:a9c96bda68e8500c08dbfc300f117f95e364a9e095b52d2d9a389bc03db5a45a&quot;,
+  &quot;mapping&quot;: [
+    {
+      &quot;raw_start_line&quot;: 1,
+      &quot;raw_end_line&quot;: 1,
+      &quot;raw_start_byte&quot;: 0,
+      &quot;raw_end_byte&quot;: 34,
+      &quot;normalized_line&quot;: null
+    },
+    {
+      &quot;raw_start_line&quot;: 2,
+      &quot;raw_end_line&quot;: 2,
+      &quot;raw_start_byte&quot;: 34,
+      &quot;raw_end_byte&quot;: 66,
+      &quot;normalized_line&quot;: null
+    },
+    {
+      &quot;raw_start_line&quot;: 3,
+      &quot;raw_end_line&quot;: 3,
+      &quot;raw_start_byte&quot;: 66,
+      &quot;raw_end_byte&quot;: 83,
+      &quot;normalized_line&quot;: null
+    }
+  ],
+  &quot;operations&quot;: [],
+  &quot;diagnostics&quot;: [
+    {
+      &quot;code&quot;: &quot;INCOMPLETE_PATH&quot;,
+      &quot;raw_start_byte&quot;: 66,
+      &quot;raw_end_byte&quot;: 83,
+      &quot;raw_start_line&quot;: 3,
+      &quot;raw_end_line&quot;: 3
+    }
+  ]
+}</pre></details></article><article data-terminal="wrapped"><h2>address が terminal 幅で折り返し</h2><p class="result">解析 UNKNOWN / unknown / Health UNKNOWN / Health 用証跡不足</p><p>折り返しの復元を推測しない。</p><div class="columns"><div><h3>元ログ（制御文字を可視化）</h3><pre>leaf01# show ip route vrf all
+IP Route Table for VRF &quot;TENANT-A&quot;
+192.0.2.64/26, ubest/mbest: 1/0
+    *via 192.0.
+2.1, Ethernet1/1, [110/20], 00:01:00, ospf-UNDERLAY, intra
+leaf01#
+</pre></div><div><h3>解析用 text の期待値</h3><pre>未確定。行の連結や制御文字の除去で補わない。</pre></div></div><details><summary>入力条件・hash / 行と byte 範囲</summary><pre>{
+  &quot;input_contract&quot;: {
+    &quot;host&quot;: &quot;leaf01&quot;,
+    &quot;input_format&quot;: &quot;nxos-transcript&quot;,
+    &quot;command_id&quot;: &quot;route_ipv4_all_vrfs&quot;,
+    &quot;completeness&quot;: &quot;not_asserted&quot;
+  },
+  &quot;raw_sha256&quot;: &quot;sha256:0167bc9bbea6c0558964a597be57f9971f3295c08e77a61e7f6f230b24a4603b&quot;,
+  &quot;mapping&quot;: [
+    {
+      &quot;raw_start_line&quot;: 1,
+      &quot;raw_end_line&quot;: 1,
+      &quot;raw_start_byte&quot;: 0,
+      &quot;raw_end_byte&quot;: 30,
+      &quot;normalized_line&quot;: null
+    },
+    {
+      &quot;raw_start_line&quot;: 2,
+      &quot;raw_end_line&quot;: 2,
+      &quot;raw_start_byte&quot;: 30,
+      &quot;raw_end_byte&quot;: 64,
+      &quot;normalized_line&quot;: null
+    },
+    {
+      &quot;raw_start_line&quot;: 3,
+      &quot;raw_end_line&quot;: 3,
+      &quot;raw_start_byte&quot;: 64,
+      &quot;raw_end_byte&quot;: 96,
+      &quot;normalized_line&quot;: null
+    },
+    {
+      &quot;raw_start_line&quot;: 4,
+      &quot;raw_end_line&quot;: 4,
+      &quot;raw_start_byte&quot;: 96,
+      &quot;raw_end_byte&quot;: 112,
+      &quot;normalized_line&quot;: null
+    },
+    {
+      &quot;raw_start_line&quot;: 5,
+      &quot;raw_end_line&quot;: 5,
+      &quot;raw_start_byte&quot;: 112,
+      &quot;raw_end_byte&quot;: 171,
+      &quot;normalized_line&quot;: null
+    },
+    {
+      &quot;raw_start_line&quot;: 6,
+      &quot;raw_end_line&quot;: 6,
+      &quot;raw_start_byte&quot;: 171,
+      &quot;raw_end_byte&quot;: 179,
+      &quot;normalized_line&quot;: null
+    }
+  ],
+  &quot;operations&quot;: [],
+  &quot;diagnostics&quot;: [
+    {
+      &quot;code&quot;: &quot;AMBIGUOUS_WRAP&quot;,
+      &quot;raw_start_byte&quot;: 105,
+      &quot;raw_end_byte&quot;: 115,
+      &quot;raw_start_line&quot;: 4,
+      &quot;raw_end_line&quot;: 5
+    }
+  ]
+}</pre></details></article><article data-terminal="pager"><h2>ページャー表示の混入</h2><p class="result">解析 UNKNOWN / unknown / Health UNKNOWN / Health 用証跡不足</p><p>ページャーを消すだけでは完全取得にしない。</p><div class="columns"><div><h3>元ログ（制御文字を可視化）</h3><pre>leaf01# show ip route vrf all
+IP Route Table for VRF &quot;TENANT-A&quot;
+192.0.2.64/26, ubest/mbest: 1/0
+--More--
+    *via 192.0.2.1, Ethernet1/1, [110/20], 00:01:00, ospf-UNDERLAY, intra
+leaf01#
+</pre></div><div><h3>解析用 text の期待値</h3><pre>未確定。行の連結や制御文字の除去で補わない。</pre></div></div><details><summary>入力条件・hash / 行と byte 範囲</summary><pre>{
+  &quot;input_contract&quot;: {
+    &quot;host&quot;: &quot;leaf01&quot;,
+    &quot;input_format&quot;: &quot;nxos-transcript&quot;,
+    &quot;command_id&quot;: &quot;route_ipv4_all_vrfs&quot;,
+    &quot;completeness&quot;: &quot;not_asserted&quot;
+  },
+  &quot;raw_sha256&quot;: &quot;sha256:37133b85e1fd072c132610935fc755a735f9de1a4a84f749ad39bcc3298bd6fc&quot;,
+  &quot;mapping&quot;: [
+    {
+      &quot;raw_start_line&quot;: 1,
+      &quot;raw_end_line&quot;: 1,
+      &quot;raw_start_byte&quot;: 0,
+      &quot;raw_end_byte&quot;: 30,
+      &quot;normalized_line&quot;: null
+    },
+    {
+      &quot;raw_start_line&quot;: 2,
+      &quot;raw_end_line&quot;: 2,
+      &quot;raw_start_byte&quot;: 30,
+      &quot;raw_end_byte&quot;: 64,
+      &quot;normalized_line&quot;: null
+    },
+    {
+      &quot;raw_start_line&quot;: 3,
+      &quot;raw_end_line&quot;: 3,
+      &quot;raw_start_byte&quot;: 64,
+      &quot;raw_end_byte&quot;: 96,
+      &quot;normalized_line&quot;: null
+    },
+    {
+      &quot;raw_start_line&quot;: 4,
+      &quot;raw_end_line&quot;: 4,
+      &quot;raw_start_byte&quot;: 96,
+      &quot;raw_end_byte&quot;: 105,
+      &quot;normalized_line&quot;: null
+    },
+    {
+      &quot;raw_start_line&quot;: 5,
+      &quot;raw_end_line&quot;: 5,
+      &quot;raw_start_byte&quot;: 105,
+      &quot;raw_end_byte&quot;: 179,
+      &quot;normalized_line&quot;: null
+    },
+    {
+      &quot;raw_start_line&quot;: 6,
+      &quot;raw_end_line&quot;: 6,
+      &quot;raw_start_byte&quot;: 179,
+      &quot;raw_end_byte&quot;: 187,
+      &quot;normalized_line&quot;: null
+    }
+  ],
+  &quot;operations&quot;: [],
+  &quot;diagnostics&quot;: [
+    {
+      &quot;code&quot;: &quot;PAGER_UNSUPPORTED&quot;,
+      &quot;raw_start_byte&quot;: 96,
+      &quot;raw_end_byte&quot;: 104,
+      &quot;raw_start_line&quot;: 4,
+      &quot;raw_end_line&quot;: 4
+    }
+  ]
+}</pre></details></article><article data-terminal="cursor"><h2>cursor 移動の混入</h2><p class="result">解析 UNKNOWN / unknown / Health UNKNOWN / Health 用証跡不足</p><p>画面の再描画を復元しない。</p><div class="columns"><div><h3>元ログ（制御文字を可視化）</h3><pre>leaf01# show ip route vrf all
+IP Route Table for VRF &quot;TENANT-A&quot;
+192.0.2.64/26, ubest/mbest: 1/0
+    *via \x1b[2D192.0.2.1, Ethernet1/1, [110/20], 00:01:00, ospf-UNDERLAY, intra
+leaf01#
+</pre></div><div><h3>解析用 text の期待値</h3><pre>未確定。行の連結や制御文字の除去で補わない。</pre></div></div><details><summary>入力条件・hash / 行と byte 範囲</summary><pre>{
+  &quot;input_contract&quot;: {
+    &quot;host&quot;: &quot;leaf01&quot;,
+    &quot;input_format&quot;: &quot;nxos-transcript&quot;,
+    &quot;command_id&quot;: &quot;route_ipv4_all_vrfs&quot;,
+    &quot;completeness&quot;: &quot;not_asserted&quot;
+  },
+  &quot;raw_sha256&quot;: &quot;sha256:ef06097897a9a1c7955bd005140f7011a32041eb6fad2c2e9d8f63880171bbdf&quot;,
+  &quot;mapping&quot;: [
+    {
+      &quot;raw_start_line&quot;: 1,
+      &quot;raw_end_line&quot;: 1,
+      &quot;raw_start_byte&quot;: 0,
+      &quot;raw_end_byte&quot;: 30,
+      &quot;normalized_line&quot;: null
+    },
+    {
+      &quot;raw_start_line&quot;: 2,
+      &quot;raw_end_line&quot;: 2,
+      &quot;raw_start_byte&quot;: 30,
+      &quot;raw_end_byte&quot;: 64,
+      &quot;normalized_line&quot;: null
+    },
+    {
+      &quot;raw_start_line&quot;: 3,
+      &quot;raw_end_line&quot;: 3,
+      &quot;raw_start_byte&quot;: 64,
+      &quot;raw_end_byte&quot;: 96,
+      &quot;normalized_line&quot;: null
+    },
+    {
+      &quot;raw_start_line&quot;: 4,
+      &quot;raw_end_line&quot;: 4,
+      &quot;raw_start_byte&quot;: 96,
+      &quot;raw_end_byte&quot;: 174,
+      &quot;normalized_line&quot;: null
+    },
+    {
+      &quot;raw_start_line&quot;: 5,
+      &quot;raw_end_line&quot;: 5,
+      &quot;raw_start_byte&quot;: 174,
+      &quot;raw_end_byte&quot;: 182,
+      &quot;normalized_line&quot;: null
+    }
+  ],
+  &quot;operations&quot;: [],
+  &quot;diagnostics&quot;: [
+    {
+      &quot;code&quot;: &quot;CONTROL_UNSUPPORTED&quot;,
+      &quot;raw_start_byte&quot;: 105,
+      &quot;raw_end_byte&quot;: 109,
+      &quot;raw_start_line&quot;: 4,
+      &quot;raw_end_line&quot;: 4
+    }
+  ]
+}</pre></details></article><article data-terminal="backspace"><h2>backspace の混入</h2><p class="result">解析 UNKNOWN / unknown / Health UNKNOWN / Health 用証跡不足</p><p>前文字を削除して address を確定しない。</p><div class="columns"><div><h3>元ログ（制御文字を可視化）</h3><pre>leaf01# show ip route vrf all
+IP Route Table for VRF &quot;TENANT-A&quot;
+192.0.2.64/26, ubest/mbest: 1/0
+    *via 192.0.2.9\x081, Ethernet1/1, [110/20], 00:01:00, ospf-UNDERLAY, intra
+leaf01#
+</pre></div><div><h3>解析用 text の期待値</h3><pre>未確定。行の連結や制御文字の除去で補わない。</pre></div></div><details><summary>入力条件・hash / 行と byte 範囲</summary><pre>{
+  &quot;input_contract&quot;: {
+    &quot;host&quot;: &quot;leaf01&quot;,
+    &quot;input_format&quot;: &quot;nxos-transcript&quot;,
+    &quot;command_id&quot;: &quot;route_ipv4_all_vrfs&quot;,
+    &quot;completeness&quot;: &quot;not_asserted&quot;
+  },
+  &quot;raw_sha256&quot;: &quot;sha256:8e807a73e987d3ff0ec4524917ecbc4c679669e7c7a92a352b2819d4ef813edb&quot;,
+  &quot;mapping&quot;: [
+    {
+      &quot;raw_start_line&quot;: 1,
+      &quot;raw_end_line&quot;: 1,
+      &quot;raw_start_byte&quot;: 0,
+      &quot;raw_end_byte&quot;: 30,
+      &quot;normalized_line&quot;: null
+    },
+    {
+      &quot;raw_start_line&quot;: 2,
+      &quot;raw_end_line&quot;: 2,
+      &quot;raw_start_byte&quot;: 30,
+      &quot;raw_end_byte&quot;: 64,
+      &quot;normalized_line&quot;: null
+    },
+    {
+      &quot;raw_start_line&quot;: 3,
+      &quot;raw_end_line&quot;: 3,
+      &quot;raw_start_byte&quot;: 64,
+      &quot;raw_end_byte&quot;: 96,
+      &quot;normalized_line&quot;: null
+    },
+    {
+      &quot;raw_start_line&quot;: 4,
+      &quot;raw_end_line&quot;: 4,
+      &quot;raw_start_byte&quot;: 96,
+      &quot;raw_end_byte&quot;: 172,
+      &quot;normalized_line&quot;: null
+    },
+    {
+      &quot;raw_start_line&quot;: 5,
+      &quot;raw_end_line&quot;: 5,
+      &quot;raw_start_byte&quot;: 172,
+      &quot;raw_end_byte&quot;: 180,
+      &quot;normalized_line&quot;: null
+    }
+  ],
+  &quot;operations&quot;: [],
+  &quot;diagnostics&quot;: [
+    {
+      &quot;code&quot;: &quot;CONTROL_UNSUPPORTED&quot;,
+      &quot;raw_start_byte&quot;: 114,
+      &quot;raw_end_byte&quot;: 115,
+      &quot;raw_start_line&quot;: 4,
+      &quot;raw_end_line&quot;: 4
+    }
+  ]
+}</pre></details></article><article data-terminal="bare-cr"><h2>単独 CR の混入</h2><p class="result">解析 UNKNOWN / unknown / Health UNKNOWN / Health 用証跡不足</p><p>単独 CR を改行や上書きと仮定しない。</p><div class="columns"><div><h3>元ログ（制御文字を可視化）</h3><pre>leaf01# show ip route vrf all
+IP Route Table for VRF &quot;TENANT-A&quot;
+192.0.2.64/26, ubest/mbest: 1/0
+    *via 192.0.2.9\r192.0.2.1, Ethernet1/1, [110/20], 00:01:00, ospf-UNDERLAY, intra
+leaf01#
+</pre></div><div><h3>解析用 text の期待値</h3><pre>未確定。行の連結や制御文字の除去で補わない。</pre></div></div><details><summary>入力条件・hash / 行と byte 範囲</summary><pre>{
+  &quot;input_contract&quot;: {
+    &quot;host&quot;: &quot;leaf01&quot;,
+    &quot;input_format&quot;: &quot;nxos-transcript&quot;,
+    &quot;command_id&quot;: &quot;route_ipv4_all_vrfs&quot;,
+    &quot;completeness&quot;: &quot;not_asserted&quot;
+  },
+  &quot;raw_sha256&quot;: &quot;sha256:1fc83c572cc8c450731d04466d6489d85c04f2a86b6170366c0bfb7dc4a8a40b&quot;,
+  &quot;mapping&quot;: [
+    {
+      &quot;raw_start_line&quot;: 1,
+      &quot;raw_end_line&quot;: 1,
+      &quot;raw_start_byte&quot;: 0,
+      &quot;raw_end_byte&quot;: 30,
+      &quot;normalized_line&quot;: null
+    },
+    {
+      &quot;raw_start_line&quot;: 2,
+      &quot;raw_end_line&quot;: 2,
+      &quot;raw_start_byte&quot;: 30,
+      &quot;raw_end_byte&quot;: 64,
+      &quot;normalized_line&quot;: null
+    },
+    {
+      &quot;raw_start_line&quot;: 3,
+      &quot;raw_end_line&quot;: 3,
+      &quot;raw_start_byte&quot;: 64,
+      &quot;raw_end_byte&quot;: 96,
+      &quot;normalized_line&quot;: null
+    },
+    {
+      &quot;raw_start_line&quot;: 4,
+      &quot;raw_end_line&quot;: 4,
+      &quot;raw_start_byte&quot;: 96,
+      &quot;raw_end_byte&quot;: 180,
+      &quot;normalized_line&quot;: null
+    },
+    {
+      &quot;raw_start_line&quot;: 5,
+      &quot;raw_end_line&quot;: 5,
+      &quot;raw_start_byte&quot;: 180,
+      &quot;raw_end_byte&quot;: 188,
+      &quot;normalized_line&quot;: null
+    }
+  ],
+  &quot;operations&quot;: [],
+  &quot;diagnostics&quot;: [
+    {
+      &quot;code&quot;: &quot;CONTROL_UNSUPPORTED&quot;,
+      &quot;raw_start_byte&quot;: 114,
+      &quot;raw_end_byte&quot;: 115,
+      &quot;raw_start_line&quot;: 4,
+      &quot;raw_end_line&quot;: 4
+    }
+  ]
+}</pre></details></article></section><p><a href="expected-changes.example.yaml">期待変更 policy 入力案</a> / <a href="review-cases.example.json">比較・判定の期待出力</a> / <a href="terminal-cases.example.json">端末入力と mapping の期待値</a> / <a href="../../ROUTE_DIFF_DESIGN.md">設計書</a></p></main>
+<script>
+document.querySelectorAll('[data-tab]').forEach(b=>b.addEventListener('click',()=>{
+  document.querySelectorAll('[data-tab]').forEach(t=>t.setAttribute('aria-selected',String(t===b)));
+  document.querySelectorAll('[data-panel]').forEach(p=>p.hidden=p.dataset.panel!==b.dataset.tab);
+}));
+for(const [id,attr] of [['expected-case','data-case'],['ecmp-case','data-ecmp'],['terminal-case','data-terminal']]){
+  const select=document.getElementById(id);
+  const update=()=>document.querySelectorAll('['+attr+']').forEach(c=>c.hidden=c.getAttribute(attr)!==select.value);
+  select.addEventListener('change',update);update();
+}
+const common=document.getElementById('case-show-common');
+function updateCommon(){document.querySelectorAll('[data-common="true"]').forEach(p=>{p.hidden=!common.checked;p.previousElementSibling.hidden=!common.checked;});}
+common.addEventListener('change',updateCommon);updateCommon();
+</script></html>

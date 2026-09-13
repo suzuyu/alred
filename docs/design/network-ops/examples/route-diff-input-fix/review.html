@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
+<title>Route Diff 入力修正・設計レビュー</title>
+<style>
+:root{font-family:system-ui,sans-serif;color:#193149;background:#f1f5f9;font-size:15px}body{margin:0}header{background:#163552;color:#fff;padding:24px}main{max-width:1120px;margin:auto;padding:24px}section{background:white;border:1px solid #cbd5e1;border-radius:8px;margin-bottom:20px;padding:22px}h1{font-size:25px;margin:0 0 8px}h2{font-size:20px;margin-top:0}.notice{background:#fff1ca;padding:14px;border-left:4px solid #ac7700}.muted{color:#52677a}table{border-collapse:collapse;width:100%;font-size:14px}th,td{text-align:left;padding:10px;border-bottom:1px solid #d4dee8}th{background:#eaf0f7}.scroll{overflow:auto}.pair{display:grid;grid-template-columns:1fr 1fr;gap:12px}.before{background:#ffe0e2;padding:16px}.after{background:#ddf4e5;padding:16px}pre{white-space:pre-wrap;overflow-wrap:anywhere}.evidence{max-height:20rem;overflow:auto;background:#f5f7fa;padding:12px}details{margin:14px 0}summary{cursor:pointer;font-weight:600;overflow-wrap:anywhere}.badge{display:inline-block;padding:4px 9px;background:#e6f3ec;border-radius:4px}a{color:#195ba1}.links{display:flex;gap:20px;flex-wrap:wrap}@media(max-width:650px){main{padding:10px}section{padding:14px}.pair{grid-template-columns:1fr}}
+
+.scope-panels .scope-all{display:none}#scope-all:checked~.scope-panels .scope-all{display:block}#scope-all:checked~.scope-panels .scope-routes{display:none}.scope-panels .pair{grid-template-columns:repeat(2,minmax(0,1fr))}.log-pane{max-height:26rem;overflow:auto;background:#f5f7fa;padding:10px;white-space:pre;font-size:12px}.log-line{display:block}.log-change-before{background:#ffe0e2}.log-change-after{background:#ddf4e5}.omitted{color:#52677a;font-style:italic}.scope-label{margin-right:18px}@media(max-width:650px){.scope-panels .pair{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header><h1>Route Diff 全体ログの修正案</h1><div>設計レビュー用モック・未実装</div></header>
+<main>
+<p class="notice">合成入力の期待表示です。ログの解析機能はなく、今回の利用者ログの再解析結果ではありません。</p>
+<p class="links"><a href="before.txt">before 入力例</a><a href="after.txt">after 入力例</a><a href="after-incomplete.txt">途中で切れた入力例</a><a href="expected.json">期待値 JSON</a></p>
+<section>
+<h2>1. 正常な全体ログの期待結果</h2>
+<p><span class="badge">Coverage: COMPLETE</span>　完全 scope: 2 / UNKNOWN: 0 / Policy: 未指定 / 終了 code: 0</p>
+<p class="muted">HMM 1 prefix と VXLAN 1 prefix。IPv6 の EMPTY-VRF は両時点 0 件です。</p>
+<div class="scroll"><table><thead><tr><th>比較方式</th><th>before / after</th><th>ADDED</th><th>REMOVED</th><th>MODIFIED</th><th>UNCHANGED</th></tr></thead><tbody>
+<tr><td>Prefix</td><td>2 / 2</td><td>0</td><td>0</td><td>0</td><td>2</td></tr>
+<tr><td>Prefix + AD</td><td>2 / 2</td><td>0</td><td>0</td><td>0</td><td>2</td></tr>
+<tr><td>Prefix + AD + Cost</td><td>2 / 2</td><td>0</td><td>0</td><td>0</td><td>2</td></tr>
+<tr><td>Prefix + AD + NextHop</td><td>2 / 2</td><td>0</td><td>0</td><td>1</td><td>1</td></tr>
+<tr><td>Prefix + AD + Cost + NextHop</td><td>2 / 2</td><td>0</td><td>0</td><td>1</td><td>1</td></tr>
+</tbody></table></div>
+</section>
+<section>
+<h2>2. VXLAN 属性の左右比較</h2>
+<p>leaf01 / TENANT-A / IPv4 / <strong>198.51.100.0/24</strong> — MODIFIED</p>
+<p>理由: segment_id の変更（SEGMENT_ID_CHANGED）。NextHop を含む 2 方式で検出します。</p>
+<div class="pair"><div class="before"><strong>before</strong><pre>− segment_id: 19001</pre></div><div class="after"><strong>after</strong><pre>+ segment_id: 19002</pre></div></div>
+<details><summary>共通の path 属性を表示</summary><pre class="evidence" tabindex="0">NextHop: 203.0.113.1
+参照 VRF: default
+AD / Cost: 200 / 0
+encapsulation: vxlan
+tunnel_id: 0xcb007101
+asymmetric: true</pre></details>
+</section>
+<section id="evidence">
+<h2>3. 取得状態・証跡の表示案</h2>
+<details><summary>leaf01 / TENANT-A / IPv4 — COMPLETE：2 prefix</summary><pre class="evidence" tabindex="0">show ip route vrf all
+採用形式: alred 収集ログ
+STATUS: OK
+command header / prompt: 一致
+command 終端: 次の収集 block を検証
+HMM と VXLAN suffix を解析</pre></details>
+<details><summary>leaf01 / EMPTY-VRF / IPv6 — COMPLETE：正常空（取得完了を確認）</summary><pre class="evidence" tabindex="0">show ipv6 route vrf all
+VRF heading: あり
+IPv6 の既知凡例: 3 行
+prefix / path / 未解析行: 0
+command 終端: 次の show interface brief の収集 block
+empty_basis: closed_section
+explicit_empty: false</pre></details>
+<details><summary>Sources（2 入力）— route 2 command / 対象外 2 command・各時点</summary>
+<details><summary>leaf01 / before / before.txt</summary><pre class="evidence" tabindex="0">container_format: alred-collect
+採用: show ip route vrf all / show ipv6 route vrf all
+対象外: show version / show interface brief
+元ログは管理行・対象外本文を含めて保持</pre></details>
+<details><summary>leaf01 / after / after.txt</summary><pre class="evidence" tabindex="0">container_format: alred-collect
+採用: show ip route vrf all / show ipv6 route vrf all
+対象外: show version / show interface brief
+元ログは管理行・対象外本文を含めて保持</pre></details>
+</details>
+</section>
+<section>
+<h2>4. 途中で切れた after の場合</h2>
+<p class="notice">別ケースの期待表示: Coverage PARTIAL / 完全 scope 1 / UNKNOWN scope 1 / 終了 code 3</p>
+<details><summary>leaf01 / EMPTY-VRF / IPv6 — UNKNOWN：after の command 終端を確認できない</summary><pre class="evidence" tabindex="0">heading と凡例は存在しますが、EOF で終了しています。
+EMPTY_UNCONFIRMED
+after_count: null（0 件ではありません）
+STATUS: OK だけで正常空にはしません。
+IPv4 の command は後続 block で閉じているため比較を継続します。</pre></details>
+</section>
+<section id="raw-scope-review">
+<h2>5. ログ全文比較の表示範囲</h2>
+<p>表示だけを切り替えるモックです。対象区間内は共通行・空行も含む全文を表示し、元の行番号を維持します。</p>
+<input type="radio" name="raw-scope" id="scope-routes" checked><label class="scope-label" for="scope-routes">対象 route command 区間のみ（推奨既定）</label>
+<input type="radio" name="raw-scope" id="scope-all"><label class="scope-label" for="scope-all">入力ログ全体</label>
+<div class="scope-panels">
+<div class="scope-routes"><p class="notice">表示範囲: 対象 route command 区間のみ — show ip route vrf all / show ipv6 route vrf all</p><div class="pair"><div><strong>before / before.txt</strong><p>表示 26 / 全 45 行</p><pre class="log-pane" tabindex="0"><span class="omitted">対象外 L1–L13 を省略</span><span class="log-line"> 14  ### COMMAND: show ip route vrf all</span><span class="log-line"> 15  ### COLLECTED_AT: 2026-09-13T10:00:00+09:00</span><span class="log-line"> 16  ### STATUS: OK</span><span class="log-line"> 17  ### TRANSPORT: ssh</span><span class="log-line"> 18  leaf01# show ip route vrf all</span><span class="log-line"> 19  IP Route Table for VRF &quot;TENANT-A&quot;</span><span class="log-line"> 20  &#x27;*&#x27; denotes best ucast next-hop</span><span class="log-line"> 21  &#x27;**&#x27; denotes best mcast next-hop</span><span class="log-line"> 22  &#x27;[x/y]&#x27; denotes [preference/metric]</span><span class="log-line"> 23  &#x27;%&lt;string&gt;&#x27; in via output denotes VRF &lt;string&gt;</span><span class="log-line"> 24  </span><span class="log-line"> 25  192.0.2.10/32, ubest/mbest: 1/0, attached</span><span class="log-line"> 26      *via 192.0.2.10, Vlan100, [190/0], 00:10:00, hmm</span><span class="log-line"> 27  198.51.100.0/24, ubest/mbest: 1/0</span><span class="log-line log-change-before"> 28      *via 203.0.113.1%default, [200/0], 1w5d, bgp-65001, internal, tag 65001, segid: 19001 (Asymmetric) tunnelid: 0xcb007101 encap: VXLAN</span><span class="log-line"> 29  </span><span class="log-line"> 30  ### COMMAND: show ipv6 route vrf all</span><span class="log-line"> 31  ### COLLECTED_AT: 2026-09-13T10:00:00+09:00</span><span class="log-line"> 32  ### STATUS: OK</span><span class="log-line"> 33  ### TRANSPORT: ssh</span><span class="log-line"> 34  leaf01# show ipv6 route vrf all</span><span class="log-line"> 35  IPv6 Routing Table for VRF &quot;EMPTY-VRF&quot;</span><span class="log-line"> 36  &#x27;*&#x27; denotes best ucast next-hop</span><span class="log-line"> 37  &#x27;**&#x27; denotes best mcast next-hop</span><span class="log-line"> 38  &#x27;[x/y]&#x27; denotes [preference/metric]</span><span class="log-line"> 39  </span><span class="omitted">対象外 L40–L45 を省略</span></pre></div><div><strong>after / after.txt</strong><p>表示 26 / 全 45 行</p><pre class="log-pane" tabindex="0"><span class="omitted">対象外 L1–L13 を省略</span><span class="log-line"> 14  ### COMMAND: show ip route vrf all</span><span class="log-line"> 15  ### COLLECTED_AT: 2026-09-13T11:00:00+09:00</span><span class="log-line"> 16  ### STATUS: OK</span><span class="log-line"> 17  ### TRANSPORT: ssh</span><span class="log-line"> 18  leaf01# show ip route vrf all</span><span class="log-line"> 19  IP Route Table for VRF &quot;TENANT-A&quot;</span><span class="log-line"> 20  &#x27;*&#x27; denotes best ucast next-hop</span><span class="log-line"> 21  &#x27;**&#x27; denotes best mcast next-hop</span><span class="log-line"> 22  &#x27;[x/y]&#x27; denotes [preference/metric]</span><span class="log-line"> 23  &#x27;%&lt;string&gt;&#x27; in via output denotes VRF &lt;string&gt;</span><span class="log-line"> 24  </span><span class="log-line"> 25  192.0.2.10/32, ubest/mbest: 1/0, attached</span><span class="log-line"> 26      *via 192.0.2.10, Vlan100, [190/0], 00:10:00, hmm</span><span class="log-line"> 27  198.51.100.0/24, ubest/mbest: 1/0</span><span class="log-line log-change-after"> 28      *via 203.0.113.1%default, [200/0], 1w5d, bgp-65001, internal, tag 65001, segid: 19002 (Asymmetric) tunnelid: 0xcb007101 encap: VXLAN</span><span class="log-line"> 29  </span><span class="log-line"> 30  ### COMMAND: show ipv6 route vrf all</span><span class="log-line"> 31  ### COLLECTED_AT: 2026-09-13T11:00:00+09:00</span><span class="log-line"> 32  ### STATUS: OK</span><span class="log-line"> 33  ### TRANSPORT: ssh</span><span class="log-line"> 34  leaf01# show ipv6 route vrf all</span><span class="log-line"> 35  IPv6 Routing Table for VRF &quot;EMPTY-VRF&quot;</span><span class="log-line"> 36  &#x27;*&#x27; denotes best ucast next-hop</span><span class="log-line"> 37  &#x27;**&#x27; denotes best mcast next-hop</span><span class="log-line"> 38  &#x27;[x/y]&#x27; denotes [preference/metric]</span><span class="log-line"> 39  </span><span class="omitted">対象外 L40–L45 を省略</span></pre></div></div></div><div class="scope-all"><p class="notice">表示範囲: 入力ログ全体 — 対象外 command と収集管理行を含む全行</p><div class="pair"><div><strong>before / before.txt</strong><p>表示 45 / 全 45 行</p><pre class="log-pane" tabindex="0"><span class="log-line">  1  ### COMMAND_LIST</span><span class="log-line">  2  show version</span><span class="log-line">  3  show ip route vrf all</span><span class="log-line">  4  show ipv6 route vrf all</span><span class="log-line">  5  show interface brief</span><span class="log-line">  6  </span><span class="log-line">  7  ### COMMAND: show version</span><span class="log-line">  8  ### COLLECTED_AT: 2026-09-13T10:00:00+09:00</span><span class="log-line">  9  ### STATUS: OK</span><span class="log-line"> 10  ### TRANSPORT: ssh</span><span class="log-line"> 11  leaf01# show version</span><span class="log-line"> 12  Synthetic device output for design review</span><span class="log-line"> 13  </span><span class="log-line"> 14  ### COMMAND: show ip route vrf all</span><span class="log-line"> 15  ### COLLECTED_AT: 2026-09-13T10:00:00+09:00</span><span class="log-line"> 16  ### STATUS: OK</span><span class="log-line"> 17  ### TRANSPORT: ssh</span><span class="log-line"> 18  leaf01# show ip route vrf all</span><span class="log-line"> 19  IP Route Table for VRF &quot;TENANT-A&quot;</span><span class="log-line"> 20  &#x27;*&#x27; denotes best ucast next-hop</span><span class="log-line"> 21  &#x27;**&#x27; denotes best mcast next-hop</span><span class="log-line"> 22  &#x27;[x/y]&#x27; denotes [preference/metric]</span><span class="log-line"> 23  &#x27;%&lt;string&gt;&#x27; in via output denotes VRF &lt;string&gt;</span><span class="log-line"> 24  </span><span class="log-line"> 25  192.0.2.10/32, ubest/mbest: 1/0, attached</span><span class="log-line"> 26      *via 192.0.2.10, Vlan100, [190/0], 00:10:00, hmm</span><span class="log-line"> 27  198.51.100.0/24, ubest/mbest: 1/0</span><span class="log-line log-change-before"> 28      *via 203.0.113.1%default, [200/0], 1w5d, bgp-65001, internal, tag 65001, segid: 19001 (Asymmetric) tunnelid: 0xcb007101 encap: VXLAN</span><span class="log-line"> 29  </span><span class="log-line"> 30  ### COMMAND: show ipv6 route vrf all</span><span class="log-line"> 31  ### COLLECTED_AT: 2026-09-13T10:00:00+09:00</span><span class="log-line"> 32  ### STATUS: OK</span><span class="log-line"> 33  ### TRANSPORT: ssh</span><span class="log-line"> 34  leaf01# show ipv6 route vrf all</span><span class="log-line"> 35  IPv6 Routing Table for VRF &quot;EMPTY-VRF&quot;</span><span class="log-line"> 36  &#x27;*&#x27; denotes best ucast next-hop</span><span class="log-line"> 37  &#x27;**&#x27; denotes best mcast next-hop</span><span class="log-line"> 38  &#x27;[x/y]&#x27; denotes [preference/metric]</span><span class="log-line"> 39  </span><span class="log-line"> 40  ### COMMAND: show interface brief</span><span class="log-line"> 41  ### COLLECTED_AT: 2026-09-13T10:00:00+09:00</span><span class="log-line"> 42  ### STATUS: OK</span><span class="log-line"> 43  ### TRANSPORT: ssh</span><span class="log-line"> 44  leaf01# show interface brief</span><span class="log-line"> 45  Synthetic interface output for design review</span></pre></div><div><strong>after / after.txt</strong><p>表示 45 / 全 45 行</p><pre class="log-pane" tabindex="0"><span class="log-line">  1  ### COMMAND_LIST</span><span class="log-line">  2  show version</span><span class="log-line">  3  show ip route vrf all</span><span class="log-line">  4  show ipv6 route vrf all</span><span class="log-line">  5  show interface brief</span><span class="log-line">  6  </span><span class="log-line">  7  ### COMMAND: show version</span><span class="log-line">  8  ### COLLECTED_AT: 2026-09-13T11:00:00+09:00</span><span class="log-line">  9  ### STATUS: OK</span><span class="log-line"> 10  ### TRANSPORT: ssh</span><span class="log-line"> 11  leaf01# show version</span><span class="log-line"> 12  Synthetic device output for design review</span><span class="log-line"> 13  </span><span class="log-line"> 14  ### COMMAND: show ip route vrf all</span><span class="log-line"> 15  ### COLLECTED_AT: 2026-09-13T11:00:00+09:00</span><span class="log-line"> 16  ### STATUS: OK</span><span class="log-line"> 17  ### TRANSPORT: ssh</span><span class="log-line"> 18  leaf01# show ip route vrf all</span><span class="log-line"> 19  IP Route Table for VRF &quot;TENANT-A&quot;</span><span class="log-line"> 20  &#x27;*&#x27; denotes best ucast next-hop</span><span class="log-line"> 21  &#x27;**&#x27; denotes best mcast next-hop</span><span class="log-line"> 22  &#x27;[x/y]&#x27; denotes [preference/metric]</span><span class="log-line"> 23  &#x27;%&lt;string&gt;&#x27; in via output denotes VRF &lt;string&gt;</span><span class="log-line"> 24  </span><span class="log-line"> 25  192.0.2.10/32, ubest/mbest: 1/0, attached</span><span class="log-line"> 26      *via 192.0.2.10, Vlan100, [190/0], 00:10:00, hmm</span><span class="log-line"> 27  198.51.100.0/24, ubest/mbest: 1/0</span><span class="log-line log-change-after"> 28      *via 203.0.113.1%default, [200/0], 1w5d, bgp-65001, internal, tag 65001, segid: 19002 (Asymmetric) tunnelid: 0xcb007101 encap: VXLAN</span><span class="log-line"> 29  </span><span class="log-line"> 30  ### COMMAND: show ipv6 route vrf all</span><span class="log-line"> 31  ### COLLECTED_AT: 2026-09-13T11:00:00+09:00</span><span class="log-line"> 32  ### STATUS: OK</span><span class="log-line"> 33  ### TRANSPORT: ssh</span><span class="log-line"> 34  leaf01# show ipv6 route vrf all</span><span class="log-line"> 35  IPv6 Routing Table for VRF &quot;EMPTY-VRF&quot;</span><span class="log-line"> 36  &#x27;*&#x27; denotes best ucast next-hop</span><span class="log-line"> 37  &#x27;**&#x27; denotes best mcast next-hop</span><span class="log-line"> 38  &#x27;[x/y]&#x27; denotes [preference/metric]</span><span class="log-line"> 39  </span><span class="log-line"> 40  ### COMMAND: show interface brief</span><span class="log-line"> 41  ### COLLECTED_AT: 2026-09-13T11:00:00+09:00</span><span class="log-line"> 42  ### STATUS: OK</span><span class="log-line"> 43  ### TRANSPORT: ssh</span><span class="log-line"> 44  leaf01# show interface brief</span><span class="log-line"> 45  Synthetic interface output for design review</span></pre></div></div></div></div>
+<p class="muted">着色は設計例の経路差分です。範囲切替によって差分件数・UNKNOWN・判定は変わりません。正規化比較の「差分行以外も表示」とは独立しています。</p>
+</section>
+<section id="directory-review">
+<h2>6. 複数機器・directory 入力の対応結果</h2>
+<p class="notice">別ケースの設計表示: before 3 source / after 2 source、両側取得済み 2 ホスト / before のみ 1 ホスト / after のみ 0 ホスト</p>
+<p>Coverage: PARTIAL / COMPLETE: 4 scope / UNKNOWN: 2 scope / 終了 code: 3</p>
+<p><a href="directory-case/README.md">directory 入力例と期待結果</a> — ホストはログ内の prompt で対応付けます。</p>
+<div class="scroll"><table><thead><tr><th>ホスト</th><th>before</th><th>after</th><th>取得対応 / Coverage</th></tr></thead><tbody>
+<tr><td>leaf01</td><td>device-a.log</td><td>post-leaf01.txt</td><td>両側取得済み / COMPLETE</td></tr>
+<tr><td>leaf02</td><td>device-b.log</td><td>device-b-renamed.log</td><td>両側取得済み / COMPLETE</td></tr>
+<tr><td>leaf03</td><td>device-c.log</td><td>未取得</td><td>before のみ / UNKNOWN</td></tr>
+</tbody></table></div>
+<details><summary>leaf03 — UNKNOWN：after のログ未取得（IPv4 / IPv6）</summary><p>全経路削除とは判定しません。比較可能な leaf01 / leaf02 の処理は継続します。</p></details>
+<p class="muted">取得対応は解析成功を保証しないため、Coverage と分けて表示します。ホスト別 HTML と source 選択は既存の構成を使う案です。</p>
+</section>
+</main>
+</body>
+</html>

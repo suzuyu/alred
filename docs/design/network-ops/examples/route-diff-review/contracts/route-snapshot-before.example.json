@@ -1,0 +1,372 @@
+{
+  "schema_version": 1,
+  "kind": "RouteSnapshot",
+  "snapshot_id": "synthetic-before",
+  "side": "before",
+  "synthetic": true,
+  "design_status": "draft",
+  "note": "leaf01 / leaf02 の全 route。leaf03 はこの Snapshot 例の対象外。parser 実行結果ではない。",
+  "versions": {
+    "terminal_adapter": "mock-review-1",
+    "parser": "mock-review-2",
+    "normalizer": "mock-review-2"
+  },
+  "sources": [
+    {
+      "id": "leaf01-before",
+      "device": "leaf01",
+      "side": "before",
+      "path": "../inputs/leaf01/before-route.log",
+      "sha256": "sha256:c72c512a1d0c17a1bda1ddcf50f9547421fd52f344f49a79ab2a03d45712c513",
+      "input_format": "nxos-transcript",
+      "collected_at": null,
+      "completeness": "synthetic_complete"
+    },
+    {
+      "id": "leaf02-before",
+      "device": "leaf02",
+      "side": "before",
+      "path": "../inputs/leaf02/before-route.log",
+      "sha256": "sha256:5e9e3936f3c7ad7f0ec647cbbe52dd12f76f137a23325b98504ca57b9ecbd4ff",
+      "input_format": "nxos-transcript",
+      "collected_at": null,
+      "completeness": "synthetic_complete"
+    }
+  ],
+  "scopes": [
+    {
+      "device": "leaf01",
+      "vrf": "TENANT-A",
+      "family": "ipv4",
+      "coverage": "COMPLETE"
+    },
+    {
+      "device": "leaf01",
+      "vrf": "TENANT-A",
+      "family": "ipv6",
+      "coverage": "COMPLETE"
+    },
+    {
+      "device": "leaf02",
+      "vrf": "default",
+      "family": "ipv4",
+      "coverage": "COMPLETE"
+    },
+    {
+      "device": "leaf02",
+      "vrf": "default",
+      "family": "ipv6",
+      "coverage": "COMPLETE"
+    }
+  ],
+  "routes": [
+    {
+      "device": "leaf01",
+      "vrf": "TENANT-A",
+      "family": "ipv4",
+      "prefix": "198.51.100.0/24",
+      "paths": [
+        {
+          "kind": "ip",
+          "next_hop_family": "ipv4",
+          "address": "192.0.2.1",
+          "interface": "Ethernet1/1",
+          "next_hop_vrf": "TENANT-A",
+          "admin_distance": 110,
+          "protocol": "ospf",
+          "metric": 20
+        }
+      ],
+      "evidence": {
+        "source_id": "leaf01-before",
+        "start_line": 6,
+        "end_line": 7,
+        "command_id": "route_ipv4_all_vrfs"
+      }
+    },
+    {
+      "device": "leaf01",
+      "vrf": "TENANT-A",
+      "family": "ipv4",
+      "prefix": "192.0.2.0/24",
+      "paths": [
+        {
+          "kind": "ip",
+          "next_hop_family": "ipv4",
+          "address": "192.0.2.1",
+          "interface": "Ethernet1/1",
+          "next_hop_vrf": "TENANT-A",
+          "admin_distance": 110,
+          "protocol": "ospf",
+          "metric": 20
+        }
+      ],
+      "evidence": {
+        "source_id": "leaf01-before",
+        "start_line": 8,
+        "end_line": 9,
+        "command_id": "route_ipv4_all_vrfs"
+      }
+    },
+    {
+      "device": "leaf01",
+      "vrf": "TENANT-A",
+      "family": "ipv4",
+      "prefix": "198.51.100.128/25",
+      "paths": [
+        {
+          "kind": "ip",
+          "next_hop_family": "ipv4",
+          "address": "192.0.2.1",
+          "interface": "Ethernet1/1",
+          "next_hop_vrf": "TENANT-A",
+          "admin_distance": 110,
+          "protocol": "ospf",
+          "metric": 20
+        },
+        {
+          "kind": "ip",
+          "next_hop_family": "ipv4",
+          "address": "192.0.2.2",
+          "interface": "Ethernet1/2",
+          "next_hop_vrf": "TENANT-A",
+          "admin_distance": 110,
+          "protocol": "ospf",
+          "metric": 20
+        }
+      ],
+      "evidence": {
+        "source_id": "leaf01-before",
+        "start_line": 10,
+        "end_line": 12,
+        "command_id": "route_ipv4_all_vrfs"
+      }
+    },
+    {
+      "device": "leaf01",
+      "vrf": "TENANT-A",
+      "family": "ipv4",
+      "prefix": "192.0.2.128/25",
+      "paths": [
+        {
+          "kind": "ip",
+          "next_hop_family": "ipv4",
+          "address": "192.0.2.1",
+          "interface": "Ethernet1/1",
+          "next_hop_vrf": "TENANT-A",
+          "admin_distance": 110,
+          "protocol": "ospf",
+          "metric": 20
+        }
+      ],
+      "evidence": {
+        "source_id": "leaf01-before",
+        "start_line": 13,
+        "end_line": 14,
+        "command_id": "route_ipv4_all_vrfs"
+      }
+    },
+    {
+      "device": "leaf01",
+      "vrf": "TENANT-A",
+      "family": "ipv4",
+      "prefix": "203.0.113.128/25",
+      "paths": [
+        {
+          "kind": "ip",
+          "next_hop_family": "ipv4",
+          "address": "192.0.2.1",
+          "interface": "Ethernet1/1",
+          "next_hop_vrf": "TENANT-A",
+          "admin_distance": 110,
+          "protocol": "ospf",
+          "metric": 20
+        },
+        {
+          "kind": "ip",
+          "next_hop_family": "ipv4",
+          "address": "192.0.2.2",
+          "interface": "Ethernet1/2",
+          "next_hop_vrf": "TENANT-A",
+          "admin_distance": 110,
+          "protocol": "ospf",
+          "metric": 20
+        }
+      ],
+      "evidence": {
+        "source_id": "leaf01-before",
+        "start_line": 15,
+        "end_line": 17,
+        "command_id": "route_ipv4_all_vrfs"
+      }
+    },
+    {
+      "device": "leaf01",
+      "vrf": "TENANT-A",
+      "family": "ipv6",
+      "prefix": "2001:db8:100::/64",
+      "paths": [
+        {
+          "kind": "ip",
+          "next_hop_family": "ipv6",
+          "address": "fe80::1",
+          "interface": "Ethernet1/1",
+          "next_hop_vrf": "TENANT-A",
+          "admin_distance": 110,
+          "protocol": "ospf",
+          "metric": 20
+        }
+      ],
+      "evidence": {
+        "source_id": "leaf01-before",
+        "start_line": 27,
+        "end_line": 28,
+        "command_id": "route_ipv6_all_vrfs"
+      }
+    },
+    {
+      "device": "leaf01",
+      "vrf": "TENANT-A",
+      "family": "ipv6",
+      "prefix": "2001:db8:200::/64",
+      "paths": [
+        {
+          "kind": "ip",
+          "next_hop_family": "ipv6",
+          "address": "2001:db8::1",
+          "interface": "Ethernet1/3",
+          "next_hop_vrf": "TENANT-A",
+          "admin_distance": 110,
+          "protocol": "ospf",
+          "metric": 20
+        }
+      ],
+      "evidence": {
+        "source_id": "leaf01-before",
+        "start_line": 29,
+        "end_line": 30,
+        "command_id": "route_ipv6_all_vrfs"
+      }
+    },
+    {
+      "device": "leaf01",
+      "vrf": "TENANT-A",
+      "family": "ipv6",
+      "prefix": "2001:db8:300::/64",
+      "paths": [
+        {
+          "kind": "ip",
+          "next_hop_family": "ipv6",
+          "address": "::ffff:192.0.2.1",
+          "interface": null,
+          "next_hop_vrf": "default",
+          "admin_distance": 200,
+          "protocol": "bgp",
+          "metric": 20
+        }
+      ],
+      "evidence": {
+        "source_id": "leaf01-before",
+        "start_line": 31,
+        "end_line": 32,
+        "command_id": "route_ipv6_all_vrfs"
+      }
+    },
+    {
+      "device": "leaf01",
+      "vrf": "TENANT-A",
+      "family": "ipv4",
+      "prefix": "192.0.2.64/26",
+      "paths": [
+        {
+          "kind": "ip",
+          "next_hop_family": "ipv4",
+          "address": "192.0.2.1",
+          "interface": "Ethernet1/1",
+          "next_hop_vrf": "TENANT-A",
+          "admin_distance": 110,
+          "protocol": "ospf",
+          "metric": 20
+        }
+      ],
+      "evidence": {
+        "source_id": "leaf01-before",
+        "start_line": 18,
+        "end_line": 19,
+        "command_id": "route_ipv4_all_vrfs"
+      }
+    },
+    {
+      "device": "leaf01",
+      "vrf": "TENANT-A",
+      "family": "ipv6",
+      "prefix": "2001:db8:500::/64",
+      "paths": [
+        {
+          "kind": "ip",
+          "next_hop_family": "ipv6",
+          "address": "fe80::5",
+          "interface": "Ethernet1/5",
+          "next_hop_vrf": "TENANT-A",
+          "admin_distance": 110,
+          "protocol": "ospfv3",
+          "metric": 20
+        }
+      ],
+      "evidence": {
+        "source_id": "leaf01-before",
+        "start_line": 33,
+        "end_line": 34,
+        "command_id": "route_ipv6_all_vrfs"
+      }
+    },
+    {
+      "device": "leaf02",
+      "vrf": "default",
+      "family": "ipv4",
+      "prefix": "203.0.113.0/24",
+      "paths": [
+        {
+          "kind": "discard",
+          "next_hop_family": null,
+          "address": null,
+          "interface": "Null0",
+          "next_hop_vrf": "default",
+          "admin_distance": 1,
+          "protocol": "static",
+          "metric": 0
+        }
+      ],
+      "evidence": {
+        "source_id": "leaf02-before",
+        "start_line": 6,
+        "end_line": 7,
+        "command_id": "route_ipv4_all_vrfs"
+      }
+    },
+    {
+      "device": "leaf02",
+      "vrf": "default",
+      "family": "ipv6",
+      "prefix": "2001:db8:400::/64",
+      "paths": [
+        {
+          "kind": "ip",
+          "next_hop_family": "ipv6",
+          "address": "2001:db8::2",
+          "interface": "Ethernet1/4",
+          "next_hop_vrf": "default",
+          "admin_distance": 110,
+          "protocol": "ospf",
+          "metric": 20
+        }
+      ],
+      "evidence": {
+        "source_id": "leaf02-before",
+        "start_line": 15,
+        "end_line": 16,
+        "command_id": "route_ipv6_all_vrfs"
+      }
+    }
+  ]
+}

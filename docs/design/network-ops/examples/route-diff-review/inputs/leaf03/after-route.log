@@ -1,0 +1,4 @@
+leaf03# show ip route vrf all
+IP Route Table for VRF "TENANT-A"
+198.51.100.0/24, ubest/mbest: 1/0
+    *via 192.0.2.

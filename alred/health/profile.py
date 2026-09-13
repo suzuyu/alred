@@ -17,6 +17,7 @@ from ..schema import API_VERSION, canonical_sha256, validate_document
 BUILTIN_PROFILES = {
     "network-baseline-nxos": "network-baseline-nxos.yaml",
     "nxos-overlay": "nxos-overlay.yaml",
+    "route-diff-nxos": "route-diff-nxos.yaml",
 }
 DEFAULT_HEALTH_PROFILE = "network-baseline-nxos"
 
@@ -173,6 +174,7 @@ def resolve_profiles(
             "convergence",
             "operation_gate",
             "report",
+            "route_diff",
         ):
             if key in spec:
                 current = effective_optional.setdefault(key, {})
@@ -188,6 +190,14 @@ def resolve_profiles(
         raise ProfileResolutionError(
             "resolved profiles must define at least one health check"
         )
+    if any(check["evaluator"] == "route_diff" for check in checks):
+        from .route_diff import route_config
+
+        effective_optional["route_diff"] = route_config(
+            effective_optional.get("route_diff", {})
+        )
+    elif "route_diff" in effective_optional:
+        raise ProfileResolutionError("spec.route_diff requires a route_diff check")
     interface_utilization = thresholds.get("interface_utilization")
     if isinstance(interface_utilization, Mapping):
         info_percent = float(interface_utilization.get("info_percent", 50))

@@ -1,0 +1,24 @@
+api_version: alred/v1
+kind: HealthCheckProfile
+metadata:
+  name: route-diff-nxos
+  version: "1.1"
+  description: Detailed IPv4 and IPv6 route comparison
+spec:
+  platforms: [nxos]
+  collectors:
+    nxos:
+      commands:
+        - id: route_ipv4_all_vrfs
+          command: show ip route vrf all
+          required: true
+        - id: route_ipv6_all_vrfs
+          command: show ipv6 route vrf all
+          required: true
+  checks:
+    - id: route_diff
+      evaluator: route_diff
+      severity: fail
+  route_diff:
+    families: [ipv4, ipv6]
+    vrfs: []

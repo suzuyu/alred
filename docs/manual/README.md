@@ -18,6 +18,12 @@ shell completion、エアギャップ環境への持ち込みを確認してく�
 
 Terraform `main.tf` 生成は Topology ではなく inventory 派生機能であるため、Topology Manual の対象外です。
 
+## 実装前レビュー用ドラフト
+
+[Route Diff 利用ガイド](./network-ops/13_ROUTE_DIFF_GUIDE.md)は、IPv4／IPv6 の経路比較について、
+入力準備と出力確認の手順をまとめたドラフトです。比較・オフライン出力 API と standalone CLI は実装済みですが、Health 統合も実装済みです。
+本番 renderer の実出力 HTML と操作画像で表示を確認できます。
+
 ## 文書の位置付け
 
 利用手順は各分野の manual を参照してください。機能仕様の正本は

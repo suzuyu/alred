@@ -42,7 +42,7 @@ alred全用途に共通するCLI entry point、設定値の解決、既定path�
 | Direct Config Push | `push-config`、`push-config-dir`、`write-memory` |
 | Evidence transfer | `evidence-package create/prune/inspect/verify/import/prune-imports` |
 | Operation lifecycle | `operation status/inspect/close/archive/restore` |
-| Network operations | `operation`、`health-check`、`overlay-check`、`overlay-change`、`support-bundle`、`generate-vni-map`、`generate-vni-config` |
+| Network operations | `operation`、`health-check`、`route-diff-nxos`、`overlay-check`、`overlay-change`、`support-bundle`、`generate-vni-map`、`generate-vni-config` |
 | Containerlab | `init-clab`、`collect-clab`、`clab-transform-config`、`clab-apply-config`、`check-clab-startup-config`、`clab-set-cmds`、`generate-clab` |
 | Topology | `normalize-links`、`generate-network-diagram`、`generate-mermaid`、`generate-graphviz`、`generate-drawio`、`generate-doc`、`csv-to-md` |
 | Internal | `__complete` |
@@ -160,3 +160,12 @@ Operationの物理pathは`operations/live/YYYY/MM/DD/<change-id>/`であり、�
 - top-level command集合と主要終了codeはtestで固定済みである。
 - 全subcommand optionのmachine-readable catalogと、全legacy errorのError Catalog統合は未実装である。
 - schemaを持たないlegacy YAML入力の共通validationは未実装であり、各loaderの確認範囲に依存する。
+
+`route-diff-nxos` は保存済みログだけを比較する standalone command とする。入力・option・保存・
+終了 code の正本は [Route Diff 設計 17](../network-ops/ROUTE_DIFF_DESIGN.md#17-standalone-cli-の実装契約p5)。
+出力先は `--output-dir`、未指定時は `./route_diff` とし、`ALRED_OUTPUT_DIR` や inventory / credential の暗黙探索を使用しない。
+統合収集ログの [修正設計](../network-ops/ROUTE_DIFF_COLLECTION_LOG_FIX_DESIGN.md#31-cli-と形式の識別)は
+実装済み。既存 `nxos-transcript` 内で検証可能な collect envelope を認識し、
+新しい入力形式 option やファイル名による推測は追加しない。
+directory 入力は [修正設計 3.5](../network-ops/ROUTE_DIFF_COLLECTION_LOG_FIX_DESIGN.md#35-複数機器ログの-directory-入力)の
+仕様に従う。`--before` / `--after` の directory 対応と directory 専用 `--recursive` を実装した。

@@ -1,0 +1,748 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:alred:v1:route-snapshot",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "kind": {
+      "const": "RouteSnapshot"
+    },
+    "snapshot_id": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "side": {
+      "enum": [
+        "before",
+        "after"
+      ]
+    },
+    "versions": {
+      "$ref": "#/$defs/Versions"
+    },
+    "sources": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Source"
+      }
+    },
+    "scopes": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Scope"
+      }
+    },
+    "routes": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Route"
+      }
+    }
+  },
+  "required": [
+    "schema_version",
+    "kind",
+    "snapshot_id",
+    "side",
+    "versions",
+    "sources",
+    "scopes",
+    "routes"
+  ],
+  "additionalProperties": true,
+  "$defs": {
+    "Evidence": {
+      "type": "object",
+      "properties": {
+        "source_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "start_line": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "end_line": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "start_byte": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "end_byte": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "source_id",
+        "start_line",
+        "end_line",
+        "start_byte",
+        "end_byte"
+      ],
+      "additionalProperties": true
+    },
+    "Command": {
+      "type": "object",
+      "properties": {
+        "command_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "family": {
+          "enum": [
+            "ipv4",
+            "ipv6"
+          ]
+        },
+        "vrf": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "command": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "evidence": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Evidence"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "acquisition_evidence": {
+          "type": "object",
+          "required": [
+            "header",
+            "prompt",
+            "body",
+            "block",
+            "declared_status",
+            "collected_at",
+            "transport",
+            "completion_kind",
+            "completion_evidence",
+            "manifest_record_sha256"
+          ],
+          "properties": {
+            "header": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Evidence"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "prompt": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Evidence"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "body": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Evidence"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "block": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Evidence"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "completion_evidence": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Evidence"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "declared_status": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "collected_at": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "transport": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "manifest_record_sha256": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "completion_kind": {
+              "enum": [
+                "next_prompt",
+                "next_collect_header",
+                "manifest_record",
+                "eof_unverified"
+              ]
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "command_id",
+        "family",
+        "vrf",
+        "command",
+        "evidence",
+        "acquisition_evidence"
+      ],
+      "additionalProperties": true
+    },
+    "Path": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "enum": [
+            "ip",
+            "discard",
+            "connected",
+            "local"
+          ]
+        },
+        "next_hop_family": {
+          "anyOf": [
+            {
+              "enum": [
+                "ipv4",
+                "ipv6"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "address": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "interface": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "next_hop_vrf": {
+          "type": "string",
+          "minLength": 1
+        },
+        "admin_distance": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "metric": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "next_hop_table_family": {
+          "enum": [
+            null,
+            "ipv4",
+            "ipv6"
+          ]
+        },
+        "evidence": {
+          "$ref": "#/$defs/Evidence"
+        },
+        "encapsulation": {
+          "enum": [
+            null,
+            "vxlan"
+          ]
+        },
+        "segment_id": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1,
+          "maximum": 16777215
+        },
+        "tunnel_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^0[xX][0-9a-fA-F]{1,8}$"
+        },
+        "asymmetric": {
+          "enum": [
+            null,
+            true
+          ]
+        }
+      },
+      "required": [
+        "kind",
+        "next_hop_family",
+        "address",
+        "interface",
+        "next_hop_vrf",
+        "admin_distance",
+        "metric",
+        "evidence",
+        "next_hop_table_family",
+        "encapsulation",
+        "segment_id",
+        "tunnel_id",
+        "asymmetric"
+      ],
+      "additionalProperties": true
+    },
+    "Route": {
+      "type": "object",
+      "properties": {
+        "device": {
+          "type": "string",
+          "minLength": 1
+        },
+        "vrf": {
+          "type": "string",
+          "minLength": 1
+        },
+        "family": {
+          "enum": [
+            "ipv4",
+            "ipv6"
+          ]
+        },
+        "prefix": {
+          "type": "string",
+          "minLength": 1
+        },
+        "paths": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Path"
+          }
+        },
+        "non_selected_paths": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Path"
+          }
+        },
+        "parse_status": {
+          "enum": [
+            "COMPLETE",
+            "UNKNOWN"
+          ]
+        },
+        "ubest": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "mbest": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "evidence": {
+          "$ref": "#/$defs/Evidence"
+        }
+      },
+      "required": [
+        "device",
+        "vrf",
+        "family",
+        "prefix",
+        "paths",
+        "non_selected_paths",
+        "parse_status",
+        "ubest",
+        "mbest",
+        "evidence"
+      ],
+      "additionalProperties": true
+    },
+    "Scope": {
+      "type": "object",
+      "properties": {
+        "device": {
+          "type": "string",
+          "minLength": 1
+        },
+        "vrf": {
+          "type": "string",
+          "minLength": 1
+        },
+        "family": {
+          "enum": [
+            "ipv4",
+            "ipv6"
+          ]
+        },
+        "coverage": {
+          "enum": [
+            "COMPLETE",
+            "UNKNOWN"
+          ]
+        },
+        "parse_status": {
+          "enum": [
+            "COMPLETE",
+            "UNKNOWN"
+          ]
+        },
+        "verification": {
+          "enum": [
+            "verified",
+            "user_asserted",
+            "unknown"
+          ]
+        },
+        "health_eligible": {
+          "type": "boolean"
+        },
+        "command_scope": {
+          "$ref": "#/$defs/Command"
+        },
+        "diagnostics": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "observed_prefix_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "parsed_prefix_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "parsed_path_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "explicit_empty": {
+          "type": "boolean"
+        },
+        "evidence": {
+          "$ref": "#/$defs/Evidence"
+        },
+        "empty_basis": {
+          "enum": [
+            null,
+            "explicit_marker",
+            "closed_section"
+          ]
+        },
+        "empty_evidence": {
+          "type": [
+            "object",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "device",
+        "vrf",
+        "family",
+        "coverage",
+        "parse_status",
+        "verification",
+        "health_eligible",
+        "command_scope",
+        "diagnostics",
+        "observed_prefix_count",
+        "parsed_prefix_count",
+        "parsed_path_count",
+        "explicit_empty",
+        "evidence",
+        "empty_basis",
+        "empty_evidence"
+      ],
+      "additionalProperties": true
+    },
+    "Source": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "device": {
+          "type": "string",
+          "minLength": 1
+        },
+        "side": {
+          "enum": [
+            "before",
+            "after"
+          ]
+        },
+        "path": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "normalized_sha256": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "raw_size": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "selected_range": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "start_line": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "end_line": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              },
+              "required": [
+                "start_line",
+                "end_line"
+              ],
+              "additionalProperties": true
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "mapping": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "normalized_line": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "raw_start_line": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "raw_end_line": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "raw_start_byte": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "raw_end_byte": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "required": [
+              "normalized_line",
+              "raw_start_line",
+              "raw_end_line",
+              "raw_start_byte",
+              "raw_end_byte"
+            ],
+            "additionalProperties": true
+          }
+        },
+        "commands": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Command"
+          }
+        },
+        "diagnostics": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "input_format": {
+          "enum": [
+            "nxos-transcript",
+            "nxos-route-text",
+            "alred-collect"
+          ]
+        },
+        "versions": {
+          "$ref": "#/$defs/Versions"
+        },
+        "collection_provenance": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "adapter_version",
+            "status",
+            "collected_at",
+            "manifest_record_sha256",
+            "command",
+            "start_line",
+            "end_line"
+          ],
+          "properties": {
+            "adapter_version": {
+              "const": "1.1"
+            },
+            "status": {
+              "const": "success"
+            },
+            "collected_at": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "manifest_record_sha256": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
+            "command": {
+              "type": "string",
+              "minLength": 1
+            },
+            "start_line": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "end_line": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        },
+        "display_name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "container_format": {
+          "enum": [
+            "plain-transcript",
+            "alred-collect",
+            "route-text"
+          ]
+        },
+        "notices": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        }
+      },
+      "required": [
+        "id",
+        "device",
+        "side",
+        "path",
+        "sha256",
+        "normalized_sha256",
+        "raw_size",
+        "selected_range",
+        "mapping",
+        "commands",
+        "diagnostics",
+        "input_format",
+        "versions",
+        "container_format",
+        "notices"
+      ],
+      "additionalProperties": true
+    },
+    "Versions": {
+      "type": "object",
+      "properties": {
+        "terminal_adapter": {
+          "type": "string",
+          "minLength": 1
+        },
+        "parser": {
+          "type": "string",
+          "minLength": 1
+        },
+        "normalizer": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "terminal_adapter",
+        "parser",
+        "normalizer"
+      ],
+      "additionalProperties": true
+    }
+  }
+}

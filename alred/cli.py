@@ -2275,6 +2275,10 @@ def _build_completion_spec() -> Dict[str, str]:
         "hosts": "yaml_file",
         "design_hosts": "txt_file",
         "policy": "yaml_file",
+        "source_map": "yaml_file",
+        "before": "any_file",
+        "after": "any_file",
+        "review": "any_file",
         "roles": "yaml_file",
         "sites": "yaml_file",
         "clab_env": "yaml_file",
@@ -14613,12 +14617,27 @@ def cmd_health_check_snapshot(args: argparse.Namespace) -> int:
                     profile_sha256=profile_sha256,
                     link_evidence=link_evidence,
                 )
+                from .health.route_diff import (
+                    build_health_routes, enabled as route_diff_enabled,
+                    route_config, store_health_routes,
+                )
+
+                route_bundle = None
+                effective_profile = resolved_profiles["spec"]["resolved"]["effective"]
+                if route_diff_enabled(effective_profile):
+                    config = route_config(effective_profile["spec"].get("route_diff", {}))
+                    route_bundle = build_health_routes(manifest, config, phase=args.phase)
+                    reference = store_health_routes(route_bundle, config,
+                        operation_root=workspace.operation_root, directory=output_dir)
+                    if reference is not None:
+                        snapshot["route_diff"] = reference
                 health_result = evaluate_snapshot(
                     snapshot,
                     resolved_profiles,
                     started_at=collection_started_at,
                     completed_at=manifest_completed_at,
                     resolved_roles=resolved_roles,
+                    route_bundle=route_bundle,
                 )
                 completed_at = now_in_timezone(workspace.timezone)
                 health_result["completed_at"] = completed_at.isoformat(
@@ -15938,6 +15957,16 @@ def _copy_attempt_artifacts(
         if child.name in excluded:
             continue
         destination = destination_root / child.name
+        if child.name == "route-diff-attempts":
+            # The immutable report attempt is already retained below the operation.
+            continue
+        if child.name == "route_diff" and child.is_symlink():
+            from .operation import atomic_update_relative_directory_symlink
+
+            atomic_update_relative_directory_symlink(
+                workspace.operation_root, destination, child.resolve(strict=True)
+            )
+            continue
         if child.is_dir():
             staged = (
                 destination_root
@@ -16787,6 +16816,9 @@ def cmd_health_check_compare(args: argparse.Namespace) -> int:
             )
             try:
                 completed_at = now_in_timezone(workspace.timezone)
+                from .health.route_diff import load_health_routes, assess_routes, publish_route_report
+
+                route_bundles = (load_health_routes(before, expected_before), load_health_routes(after, expected_after))
                 result = compare_snapshots(
                     before,
                     after,
@@ -16794,12 +16826,17 @@ def cmd_health_check_compare(args: argparse.Namespace) -> int:
                     started_at=started_at,
                     completed_at=completed_at,
                     resolved_roles=resolved_roles,
+                    route_bundles=route_bundles,
                 )
                 result["artifacts"] = {
                     "before_snapshot": str(expected_before),
                     "after_snapshot": str(expected_after),
                     "summary": str(output_dir / "summary.md"),
                 }
+                route_assessment = assess_routes(before, after,
+                    resolved_profiles["spec"]["resolved"]["effective"], route_bundles)
+                result["artifacts"].update(publish_route_report(route_assessment, route_bundles,
+                    operation_root=workspace.operation_root, report_dir=output_dir))
                 profile_names = resolved_profiles["spec"]["resolved"][
                     "profile_names"
                 ]
@@ -16891,6 +16928,8 @@ def cmd_health_check_compare(args: argparse.Namespace) -> int:
             print(line)
         print(f"Report    : {output_dir / 'summary.md'}")
         print(f"JSON      : {output_dir / 'health-result.json'}")
+        if "route_diff_index" in result["artifacts"]:
+            print(f"Route Diff: {result['artifacts']['route_diff_index']}")
         if overlay_diff is not None:
             print(f"VNI Diff  : {output_dir / 'vni-map-diff.md'}")
             print(f"VNI JSON  : {output_dir / 'vni-map-diff.json'}")
@@ -17465,6 +17504,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="Show version and exit",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
+
+    from .route_diff.cli import add_parser as add_route_diff_parser
+    add_route_diff_parser(subparsers)
 
     p_operation = subparsers.add_parser(
         "operation",

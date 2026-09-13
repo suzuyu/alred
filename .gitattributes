@@ -1,0 +1,8 @@
+# Route Diff の byte offset / hash を検証する合成入力と生成例は改行を変換しない。
+/tests/fixtures/nxos/route_diff/** -text -whitespace
+/docs/design/network-ops/examples/route-diff-input-fix/*.txt -text -whitespace
+/docs/design/network-ops/examples/route-diff-input-fix/directory-case/**/*.log -text -whitespace
+/docs/design/network-ops/examples/route-diff-input-fix/directory-case/**/*.txt -text -whitespace
+/docs/design/network-ops/examples/route-diff-review/route_diff/*.csv -text -whitespace
+/docs/manual/network-ops/examples/route-diff-core/route_diff/** -text -whitespace
+/docs/manual/network-ops/examples/route-diff-collection/route_diff/** -text -whitespace

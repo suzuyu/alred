@@ -19,6 +19,11 @@ SCHEMA_VERSION = 1
 API_VERSION = "alred/v1"
 
 SCHEMA_FILES = {
+    "RouteDiffPolicy": "route-diff-policy.schema.json",
+    "RouteDiffSourceMap": "route-diff-source-map.schema.json",
+    "RouteSnapshot": "route-snapshot.schema.json",
+    "RouteDiff": "route-diff.schema.json",
+    "RouteDiffReview": "route-diff-review.schema.json",
     "ActiveHealthCheckChange": "active-health-check-change.schema.json",
     "ApprovalRecord": "approval-record.schema.json",
     "CollectionManifest": "collection-manifest.schema.json",

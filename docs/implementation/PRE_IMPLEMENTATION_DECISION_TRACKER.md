@@ -82,3 +82,20 @@ Health CheckとOverlay変更管理の実装前に必要な設計判断を管理�
 
 これらがないrelease・modelは「バージョン番号が新しい」という理由だけでapply対応済みと
 みなさない。
+
+## 5. Route Diff の初回リリース判断（2026-09-13）
+
+既存 Health / Overlay の決定とは別に、追加機能の設計・証跡を管理する。
+
+| ID | 項目 | 決定・残件 | 状態 | 正本 |
+|---|---|---|---|---|
+| RD-01 | リリース分離 | CLI・オフライン出力・Health 統合を先行。Web UI の実装・詳細設計はリリース後 | `designed` | [Route Diff 12](../design/network-ops/ROUTE_DIFF_DESIGN.md#12-初回リリース範囲と共通処理の契約) |
+| RD-02 | 対応範囲 | README の対象機種、10.4(5)M 以降、10.5(4) / 10.6(4)M を重点対象 | `designed` | [Route Diff 13](../design/network-ops/ROUTE_DIFF_DESIGN.md#13-対応対象と-fixture-の受け入れ) |
+| RD-03 | 入力証跡 | 詳細 route の release 付き fixture が不足。合成例で実機対応を認定しない | `needs_input` | [実装計画 P0](ROUTE_DIFF_IMPLEMENTATION_PLAN.md) |
+| RD-04 | 共通 schema | Policy / Source Map / RouteSnapshot / RouteDiff / RouteDiffReview の package schema・domain validator を実装。Health 内の参照配置は P1 の残件 | `accepted` | [比較 API 契約](../design/network-ops/ROUTE_DIFF_DESIGN.md#15-snapshot比較policy-判定の実装契約p3) |
+| RD-05 | 性能・配布 | 実装版で 1 万 / 10 万 / 100 万 route を測定。数値 budget と正式上限は測定後に確定 | `accepted` | [実装計画 P7](ROUTE_DIFF_IMPLEMENTATION_PLAN.md) |
+| RD-06 | 統合収集ログ | 既存 nxos-transcript で構造を検証し、管理行・対象外 command・失敗範囲を分離する | `implemented` | [修正設計 3](../design/network-ops/ROUTE_DIFF_COLLECTION_LOG_FIX_DESIGN.md#3-入力と-section-adapter) |
+| RD-07 | VXLAN の比較範囲 | 4 属性を NextHop 2 方式と Policy / rollback の path tuple に含める | `implemented` | [修正設計 4](../design/network-ops/ROUTE_DIFF_COLLECTION_LOG_FIX_DESIGN.md#4-hmm-と-vxlan-の解析正規化) |
+| RD-08 | marker のない正常空 | heading・既知凡例・command 終端・成功証跡を満たす場合だけ 0 件にする | `implemented` | [修正設計 5](../design/network-ops/ROUTE_DIFF_COLLECTION_LOG_FIX_DESIGN.md#5-正常空の認定) |
+| RD-09 | ログ全文比較の表示範囲 | 対象 route command 区間を既定とし、入力ログ全体へ切り替える。元行番号・UNKNOWN・判定を保持 | `implemented` | [修正設計 6.1](../design/network-ops/ROUTE_DIFF_COLLECTION_LOG_FIX_DESIGN.md#61-ログ全文比較の表示範囲) |
+| RD-10 | directory 入力 | 既存 before / after に directory を指定し、prompt の host で対応。片側欠落は UNKNOWN、重複は拒否 | `implemented` | [修正設計 3.5](../design/network-ops/ROUTE_DIFF_COLLECTION_LOG_FIX_DESIGN.md#35-複数機器ログの-directory-入力) |

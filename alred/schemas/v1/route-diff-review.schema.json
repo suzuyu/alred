@@ -1,0 +1,110 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:alred:schema:route-diff-review:1",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "kind": {
+      "const": "RouteDiffReview"
+    },
+    "comparison_fingerprint": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "entries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "entry_key": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "resource": {
+            "$ref": "#/$defs/Identity"
+          },
+          "mode": {
+            "enum": [
+              "route-only",
+              "route-ad",
+              "route-ad-cost",
+              "nexthop-include",
+              "route-ad-cost-nexthop"
+            ]
+          },
+          "status": {
+            "enum": [
+              "UNREVIEWED",
+              "REVIEWED"
+            ]
+          },
+          "comment": {
+            "type": "string"
+          },
+          "reviewed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "entry_key",
+          "resource",
+          "mode",
+          "status",
+          "comment",
+          "reviewed_at"
+        ],
+        "additionalProperties": false
+      },
+      "minItems": 0
+    }
+  },
+  "required": [
+    "schema_version",
+    "kind",
+    "comparison_fingerprint",
+    "entries"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "Identity": {
+      "type": "object",
+      "properties": {
+        "device": {
+          "type": "string",
+          "minLength": 1
+        },
+        "vrf": {
+          "type": "string",
+          "minLength": 1
+        },
+        "family": {
+          "enum": [
+            "ipv4",
+            "ipv6"
+          ]
+        },
+        "prefix": {
+          "type": "string",
+          "pattern": "^[0-9A-Fa-f:.]+/[0-9]+$"
+        }
+      },
+      "required": [
+        "device",
+        "vrf",
+        "family",
+        "prefix"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

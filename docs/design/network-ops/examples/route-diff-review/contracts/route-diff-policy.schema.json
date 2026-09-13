@@ -1,0 +1,709 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:alred:v1:route-diff-policy",
+  "type": "object",
+  "properties": {
+    "api_version": {
+      "const": "alred/v1"
+    },
+    "kind": {
+      "const": "RouteDiffPolicy"
+    },
+    "metadata": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "additionalProperties": false
+    },
+    "spec": {
+      "type": "object",
+      "properties": {
+        "required_routes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "device": {
+                "type": "string",
+                "minLength": 1
+              },
+              "vrf": {
+                "type": "string",
+                "minLength": 1
+              },
+              "family": {
+                "enum": [
+                  "ipv4",
+                  "ipv6"
+                ]
+              },
+              "prefix": {
+                "type": "string",
+                "pattern": "^[0-9A-Fa-f:.]+/[0-9]+$"
+              },
+              "min_paths": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "expected_next_hops": {
+                "type": "object",
+                "properties": {
+                  "match": {
+                    "enum": [
+                      "contains",
+                      "exact"
+                    ]
+                  },
+                  "paths": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "enum": [
+                            "ip",
+                            "discard",
+                            "connected",
+                            "local"
+                          ]
+                        },
+                        "next_hop_family": {
+                          "anyOf": [
+                            {
+                              "enum": [
+                                "ipv4",
+                                "ipv6"
+                              ]
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "address": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "interface": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "next_hop_vrf": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "next_hop_table_family": {
+                          "enum": [
+                            null,
+                            "ipv4",
+                            "ipv6"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "next_hop_family",
+                        "address",
+                        "interface",
+                        "next_hop_vrf"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "minItems": 1
+                  }
+                },
+                "required": [
+                  "match",
+                  "paths"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "device",
+              "vrf",
+              "family",
+              "prefix",
+              "min_paths"
+            ],
+            "additionalProperties": false
+          },
+          "minItems": 0
+        },
+        "exclusions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "device": {
+                "type": "string",
+                "minLength": 1
+              },
+              "vrf": {
+                "type": "string",
+                "minLength": 1
+              },
+              "family": {
+                "enum": [
+                  "ipv4",
+                  "ipv6"
+                ]
+              },
+              "prefix": {
+                "type": "string",
+                "pattern": "^[0-9A-Fa-f:.]+/[0-9]+$"
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [
+              "device",
+              "vrf",
+              "family",
+              "prefix",
+              "reason"
+            ],
+            "additionalProperties": false
+          },
+          "minItems": 0
+        },
+        "expected_changes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "device": {
+                "type": "string",
+                "minLength": 1
+              },
+              "vrf": {
+                "type": "string",
+                "minLength": 1
+              },
+              "family": {
+                "enum": [
+                  "ipv4",
+                  "ipv6"
+                ]
+              },
+              "prefix": {
+                "type": "string",
+                "pattern": "^[0-9A-Fa-f:.]+/[0-9]+$"
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 1
+              },
+              "before": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/ExpectedRoute"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "after": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/ExpectedRoute"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "device",
+              "vrf",
+              "family",
+              "prefix",
+              "id",
+              "reason",
+              "before",
+              "after"
+            ],
+            "additionalProperties": false
+          },
+          "minItems": 0
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "api_version",
+    "kind",
+    "metadata",
+    "spec"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "ExpectedPath": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "enum": [
+            "ip",
+            "discard",
+            "connected",
+            "local"
+          ]
+        },
+        "next_hop_family": {
+          "anyOf": [
+            {
+              "enum": [
+                "ipv4",
+                "ipv6"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "address": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "interface": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "next_hop_vrf": {
+          "type": "string",
+          "minLength": 1
+        },
+        "admin_distance": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "metric": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "next_hop_table_family": {
+          "enum": [
+            null,
+            "ipv4",
+            "ipv6"
+          ]
+        }
+      },
+      "required": [
+        "kind",
+        "next_hop_family",
+        "address",
+        "interface",
+        "next_hop_vrf",
+        "admin_distance",
+        "metric"
+      ],
+      "additionalProperties": false
+    },
+    "CanonicalPath": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "enum": [
+            "ip",
+            "discard",
+            "connected",
+            "local"
+          ]
+        },
+        "next_hop_family": {
+          "anyOf": [
+            {
+              "enum": [
+                "ipv4",
+                "ipv6"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "address": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "interface": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "next_hop_vrf": {
+          "type": "string",
+          "minLength": 1
+        },
+        "admin_distance": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "metric": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "protocol": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "kind",
+        "next_hop_family",
+        "address",
+        "interface",
+        "next_hop_vrf",
+        "admin_distance",
+        "metric"
+      ],
+      "additionalProperties": true
+    },
+    "ExpectedRoute": {
+      "type": "object",
+      "properties": {
+        "prefix": {
+          "type": "string",
+          "pattern": "^[0-9A-Fa-f:.]+/[0-9]+$"
+        },
+        "paths": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ExpectedPath"
+          },
+          "minItems": 1
+        }
+      },
+      "required": [
+        "prefix",
+        "paths"
+      ],
+      "additionalProperties": false
+    },
+    "Route": {
+      "type": "object",
+      "properties": {
+        "prefix": {
+          "type": "string",
+          "pattern": "^[0-9A-Fa-f:.]+/[0-9]+$"
+        },
+        "paths": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/CanonicalPath"
+          },
+          "minItems": 1
+        }
+      },
+      "required": [
+        "prefix",
+        "paths"
+      ],
+      "additionalProperties": true
+    },
+    "Identity": {
+      "type": "object",
+      "properties": {
+        "device": {
+          "type": "string",
+          "minLength": 1
+        },
+        "vrf": {
+          "type": "string",
+          "minLength": 1
+        },
+        "family": {
+          "enum": [
+            "ipv4",
+            "ipv6"
+          ]
+        },
+        "prefix": {
+          "type": "string",
+          "pattern": "^[0-9A-Fa-f:.]+/[0-9]+$"
+        }
+      },
+      "required": [
+        "device",
+        "vrf",
+        "family",
+        "prefix"
+      ],
+      "additionalProperties": false
+    },
+    "Evidence": {
+      "type": "object",
+      "properties": {
+        "source_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "start_line": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "end_line": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "command_id": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "source_id",
+        "start_line",
+        "end_line"
+      ],
+      "additionalProperties": true
+    },
+    "Source": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "device": {
+          "type": "string",
+          "minLength": 1
+        },
+        "side": {
+          "enum": [
+            "before",
+            "after"
+          ]
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "input_format": {
+          "enum": [
+            "nxos-transcript",
+            "nxos-route-text"
+          ]
+        },
+        "collected_at": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "device",
+        "side",
+        "path",
+        "sha256",
+        "input_format",
+        "collected_at"
+      ],
+      "additionalProperties": true
+    },
+    "Counts": {
+      "type": "object",
+      "properties": {
+        "before_count": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "after_count": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "ADDED": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "REMOVED": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "MODIFIED": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "UNCHANGED": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "has_diff": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "before_count",
+        "after_count",
+        "ADDED",
+        "REMOVED",
+        "MODIFIED",
+        "UNCHANGED",
+        "has_diff"
+      ],
+      "additionalProperties": true
+    },
+    "Scope": {
+      "type": "object",
+      "properties": {
+        "device": {
+          "type": "string",
+          "minLength": 1
+        },
+        "vrf": {
+          "type": "string",
+          "minLength": 1
+        },
+        "family": {
+          "enum": [
+            "ipv4",
+            "ipv6"
+          ]
+        },
+        "coverage": {
+          "enum": [
+            "COMPLETE",
+            "UNKNOWN",
+            "NOT_SELECTED",
+            "NOT_APPLICABLE"
+          ]
+        }
+      },
+      "required": [
+        "device",
+        "vrf",
+        "family",
+        "coverage"
+      ],
+      "additionalProperties": true
+    }
+  }
+}

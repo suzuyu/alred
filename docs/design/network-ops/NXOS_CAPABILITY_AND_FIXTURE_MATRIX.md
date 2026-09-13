@@ -228,3 +228,23 @@ Phase 0の実測結果に基づき、コマンド別timeout、raw最大サイズ
 
 文書確認対象hardwareは`APPLY_VERIFIED` entryを持たせない。文書確認の結果は
 Capability Registryと分離して管理し、外部registryによるLevelの強制昇格も認めない。
+
+## 10. Route Diff の追加対応範囲
+
+CLI・オフライン出力を先行する Route Diff の対象は、トップ README の機種一覧と NX-OS 10.4(5)M 以降。
+10.5(4)、10.6(4)M を重点検証対象とする。機種・release 別の対応予定と詳細 route fixture の確認状況は
+[Route Diff 設計 13](ROUTE_DIFF_DESIGN.md#13-対応対象と-fixture-の受け入れ)を参照する。
+既存の baseline / apply 検証済み状態を新しい route parser へ継承せず、hardware の文書確認とログ解析の検証を区別する。
+Route Diff は入力・Snapshot・比較・policy 判定・renderer API、standalone CLI、Health 接続を実装済み。
+release 固有検証は未完了。本追記により既存 Capability Registry の Level を変更しない。
+
+parser `1.1` では IPv4／IPv6 の default VRF、指定 VRF、全 VRF の command 形式を合成 fixture で検証する。
+command ID と取得範囲は [Route Diff 設計 14.4](ROUTE_DIFF_DESIGN.md#144-default-vrf指定-vrf-の-command-対応)を参照する。
+指定 VRF の入力解析対応を、全 VRF の収集完了や各 release の実ログ検証済み状態へ昇格しない。
+
+2026-09-13: 保存済み出力で collect 管理行、HMM / VXLAN suffix、marker のない空 section の
+未対応を確認し、[修正設計](ROUTE_DIFF_COLLECTION_LOG_FIX_DESIGN.md)に沿って parser `1.2` を実装した。
+利用者の元入力再検証で 12 scope COMPLETE / UNKNOWN 0 を確認したが、全 model / release の検証完了とはしない。
+grammar の匿名化 fixture と model / release の取得証跡を確認してから対応状況を更新する。
+IPv6 prefix を今回の 1 行 VXLAN grammar で解析することと、別行 VTEP を使う VXLANv6 underlay の
+出力対応は区別し、未検証形式を対応済みとしない。

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import hashlib
 
 
 COMMAND_IDS = {
@@ -73,5 +74,14 @@ def command_id(command: str) -> str:
     known = COMMAND_IDS.get(normalized)
     if known:
         return known
+    from ..route_diff.commands import resolve_route_command
+
+    route = resolve_route_command(command)
+    if route is not None:
+        identifier = route["command_id"]
+        if identifier in {"route_ipv4_vrf", "route_ipv6_vrf"}:
+            # VRF names are case-sensitive even though legacy command matching is not.
+            identifier += "_" + hashlib.sha256(route["vrf"].encode()).hexdigest()[:16]
+        return identifier
     slug = re.sub(r"[^a-z0-9]+", "_", normalized).strip("_")
     return f"unsupported_{slug}" if slug else "unsupported_empty"

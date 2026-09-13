@@ -1,0 +1,510 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:alred:design:route-diff:route-diff-review",
+  "$comment": "Design review only. Not registered in production. Domain validation is separate.",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "kind": {
+      "const": "RouteDiffReview"
+    },
+    "comparison_fingerprint": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "entries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "entry_key": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "resource": {
+            "$ref": "#/$defs/Identity"
+          },
+          "mode": {
+            "enum": [
+              "route-only",
+              "route-ad",
+              "route-ad-cost",
+              "nexthop-include",
+              "route-ad-cost-nexthop"
+            ]
+          },
+          "status": {
+            "enum": [
+              "UNREVIEWED",
+              "REVIEWED"
+            ]
+          },
+          "comment": {
+            "type": "string"
+          },
+          "reviewed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "entry_key",
+          "resource",
+          "mode",
+          "status",
+          "comment",
+          "reviewed_at"
+        ],
+        "additionalProperties": true
+      },
+      "minItems": 0
+    }
+  },
+  "required": [
+    "schema_version",
+    "kind",
+    "comparison_fingerprint",
+    "entries"
+  ],
+  "additionalProperties": true,
+  "$defs": {
+    "ExpectedPath": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "enum": [
+            "ip",
+            "discard",
+            "connected",
+            "local"
+          ]
+        },
+        "next_hop_family": {
+          "anyOf": [
+            {
+              "enum": [
+                "ipv4",
+                "ipv6"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "address": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "interface": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "next_hop_vrf": {
+          "type": "string",
+          "minLength": 1
+        },
+        "admin_distance": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "metric": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "kind",
+        "next_hop_family",
+        "address",
+        "interface",
+        "next_hop_vrf",
+        "admin_distance",
+        "metric"
+      ],
+      "additionalProperties": false
+    },
+    "CanonicalPath": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "enum": [
+            "ip",
+            "discard",
+            "connected",
+            "local"
+          ]
+        },
+        "next_hop_family": {
+          "anyOf": [
+            {
+              "enum": [
+                "ipv4",
+                "ipv6"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "address": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "interface": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "next_hop_vrf": {
+          "type": "string",
+          "minLength": 1
+        },
+        "admin_distance": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "metric": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "protocol": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "kind",
+        "next_hop_family",
+        "address",
+        "interface",
+        "next_hop_vrf",
+        "admin_distance",
+        "metric"
+      ],
+      "additionalProperties": true
+    },
+    "ExpectedRoute": {
+      "type": "object",
+      "properties": {
+        "prefix": {
+          "type": "string",
+          "pattern": "^[0-9A-Fa-f:.]+/[0-9]+$"
+        },
+        "paths": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ExpectedPath"
+          },
+          "minItems": 1
+        }
+      },
+      "required": [
+        "prefix",
+        "paths"
+      ],
+      "additionalProperties": false
+    },
+    "Route": {
+      "type": "object",
+      "properties": {
+        "prefix": {
+          "type": "string",
+          "pattern": "^[0-9A-Fa-f:.]+/[0-9]+$"
+        },
+        "paths": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/CanonicalPath"
+          },
+          "minItems": 1
+        }
+      },
+      "required": [
+        "prefix",
+        "paths"
+      ],
+      "additionalProperties": true
+    },
+    "Identity": {
+      "type": "object",
+      "properties": {
+        "device": {
+          "type": "string",
+          "minLength": 1
+        },
+        "vrf": {
+          "type": "string",
+          "minLength": 1
+        },
+        "family": {
+          "enum": [
+            "ipv4",
+            "ipv6"
+          ]
+        },
+        "prefix": {
+          "type": "string",
+          "pattern": "^[0-9A-Fa-f:.]+/[0-9]+$"
+        }
+      },
+      "required": [
+        "device",
+        "vrf",
+        "family",
+        "prefix"
+      ],
+      "additionalProperties": false
+    },
+    "Evidence": {
+      "type": "object",
+      "properties": {
+        "source_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "start_line": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "end_line": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "command_id": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "source_id",
+        "start_line",
+        "end_line"
+      ],
+      "additionalProperties": true
+    },
+    "Source": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "device": {
+          "type": "string",
+          "minLength": 1
+        },
+        "side": {
+          "enum": [
+            "before",
+            "after"
+          ]
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "input_format": {
+          "enum": [
+            "nxos-transcript",
+            "nxos-route-text"
+          ]
+        },
+        "collected_at": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "device",
+        "side",
+        "path",
+        "sha256",
+        "input_format",
+        "collected_at"
+      ],
+      "additionalProperties": true
+    },
+    "Counts": {
+      "type": "object",
+      "properties": {
+        "before_count": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "after_count": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "ADDED": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "REMOVED": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "MODIFIED": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "UNCHANGED": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "has_diff": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "before_count",
+        "after_count",
+        "ADDED",
+        "REMOVED",
+        "MODIFIED",
+        "UNCHANGED",
+        "has_diff"
+      ],
+      "additionalProperties": true
+    },
+    "Scope": {
+      "type": "object",
+      "properties": {
+        "device": {
+          "type": "string",
+          "minLength": 1
+        },
+        "vrf": {
+          "type": "string",
+          "minLength": 1
+        },
+        "family": {
+          "enum": [
+            "ipv4",
+            "ipv6"
+          ]
+        },
+        "coverage": {
+          "enum": [
+            "COMPLETE",
+            "UNKNOWN",
+            "NOT_SELECTED",
+            "NOT_APPLICABLE"
+          ]
+        }
+      },
+      "required": [
+        "device",
+        "vrf",
+        "family",
+        "coverage"
+      ],
+      "additionalProperties": true
+    }
+  }
+}
