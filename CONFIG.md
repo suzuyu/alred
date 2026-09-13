@@ -699,3 +699,22 @@ NX-OS の `push-config-dir` は、接続中の login user、management VRF、`in
 
 - 利用手順と主要コマンド: [README.md](./README.md)
 - 設定値や入力ファイルの詳細: この `CONFIG.md`
+
+## Route Diff の standalone 入力
+
+`route-diff-nxos` は `--before` / `--after` / `--input-format`、または `--source-map` を指定します。
+`--before` / `--after` は両側 file または両側 directory に対応します。directory は `nxos-transcript` を指定し、
+直下の `.log` / `.txt` をホスト名で対応付けます。子 directory は `--recursive` で含めます。
+重複取得は自動選択せず、片側欠落は UNKNOWN として残します。
+Source Map 内の相対 path は YAML のある directory が基準です。2 file 形式と Source Map は併用しません。
+本文形式は `--host` / `--command-id`、指定 VRF command は `--command-vrf` も必要です。
+`--af`（既定 `both`）と繰り返し指定できる `--vrf` は比較対象を指定します。
+`--policy` は正常性の条件、`--review` は確認記録、`--before-label` / `--after-label` は表示名です。
+出力は `--output-dir`（既定 `./route_diff`）へ保存し、`ALRED_OUTPUT_DIR` は参照しません。
+認証情報・inventory・active Health operation は参照しません。
+詳細は [Route Diff 利用ガイド](docs/manual/network-ops/13_ROUTE_DIFF_GUIDE.md)を参照してください。
+
+Health では before の `--profile route-diff-nxos` で詳細比較を追加します。baseline と併用する場合は
+`--profile network-baseline-nxos` も指定します。追加 YAML profile の `spec.route_diff` で
+`families`（既定 `[ipv4, ipv6]`）、`vrfs`（既定 `[]`）、inline `policy` を固定し、after / rollback が継承します。
+設定例と保存先は [利用ガイド](docs/manual/network-ops/13_ROUTE_DIFF_GUIDE.md#62-比較範囲と必須経路を追加する)を参照してください。

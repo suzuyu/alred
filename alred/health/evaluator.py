@@ -2832,9 +2832,13 @@ def evaluate_snapshot(
     started_at: datetime,
     completed_at: datetime,
     resolved_roles: Mapping[str, Any] | None = None,
+    route_bundle: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Evaluate one before/after Snapshot without prompting."""
     effective = _validate_inputs(snapshot, resolved_profiles)
+    from .route_diff import assess_routes, route_check
+
+    route_assessment = assess_routes(snapshot, snapshot, effective, (route_bundle, route_bundle), single=True)
     type5_route_indexes = (
         _build_type5_route_indexes(snapshot)
         if any(
@@ -2935,6 +2939,9 @@ def evaluate_snapshot(
                     definition["id"] = "evpn_rr_neighbor_health"
                 elif topology_role == "border-gateway":
                     definition["id"] = "border_evpn_bgp_health"
+            if evaluator_name == "route_diff":
+                checks.append(route_check(route_assessment, host, definition))
+                continue
             if evaluator_name == "type5_prefix_propagation":
                 checks.append(
                     _evaluate_type5_prefix_propagation(
@@ -3905,6 +3912,7 @@ def compare_snapshots(
     started_at: datetime,
     completed_at: datetime,
     resolved_roles: Mapping[str, Any] | None = None,
+    route_bundles: tuple | None = None,
 ) -> dict[str, Any]:
     """Compare compatible before/after Snapshots and classify regressions."""
     effective = _validate_inputs(before, resolved_profiles)
@@ -3931,6 +3939,9 @@ def compare_snapshots(
         if before_links.get("policy_hashes") != after_links.get("policy_hashes"):
             raise HealthEvaluationError("before/after link policy hash mismatch")
 
+    from .route_diff import assess_routes, route_check
+
+    route_assessment = assess_routes(before, after, effective, route_bundles)
     type5_enabled = any(
         definition.get("evaluator") == "type5_prefix_propagation"
         for definition in effective["spec"]["checks"]
@@ -4098,6 +4109,8 @@ def compare_snapshots(
                 check = _compare_interface_errors(before, after, host, definition, effective)
             elif evaluator_name == "port_channel_health":
                 check = _compare_port_channels(before, after, host, definition, effective)
+            elif evaluator_name == "route_diff":
+                check = route_check(route_assessment, host, definition)
             elif evaluator_name == "ipv4_route_count":
                 check = _compare_route_count(
                     before,

@@ -1,0 +1,248 @@
+{
+  "schema_version": 1,
+  "kind": "RouteDiffCollectionFixAcceptance",
+  "date": "2026-09-13",
+  "tests": {
+    "full_pytest": {
+      "passed": 1202,
+      "skipped": 1,
+      "skip_reason": "opt-in browser suite",
+      "seconds": 216.92
+    },
+    "browser": {
+      "passed": 15
+    },
+    "additional_health_collection_benchmark": {
+      "passed": 87,
+      "seconds": 39.78
+    }
+  },
+  "source_hashes": {
+    "alred/health/route_diff.py": "sha256:a112bd6b760238d6dc1115aaddf443e4614c253eee5fbb3c95d2b5286e81c162",
+    "alred/j2/route_diff.html.j2": "sha256:7292bf8a8639a42ac5121c0d54dd5b16dd7afc67c983f4ea03e4edfe1abd4ba5",
+    "alred/route_diff/__init__.py": "sha256:6b2a9e995ea8a07442815e355cf2a54f0e5f747fb03ae44837cc0a59656f701f",
+    "alred/route_diff/cli.py": "sha256:23a4223f827bfdbf4dd2bce07ea82db903e5b6b3342d32ccc58c7eee36ff2401",
+    "alred/route_diff/commands.py": "sha256:915e3605db2084b82aa5a6fc4d33862432137fbb3f2a1119c52c85fbabc4a56d",
+    "alred/route_diff/comparator.py": "sha256:bdf9589bef62db3d207e6f5f799339a06c4ac41609af39c3fff435a33648c78f",
+    "alred/route_diff/control.py": "sha256:5c56de78d0edfa45279dcb16dfe331e26b8707b9c5783d7f20b13c6b8d8bdcfb",
+    "alred/route_diff/discovery.py": "sha256:3dcb34e51eabff057c55ad83fd8ac146de4a4e3178455de243a2a6422efbf5bf",
+    "alred/route_diff/domain.py": "sha256:732e8b730453b522c063ffaa9f802013b7c8dd51d7dc4e68a2a039f90e18a5fa",
+    "alred/route_diff/evaluator.py": "sha256:ce71137a308acdbd85291cfcc44181f64cd60d6db5986a7bea1845d62a32559a",
+    "alred/route_diff/parser.py": "sha256:4adfe9698d4211dc88431f573df351fb9cc255365845efae378a025d141c3e56",
+    "alred/route_diff/report.py": "sha256:bd285020ccc9cc85cb3ee6ccd340d5ee5956dec531c2585e72bdb17391363482",
+    "alred/route_diff/review.py": "sha256:38ae9317bed30deee69ed2bf1bd97282d2215b0c7215e4294275f118205a611f",
+    "alred/route_diff/sections.py": "sha256:8280966643b848979aa39eef5176570367e1d7cf5aa5df2396963b0dd7d31a72",
+    "alred/route_diff/semantics.py": "sha256:c1ea714e83e477cae28cd2287a94dedf6de02d19300cc92ec98fd11be90439d3",
+    "alred/route_diff/snapshot.py": "sha256:560000acb5fbe9f7f25175433b50d862541bfcab9b7bf518b18a7bbb32a52ed2",
+    "alred/route_diff/terminal.py": "sha256:bcbf504a5ca48d7b3a03c33ef0e5fc704157bd511baa011bde5e1b4e8c57ebf7",
+    "alred/schemas/v1/route-diff-policy.schema.json": "sha256:42e0f5ef92a4f30f2a820e21017e5681fbe5a6539267a42014f763dc8e1e9627",
+    "alred/schemas/v1/route-diff-review.schema.json": "sha256:75b972aa7d6ca4b1708b328c9e5900e55af22a57bccd4cfa85014349cfcac216",
+    "alred/schemas/v1/route-diff-source-map.schema.json": "sha256:b79192c6552388799fa4fbb77d6b0bda93e6f6af7a9a0b34c91efb37480fee79",
+    "alred/schemas/v1/route-diff.schema.json": "sha256:33fd1e4062b9ac0e56cb5b42a25435e4858a4f9cf4140a222a8082006dd82eb2",
+    "alred/schemas/v1/route-snapshot.schema.json": "sha256:441c957e499fefdaf5d3ce6d2f9d6e34007aa1e31550a64c5f34f9cb6c036cb2"
+  },
+  "plain_10k": {
+    "status": "PASS",
+    "counts": {
+      "route-only": {
+        "before_count": 10000,
+        "after_count": 10000,
+        "ADDED": 34,
+        "REMOVED": 34,
+        "MODIFIED": 0,
+        "UNCHANGED": 9966,
+        "changed_count": 68,
+        "has_diff": true
+      },
+      "route-ad": {
+        "before_count": 10000,
+        "after_count": 10000,
+        "ADDED": 34,
+        "REMOVED": 34,
+        "MODIFIED": 0,
+        "UNCHANGED": 9966,
+        "changed_count": 68,
+        "has_diff": true
+      },
+      "route-ad-cost": {
+        "before_count": 10000,
+        "after_count": 10000,
+        "ADDED": 34,
+        "REMOVED": 34,
+        "MODIFIED": 33,
+        "UNCHANGED": 9933,
+        "changed_count": 101,
+        "has_diff": true
+      },
+      "nexthop-include": {
+        "before_count": 10000,
+        "after_count": 10000,
+        "ADDED": 34,
+        "REMOVED": 34,
+        "MODIFIED": 33,
+        "UNCHANGED": 9933,
+        "changed_count": 101,
+        "has_diff": true
+      },
+      "route-ad-cost-nexthop": {
+        "before_count": 10000,
+        "after_count": 10000,
+        "ADDED": 34,
+        "REMOVED": 34,
+        "MODIFIED": 66,
+        "UNCHANGED": 9900,
+        "changed_count": 134,
+        "has_diff": true
+      }
+    },
+    "versions": {
+      "terminal_adapter": "1.0",
+      "parser": "1.2",
+      "normalizer": "1.1",
+      "section_adapter": "1.0",
+      "comparator": "1.1",
+      "evaluator": "1.1",
+      "renderer": "1.1"
+    },
+    "wall_seconds": 56.17846361827105,
+    "sampled_peak_rss_mib": 499.171875,
+    "limits": {
+      "timeout_seconds": 240.0,
+      "address_space_mib": 3072
+    }
+  },
+  "many_commands": {
+    "status": "PASS",
+    "routes_per_side": 10000,
+    "nonroute_commands_per_source": 300,
+    "sources": 4,
+    "section_adapter_calls": 4,
+    "elapsed_seconds": 66.13722995948046,
+    "max_rss_mib": 520.07421875,
+    "counts": {
+      "route-only": {
+        "before_count": 10000,
+        "after_count": 10000,
+        "ADDED": 34,
+        "REMOVED": 34,
+        "MODIFIED": 0,
+        "UNCHANGED": 9966,
+        "changed_count": 68,
+        "has_diff": true
+      },
+      "route-ad": {
+        "before_count": 10000,
+        "after_count": 10000,
+        "ADDED": 34,
+        "REMOVED": 34,
+        "MODIFIED": 0,
+        "UNCHANGED": 9966,
+        "changed_count": 68,
+        "has_diff": true
+      },
+      "route-ad-cost": {
+        "before_count": 10000,
+        "after_count": 10000,
+        "ADDED": 34,
+        "REMOVED": 34,
+        "MODIFIED": 33,
+        "UNCHANGED": 9933,
+        "changed_count": 101,
+        "has_diff": true
+      },
+      "nexthop-include": {
+        "before_count": 10000,
+        "after_count": 10000,
+        "ADDED": 34,
+        "REMOVED": 34,
+        "MODIFIED": 33,
+        "UNCHANGED": 9933,
+        "changed_count": 101,
+        "has_diff": true
+      },
+      "route-ad-cost-nexthop": {
+        "before_count": 10000,
+        "after_count": 10000,
+        "ADDED": 34,
+        "REMOVED": 34,
+        "MODIFIED": 66,
+        "UNCHANGED": 9900,
+        "changed_count": 134,
+        "has_diff": true
+      }
+    }
+  },
+  "browser_10k": {
+    "schema_version": 1,
+    "kind": "RouteDiffBrowserBenchmark",
+    "html_sha256": "sha256:ed1f3a4969ff8ea57c8ea70c2cdb05080f18fa9860fbf692948d3533f57165ec",
+    "html_bytes": 52971296,
+    "comparison_fingerprint": "sha256:8859bb460db5160b34256ca8c5421a743550b26cb63c98c7485d5de84a8deef9",
+    "runs": [
+      {
+        "initial_display_ms": 2921.2317932397127,
+        "mode_switch_ms": 213.23759015649557,
+        "show_common_ms": 308.2761028781533,
+        "prefix_search_ms": 172.6680500432849,
+        "evidence_jump_ms": 371.03581987321377,
+        "raw_search_ms": 220.61703074723482,
+        "raw_show_all_ms": 230.06559628993273,
+        "raw_scroll_end_ms": 98.67221210151911,
+        "literal_diff_ms": 334.1099601238966,
+        "js_heap_used_mib": 53.94947814941406,
+        "dom_nodes": 28543,
+        "review_roundtrip_ms": 339.8853447288275
+      }
+    ],
+    "browser": "151.0.7922.34",
+    "status": "PASS"
+  },
+  "distribution": {
+    "source": {
+      "status": "PASS",
+      "version": "0.2.0a12",
+      "calls": 10,
+      "cases": [
+        "standalone",
+        "health-profile",
+        "before-after",
+        "directory",
+        "collect-health",
+        "report-hashes"
+      ]
+    },
+    "wheel": {
+      "status": "PASS",
+      "version": "0.2.0a12",
+      "calls": 10,
+      "cases": [
+        "standalone",
+        "health-profile",
+        "before-after",
+        "directory",
+        "collect-health",
+        "report-hashes"
+      ],
+      "artifact_sha256": "sha256:275653ec9acfd3b233e8825e499c8a53a2235b85989538f7f4a098ea91df8a82"
+    },
+    "glibc217": {
+      "status": "PASS",
+      "version": "0.2.0a12",
+      "calls": 10,
+      "cases": [
+        "standalone",
+        "health-profile",
+        "before-after",
+        "directory",
+        "collect-health",
+        "report-hashes"
+      ],
+      "artifact_sha256": "sha256:08797b4730959fc5507424774c2d361f35d1adac9948134340a8c253f15d1911"
+    }
+  },
+  "limitations": [
+    "Synthetic fixtures do not verify all NX-OS model/release combinations.",
+    "100k and 1M route tiers remain unverified.",
+    "Timing is a single observation in a shared environment."
+  ]
+}

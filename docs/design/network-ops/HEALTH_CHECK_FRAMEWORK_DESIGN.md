@@ -12,6 +12,13 @@ Overlay固有のChangeSet、VNI自動発見、EVPN/VXLAN判定、設定投入に
 
 ## 2. 設計原則
 
+IPv4 / IPv6 の詳細比較は追加 profile `route-diff-nxos` と任意 2 時点の standalone command で利用する。
+Snapshot 参照、固定条件、rollback、出力は [Route Diff 設計 18](ROUTE_DIFF_DESIGN.md#18-health-統合契約p6)に従う。
+既存の baseline route count 判定と既定収集 command は維持する。
+期待変更と必須条件の分離、申告ログを必須 gate に採用しない条件、厳格な端末ログ adapter の
+設計は [Route Diff 設計 11](ROUTE_DIFF_DESIGN.md#11-優先項目と端末ログ合意済み一部実装)を参照する。
+現行 transcript importer との整形規則の相違・移行も同節に記載する。
+
 - 収集は既存の`collect-*`コマンドへ一本化する
 - 正常性確認は収集済みログからオフラインでも再実行できる
 - rawログ、Snapshot、判定を分離する

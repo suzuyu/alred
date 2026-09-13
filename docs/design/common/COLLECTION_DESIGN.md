@@ -174,6 +174,10 @@ file 全体ではなく Manifest の
 `output_start_line`～`output_end_line`をcommand outputとして使用する。Portable Evidence Packageへexportする場合も
 この範囲だけをcommand ID別fileへmaterializeし、元のline rangeはprovenanceとして保持する。
 
+Route Diff が統合 `_shows.log` を直接読む場合の管理行・command 境界の検証は
+[専用の修正設計](../network-ops/ROUTE_DIFF_COLLECTION_LOG_FIX_DESIGN.md#3-入力と-section-adapter)で
+共通 section adapter として実装した。writer の既存形式や他の Collection Manifest consumer は変更しない。
+
 ## 6. Parallelismと失敗
 
 - host間は`--workers`で並列化できる。

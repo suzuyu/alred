@@ -155,3 +155,12 @@ live 専用 command で参照した場合は従来どおり `OPERATION_ARCHIVED`
 ```
 
 messageは表示用であり、自動処理は`code`、`phase`、`retryable`、構造化fieldを使用する。
+
+`route-diff-nxos` の `ROUTE_REPORT_FAILED` は終了 code `6` とする。出力の書き込み、hash 検証、
+atomic publish の失敗を示す。途中 artifact は診断用に残し、新しい出力先で再実行する。
+入力 file の読込失敗は `INPUT_NOT_FOUND` / `2`、入力形式・組合せ・競合は `VALIDATION_ERROR` / `2`、
+SIGINT は `COLLECTION_CANCELLED` / `130`。比較結果の UNKNOWN / WARN / FAIL は Route Diff の設計に従う。
+
+Health に追加した Route report の書き込み・hash 検証失敗にも `ROUTE_REPORT_FAILED` を用いる。
+Health CLI は既存 operation error の終了 code `2` を維持する。途中 attempt を保持し、
+前回の Route report 公開先を更新しない。[Route Diff 設計 18](../network-ops/ROUTE_DIFF_DESIGN.md#18-health-統合契約p6)を参照する。

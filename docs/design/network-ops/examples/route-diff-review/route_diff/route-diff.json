@@ -1,0 +1,1671 @@
+{
+  "schema_version": 1,
+  "kind": "RouteDiff",
+  "design_status": "draft",
+  "synthetic": true,
+  "versions": {
+    "parser": "mock-review-2",
+    "normalizer": "mock-review-2",
+    "comparator": "mock-review-2",
+    "renderer": "mock-review-6"
+  },
+  "comparison": {
+    "primary_mode": "route-ad-cost-nexthop",
+    "modes": [
+      "route-only",
+      "route-ad",
+      "route-ad-cost",
+      "nexthop-include",
+      "route-ad-cost-nexthop"
+    ],
+    "before_label": "before",
+    "after_label": "after",
+    "ignored_fields": [
+      "age",
+      "display_order",
+      "protocol",
+      "tag"
+    ]
+  },
+  "sources": [
+    {
+      "id": "leaf01-before",
+      "device": "leaf01",
+      "side": "before",
+      "path": "../inputs/leaf01/before-route.log",
+      "sha256": "sha256:c72c512a1d0c17a1bda1ddcf50f9547421fd52f344f49a79ab2a03d45712c513",
+      "input_format": "nxos-transcript",
+      "collected_at": null,
+      "completeness": "synthetic_complete"
+    },
+    {
+      "id": "leaf01-after",
+      "device": "leaf01",
+      "side": "after",
+      "path": "../inputs/leaf01/after-route.log",
+      "sha256": "sha256:52a815f34de87ed1fe269e25d97490e0485ec37f0ebb4ddbab1013fadc597420",
+      "input_format": "nxos-transcript",
+      "collected_at": null,
+      "completeness": "synthetic_complete"
+    },
+    {
+      "id": "leaf02-before",
+      "device": "leaf02",
+      "side": "before",
+      "path": "../inputs/leaf02/before-route.log",
+      "sha256": "sha256:5e9e3936f3c7ad7f0ec647cbbe52dd12f76f137a23325b98504ca57b9ecbd4ff",
+      "input_format": "nxos-transcript",
+      "collected_at": null,
+      "completeness": "synthetic_complete"
+    },
+    {
+      "id": "leaf02-after",
+      "device": "leaf02",
+      "side": "after",
+      "path": "../inputs/leaf02/after-route.log",
+      "sha256": "sha256:6a658111f63d29e2c57ef69762ed882803505b53b8fc2f4456d92d09ca80da5f",
+      "input_format": "nxos-transcript",
+      "collected_at": null,
+      "completeness": "synthetic_complete"
+    },
+    {
+      "id": "leaf03-before",
+      "device": "leaf03",
+      "side": "before",
+      "path": "../inputs/leaf03/before-route.log",
+      "sha256": "sha256:9033e87a093122c6c6c726244bdcabeb04a812675168e477131860c406828d45",
+      "input_format": "nxos-transcript",
+      "collected_at": null,
+      "completeness": "synthetic_complete"
+    },
+    {
+      "id": "leaf03-after",
+      "device": "leaf03",
+      "side": "after",
+      "path": "../inputs/leaf03/after-route.log",
+      "sha256": "sha256:6743ba833f0ff4b09f9227d2dab16b4c30bd7f42abbdc855b2a107c6b4a9641e",
+      "input_format": "nxos-transcript",
+      "collected_at": null,
+      "completeness": "incomplete"
+    }
+  ],
+  "not_selected_scopes": [
+    {
+      "device": "leaf03",
+      "family": "ipv6",
+      "reason": "両側で未観測"
+    }
+  ],
+  "summary": {
+    "coverage": "PARTIAL",
+    "complete_scope_count": 4,
+    "unknown_scope_count": 1,
+    "modes": {
+      "route-only": {
+        "ADDED": 1,
+        "REMOVED": 1,
+        "MODIFIED": 0,
+        "UNCHANGED": 11,
+        "before_count": 12,
+        "after_count": 12,
+        "has_diff": true
+      },
+      "route-ad": {
+        "ADDED": 1,
+        "REMOVED": 1,
+        "MODIFIED": 1,
+        "UNCHANGED": 10,
+        "before_count": 12,
+        "after_count": 12,
+        "has_diff": true
+      },
+      "route-ad-cost": {
+        "ADDED": 1,
+        "REMOVED": 1,
+        "MODIFIED": 3,
+        "UNCHANGED": 8,
+        "before_count": 12,
+        "after_count": 12,
+        "has_diff": true
+      },
+      "nexthop-include": {
+        "ADDED": 1,
+        "REMOVED": 1,
+        "MODIFIED": 5,
+        "UNCHANGED": 6,
+        "before_count": 12,
+        "after_count": 12,
+        "has_diff": true
+      },
+      "route-ad-cost-nexthop": {
+        "ADDED": 1,
+        "REMOVED": 1,
+        "MODIFIED": 7,
+        "UNCHANGED": 4,
+        "before_count": 12,
+        "after_count": 12,
+        "has_diff": true
+      }
+    }
+  },
+  "scopes": [
+    {
+      "device": "leaf01",
+      "vrf": "TENANT-A",
+      "family": "ipv4",
+      "coverage": "COMPLETE",
+      "evaluation": "NOT_EVALUATED",
+      "observations": {
+        "before": {
+          "collection_status": "complete",
+          "observed_prefix_count": 6,
+          "parsed_prefix_count": 6,
+          "parsed_path_count": 8,
+          "unparsed_line_count": 0
+        },
+        "after": {
+          "collection_status": "complete",
+          "observed_prefix_count": 6,
+          "parsed_prefix_count": 6,
+          "parsed_path_count": 7,
+          "unparsed_line_count": 0
+        }
+      },
+      "modes": {
+        "route-only": {
+          "ADDED": 1,
+          "REMOVED": 1,
+          "MODIFIED": 0,
+          "UNCHANGED": 5,
+          "before_count": 6,
+          "after_count": 6,
+          "has_diff": true
+        },
+        "route-ad": {
+          "ADDED": 1,
+          "REMOVED": 1,
+          "MODIFIED": 1,
+          "UNCHANGED": 4,
+          "before_count": 6,
+          "after_count": 6,
+          "has_diff": true
+        },
+        "route-ad-cost": {
+          "ADDED": 1,
+          "REMOVED": 1,
+          "MODIFIED": 2,
+          "UNCHANGED": 3,
+          "before_count": 6,
+          "after_count": 6,
+          "has_diff": true
+        },
+        "nexthop-include": {
+          "ADDED": 1,
+          "REMOVED": 1,
+          "MODIFIED": 3,
+          "UNCHANGED": 2,
+          "before_count": 6,
+          "after_count": 6,
+          "has_diff": true
+        },
+        "route-ad-cost-nexthop": {
+          "ADDED": 1,
+          "REMOVED": 1,
+          "MODIFIED": 4,
+          "UNCHANGED": 1,
+          "before_count": 6,
+          "after_count": 6,
+          "has_diff": true
+        }
+      }
+    },
+    {
+      "device": "leaf01",
+      "vrf": "TENANT-A",
+      "family": "ipv6",
+      "coverage": "COMPLETE",
+      "evaluation": "NOT_EVALUATED",
+      "observations": {
+        "before": {
+          "collection_status": "complete",
+          "observed_prefix_count": 4,
+          "parsed_prefix_count": 4,
+          "parsed_path_count": 4,
+          "unparsed_line_count": 0
+        },
+        "after": {
+          "collection_status": "complete",
+          "observed_prefix_count": 4,
+          "parsed_prefix_count": 4,
+          "parsed_path_count": 4,
+          "unparsed_line_count": 0
+        }
+      },
+      "modes": {
+        "route-only": {
+          "ADDED": 0,
+          "REMOVED": 0,
+          "MODIFIED": 0,
+          "UNCHANGED": 4,
+          "before_count": 4,
+          "after_count": 4,
+          "has_diff": false
+        },
+        "route-ad": {
+          "ADDED": 0,
+          "REMOVED": 0,
+          "MODIFIED": 0,
+          "UNCHANGED": 4,
+          "before_count": 4,
+          "after_count": 4,
+          "has_diff": false
+        },
+        "route-ad-cost": {
+          "ADDED": 0,
+          "REMOVED": 0,
+          "MODIFIED": 1,
+          "UNCHANGED": 3,
+          "before_count": 4,
+          "after_count": 4,
+          "has_diff": true
+        },
+        "nexthop-include": {
+          "ADDED": 0,
+          "REMOVED": 0,
+          "MODIFIED": 2,
+          "UNCHANGED": 2,
+          "before_count": 4,
+          "after_count": 4,
+          "has_diff": true
+        },
+        "route-ad-cost-nexthop": {
+          "ADDED": 0,
+          "REMOVED": 0,
+          "MODIFIED": 3,
+          "UNCHANGED": 1,
+          "before_count": 4,
+          "after_count": 4,
+          "has_diff": true
+        }
+      }
+    },
+    {
+      "device": "leaf02",
+      "vrf": "default",
+      "family": "ipv4",
+      "coverage": "COMPLETE",
+      "evaluation": "NOT_EVALUATED",
+      "observations": {
+        "before": {
+          "collection_status": "complete",
+          "observed_prefix_count": 1,
+          "parsed_prefix_count": 1,
+          "parsed_path_count": 1,
+          "unparsed_line_count": 0
+        },
+        "after": {
+          "collection_status": "complete",
+          "observed_prefix_count": 1,
+          "parsed_prefix_count": 1,
+          "parsed_path_count": 1,
+          "unparsed_line_count": 0
+        }
+      },
+      "modes": {
+        "route-only": {
+          "ADDED": 0,
+          "REMOVED": 0,
+          "MODIFIED": 0,
+          "UNCHANGED": 1,
+          "before_count": 1,
+          "after_count": 1,
+          "has_diff": false
+        },
+        "route-ad": {
+          "ADDED": 0,
+          "REMOVED": 0,
+          "MODIFIED": 0,
+          "UNCHANGED": 1,
+          "before_count": 1,
+          "after_count": 1,
+          "has_diff": false
+        },
+        "route-ad-cost": {
+          "ADDED": 0,
+          "REMOVED": 0,
+          "MODIFIED": 0,
+          "UNCHANGED": 1,
+          "before_count": 1,
+          "after_count": 1,
+          "has_diff": false
+        },
+        "nexthop-include": {
+          "ADDED": 0,
+          "REMOVED": 0,
+          "MODIFIED": 0,
+          "UNCHANGED": 1,
+          "before_count": 1,
+          "after_count": 1,
+          "has_diff": false
+        },
+        "route-ad-cost-nexthop": {
+          "ADDED": 0,
+          "REMOVED": 0,
+          "MODIFIED": 0,
+          "UNCHANGED": 1,
+          "before_count": 1,
+          "after_count": 1,
+          "has_diff": false
+        }
+      }
+    },
+    {
+      "device": "leaf02",
+      "vrf": "default",
+      "family": "ipv6",
+      "coverage": "COMPLETE",
+      "evaluation": "NOT_EVALUATED",
+      "observations": {
+        "before": {
+          "collection_status": "complete",
+          "observed_prefix_count": 1,
+          "parsed_prefix_count": 1,
+          "parsed_path_count": 1,
+          "unparsed_line_count": 0
+        },
+        "after": {
+          "collection_status": "complete",
+          "observed_prefix_count": 1,
+          "parsed_prefix_count": 1,
+          "parsed_path_count": 1,
+          "unparsed_line_count": 0
+        }
+      },
+      "modes": {
+        "route-only": {
+          "ADDED": 0,
+          "REMOVED": 0,
+          "MODIFIED": 0,
+          "UNCHANGED": 1,
+          "before_count": 1,
+          "after_count": 1,
+          "has_diff": false
+        },
+        "route-ad": {
+          "ADDED": 0,
+          "REMOVED": 0,
+          "MODIFIED": 0,
+          "UNCHANGED": 1,
+          "before_count": 1,
+          "after_count": 1,
+          "has_diff": false
+        },
+        "route-ad-cost": {
+          "ADDED": 0,
+          "REMOVED": 0,
+          "MODIFIED": 0,
+          "UNCHANGED": 1,
+          "before_count": 1,
+          "after_count": 1,
+          "has_diff": false
+        },
+        "nexthop-include": {
+          "ADDED": 0,
+          "REMOVED": 0,
+          "MODIFIED": 0,
+          "UNCHANGED": 1,
+          "before_count": 1,
+          "after_count": 1,
+          "has_diff": false
+        },
+        "route-ad-cost-nexthop": {
+          "ADDED": 0,
+          "REMOVED": 0,
+          "MODIFIED": 0,
+          "UNCHANGED": 1,
+          "before_count": 1,
+          "after_count": 1,
+          "has_diff": false
+        }
+      }
+    },
+    {
+      "device": "leaf03",
+      "vrf": "TENANT-A",
+      "family": "ipv4",
+      "coverage": "UNKNOWN",
+      "reason": "after の出力が path 行の途中で終了。prefix 消失として数えない",
+      "evaluation": "NOT_EVALUATED",
+      "modes": {
+        "route-only": {
+          "before_count": null,
+          "after_count": null,
+          "ADDED": null,
+          "REMOVED": null,
+          "MODIFIED": null,
+          "UNCHANGED": null,
+          "has_diff": null
+        },
+        "route-ad": {
+          "before_count": null,
+          "after_count": null,
+          "ADDED": null,
+          "REMOVED": null,
+          "MODIFIED": null,
+          "UNCHANGED": null,
+          "has_diff": null
+        },
+        "route-ad-cost": {
+          "before_count": null,
+          "after_count": null,
+          "ADDED": null,
+          "REMOVED": null,
+          "MODIFIED": null,
+          "UNCHANGED": null,
+          "has_diff": null
+        },
+        "nexthop-include": {
+          "before_count": null,
+          "after_count": null,
+          "ADDED": null,
+          "REMOVED": null,
+          "MODIFIED": null,
+          "UNCHANGED": null,
+          "has_diff": null
+        },
+        "route-ad-cost-nexthop": {
+          "before_count": null,
+          "after_count": null,
+          "ADDED": null,
+          "REMOVED": null,
+          "MODIFIED": null,
+          "UNCHANGED": null,
+          "has_diff": null
+        }
+      },
+      "observations": {
+        "before": {
+          "collection_status": "complete",
+          "observed_prefix_count": 1,
+          "parsed_prefix_count": 1,
+          "parsed_path_count": 1,
+          "unparsed_line_count": 0
+        },
+        "after": {
+          "collection_status": "incomplete",
+          "observed_prefix_count": 1,
+          "parsed_prefix_count": 0,
+          "parsed_path_count": 0,
+          "unparsed_line_count": 1
+        }
+      }
+    }
+  ],
+  "entries": [
+    {
+      "device": "leaf01",
+      "vrf": "TENANT-A",
+      "family": "ipv4",
+      "prefix": "198.51.100.0/24",
+      "before": {
+        "prefix": "198.51.100.0/24",
+        "paths": [
+          {
+            "kind": "ip",
+            "next_hop_family": "ipv4",
+            "address": "192.0.2.1",
+            "interface": "Ethernet1/1",
+            "next_hop_vrf": "TENANT-A",
+            "admin_distance": 110,
+            "protocol": "ospf",
+            "metric": 20
+          }
+        ]
+      },
+      "after": null,
+      "note": "prefix が消失",
+      "evidence_before": {
+        "source_id": "leaf01-before",
+        "start_line": 6,
+        "end_line": 7,
+        "command_id": "route_ipv4_all_vrfs"
+      },
+      "evidence_after": {
+        "source_id": "leaf01-after",
+        "start_line": 5,
+        "end_line": 18,
+        "command_id": "route_ipv4_all_vrfs"
+      },
+      "change_type": "REMOVED",
+      "mode_changes": {
+        "route-only": "REMOVED",
+        "route-ad": "REMOVED",
+        "route-ad-cost": "REMOVED",
+        "nexthop-include": "REMOVED",
+        "route-ad-cost-nexthop": "REMOVED"
+      },
+      "reason_codes": [
+        "PREFIX_REMOVED"
+      ],
+      "field_summary": [
+        {
+          "field": "admin_distance",
+          "label": "AD",
+          "before": [
+            110
+          ],
+          "after": [],
+          "changed": true
+        },
+        {
+          "field": "metric",
+          "label": "Cost",
+          "before": [
+            20
+          ],
+          "after": [],
+          "changed": true
+        },
+        {
+          "field": "next_hops",
+          "label": "NextHop",
+          "before": [
+            [
+              "ip",
+              "ipv4",
+              "192.0.2.1",
+              "Ethernet1/1",
+              "TENANT-A"
+            ]
+          ],
+          "after": [],
+          "changed": true
+        },
+        {
+          "field": "path_count",
+          "label": "path 数",
+          "before": 1,
+          "after": 0,
+          "changed": true
+        }
+      ],
+      "mode_reason_codes": {
+        "route-only": [
+          "PREFIX_REMOVED"
+        ],
+        "route-ad": [
+          "PREFIX_REMOVED"
+        ],
+        "route-ad-cost": [
+          "PREFIX_REMOVED"
+        ],
+        "nexthop-include": [
+          "PREFIX_REMOVED"
+        ],
+        "route-ad-cost-nexthop": [
+          "PREFIX_REMOVED"
+        ]
+      },
+      "status": "OBSERVED",
+      "evaluation": "NOT_EVALUATED",
+      "expectation_status": "NOT_CONFIGURED",
+      "expectation_rule_id": ""
+    },
+    {
+      "device": "leaf01",
+      "vrf": "TENANT-A",
+      "family": "ipv4",
+      "prefix": "203.0.113.0/24",
+      "before": null,
+      "after": {
+        "prefix": "203.0.113.0/24",
+        "paths": [
+          {
+            "kind": "ip",
+            "next_hop_family": "ipv4",
+            "address": "192.0.2.1",
+            "interface": "Ethernet1/1",
+            "next_hop_vrf": "TENANT-A",
+            "admin_distance": 110,
+            "protocol": "ospf",
+            "metric": 20
+          }
+        ]
+      },
+      "note": "prefix が追加",
+      "evidence_before": {
+        "source_id": "leaf01-before",
+        "start_line": 5,
+        "end_line": 19,
+        "command_id": "route_ipv4_all_vrfs"
+      },
+      "evidence_after": {
+        "source_id": "leaf01-after",
+        "start_line": 6,
+        "end_line": 7,
+        "command_id": "route_ipv4_all_vrfs"
+      },
+      "change_type": "ADDED",
+      "mode_changes": {
+        "route-only": "ADDED",
+        "route-ad": "ADDED",
+        "route-ad-cost": "ADDED",
+        "nexthop-include": "ADDED",
+        "route-ad-cost-nexthop": "ADDED"
+      },
+      "reason_codes": [
+        "PREFIX_ADDED"
+      ],
+      "field_summary": [
+        {
+          "field": "admin_distance",
+          "label": "AD",
+          "before": [],
+          "after": [
+            110
+          ],
+          "changed": true
+        },
+        {
+          "field": "metric",
+          "label": "Cost",
+          "before": [],
+          "after": [
+            20
+          ],
+          "changed": true
+        },
+        {
+          "field": "next_hops",
+          "label": "NextHop",
+          "before": [],
+          "after": [
+            [
+              "ip",
+              "ipv4",
+              "192.0.2.1",
+              "Ethernet1/1",
+              "TENANT-A"
+            ]
+          ],
+          "changed": true
+        },
+        {
+          "field": "path_count",
+          "label": "path 数",
+          "before": 0,
+          "after": 1,
+          "changed": true
+        }
+      ],
+      "mode_reason_codes": {
+        "route-only": [
+          "PREFIX_ADDED"
+        ],
+        "route-ad": [
+          "PREFIX_ADDED"
+        ],
+        "route-ad-cost": [
+          "PREFIX_ADDED"
+        ],
+        "nexthop-include": [
+          "PREFIX_ADDED"
+        ],
+        "route-ad-cost-nexthop": [
+          "PREFIX_ADDED"
+        ]
+      },
+      "status": "OBSERVED",
+      "evaluation": "NOT_EVALUATED",
+      "expectation_status": "NOT_CONFIGURED",
+      "expectation_rule_id": ""
+    },
+    {
+      "device": "leaf01",
+      "vrf": "TENANT-A",
+      "family": "ipv4",
+      "prefix": "192.0.2.0/24",
+      "before": {
+        "prefix": "192.0.2.0/24",
+        "paths": [
+          {
+            "kind": "ip",
+            "next_hop_family": "ipv4",
+            "address": "192.0.2.1",
+            "interface": "Ethernet1/1",
+            "next_hop_vrf": "TENANT-A",
+            "admin_distance": 110,
+            "protocol": "ospf",
+            "metric": 20
+          }
+        ]
+      },
+      "after": {
+        "prefix": "192.0.2.0/24",
+        "paths": [
+          {
+            "kind": "ip",
+            "next_hop_family": "ipv4",
+            "address": "192.0.2.1",
+            "interface": "Ethernet1/1",
+            "next_hop_vrf": "TENANT-A",
+            "admin_distance": 200,
+            "protocol": "ospf",
+            "metric": 20
+          }
+        ]
+      },
+      "note": "AD 110 → 200",
+      "evidence_before": {
+        "source_id": "leaf01-before",
+        "start_line": 8,
+        "end_line": 9,
+        "command_id": "route_ipv4_all_vrfs"
+      },
+      "evidence_after": {
+        "source_id": "leaf01-after",
+        "start_line": 8,
+        "end_line": 9,
+        "command_id": "route_ipv4_all_vrfs"
+      },
+      "change_type": "MODIFIED",
+      "mode_changes": {
+        "route-only": "UNCHANGED",
+        "route-ad": "MODIFIED",
+        "route-ad-cost": "MODIFIED",
+        "nexthop-include": "MODIFIED",
+        "route-ad-cost-nexthop": "MODIFIED"
+      },
+      "reason_codes": [
+        "AD_CHANGED"
+      ],
+      "field_summary": [
+        {
+          "field": "admin_distance",
+          "label": "AD",
+          "before": [
+            110
+          ],
+          "after": [
+            200
+          ],
+          "changed": true
+        },
+        {
+          "field": "metric",
+          "label": "Cost",
+          "before": [
+            20
+          ],
+          "after": [
+            20
+          ],
+          "changed": false
+        },
+        {
+          "field": "next_hops",
+          "label": "NextHop",
+          "before": [
+            [
+              "ip",
+              "ipv4",
+              "192.0.2.1",
+              "Ethernet1/1",
+              "TENANT-A"
+            ]
+          ],
+          "after": [
+            [
+              "ip",
+              "ipv4",
+              "192.0.2.1",
+              "Ethernet1/1",
+              "TENANT-A"
+            ]
+          ],
+          "changed": false
+        },
+        {
+          "field": "path_count",
+          "label": "path 数",
+          "before": 1,
+          "after": 1,
+          "changed": false
+        }
+      ],
+      "mode_reason_codes": {
+        "route-only": [],
+        "route-ad": [
+          "AD_CHANGED"
+        ],
+        "route-ad-cost": [
+          "AD_CHANGED"
+        ],
+        "nexthop-include": [
+          "AD_CHANGED"
+        ],
+        "route-ad-cost-nexthop": [
+          "AD_CHANGED"
+        ]
+      },
+      "status": "OBSERVED",
+      "evaluation": "NOT_EVALUATED",
+      "expectation_status": "NOT_CONFIGURED",
+      "expectation_rule_id": ""
+    },
+    {
+      "device": "leaf01",
+      "vrf": "TENANT-A",
+      "family": "ipv4",
+      "prefix": "198.51.100.128/25",
+      "before": {
+        "prefix": "198.51.100.128/25",
+        "paths": [
+          {
+            "kind": "ip",
+            "next_hop_family": "ipv4",
+            "address": "192.0.2.1",
+            "interface": "Ethernet1/1",
+            "next_hop_vrf": "TENANT-A",
+            "admin_distance": 110,
+            "protocol": "ospf",
+            "metric": 20
+          },
+          {
+            "kind": "ip",
+            "next_hop_family": "ipv4",
+            "address": "192.0.2.2",
+            "interface": "Ethernet1/2",
+            "next_hop_vrf": "TENANT-A",
+            "admin_distance": 110,
+            "protocol": "ospf",
+            "metric": 20
+          }
+        ]
+      },
+      "after": {
+        "prefix": "198.51.100.128/25",
+        "paths": [
+          {
+            "kind": "ip",
+            "next_hop_family": "ipv4",
+            "address": "192.0.2.2",
+            "interface": "Ethernet1/2",
+            "next_hop_vrf": "TENANT-A",
+            "admin_distance": 110,
+            "protocol": "ospf",
+            "metric": 20
+          }
+        ]
+      },
+      "note": "ECMP 2 → 1。共通 path は差分のみ表示で隠す",
+      "evidence_before": {
+        "source_id": "leaf01-before",
+        "start_line": 10,
+        "end_line": 12,
+        "command_id": "route_ipv4_all_vrfs"
+      },
+      "evidence_after": {
+        "source_id": "leaf01-after",
+        "start_line": 10,
+        "end_line": 11,
+        "command_id": "route_ipv4_all_vrfs"
+      },
+      "change_type": "MODIFIED",
+      "mode_changes": {
+        "route-only": "UNCHANGED",
+        "route-ad": "UNCHANGED",
+        "route-ad-cost": "UNCHANGED",
+        "nexthop-include": "MODIFIED",
+        "route-ad-cost-nexthop": "MODIFIED"
+      },
+      "reason_codes": [
+        "NEXTHOP_CHANGED",
+        "PATH_COUNT_DECREASED"
+      ],
+      "field_summary": [
+        {
+          "field": "admin_distance",
+          "label": "AD",
+          "before": [
+            110
+          ],
+          "after": [
+            110
+          ],
+          "changed": false
+        },
+        {
+          "field": "metric",
+          "label": "Cost",
+          "before": [
+            20
+          ],
+          "after": [
+            20
+          ],
+          "changed": false
+        },
+        {
+          "field": "next_hops",
+          "label": "NextHop",
+          "before": [
+            [
+              "ip",
+              "ipv4",
+              "192.0.2.1",
+              "Ethernet1/1",
+              "TENANT-A"
+            ],
+            [
+              "ip",
+              "ipv4",
+              "192.0.2.2",
+              "Ethernet1/2",
+              "TENANT-A"
+            ]
+          ],
+          "after": [
+            [
+              "ip",
+              "ipv4",
+              "192.0.2.2",
+              "Ethernet1/2",
+              "TENANT-A"
+            ]
+          ],
+          "changed": true
+        },
+        {
+          "field": "path_count",
+          "label": "path 数",
+          "before": 2,
+          "after": 1,
+          "changed": true
+        }
+      ],
+      "mode_reason_codes": {
+        "route-only": [],
+        "route-ad": [],
+        "route-ad-cost": [],
+        "nexthop-include": [
+          "NEXTHOP_CHANGED",
+          "PATH_COUNT_DECREASED"
+        ],
+        "route-ad-cost-nexthop": [
+          "NEXTHOP_CHANGED",
+          "PATH_COUNT_DECREASED"
+        ]
+      },
+      "status": "OBSERVED",
+      "evaluation": "NOT_EVALUATED",
+      "expectation_status": "NOT_CONFIGURED",
+      "expectation_rule_id": ""
+    },
+    {
+      "device": "leaf01",
+      "vrf": "TENANT-A",
+      "family": "ipv4",
+      "prefix": "192.0.2.128/25",
+      "before": {
+        "prefix": "192.0.2.128/25",
+        "paths": [
+          {
+            "kind": "ip",
+            "next_hop_family": "ipv4",
+            "address": "192.0.2.1",
+            "interface": "Ethernet1/1",
+            "next_hop_vrf": "TENANT-A",
+            "admin_distance": 110,
+            "protocol": "ospf",
+            "metric": 20
+          }
+        ]
+      },
+      "after": {
+        "prefix": "192.0.2.128/25",
+        "paths": [
+          {
+            "kind": "ip",
+            "next_hop_family": "ipv4",
+            "address": "192.0.2.2",
+            "interface": "Ethernet1/2",
+            "next_hop_vrf": "TENANT-A",
+            "admin_distance": 110,
+            "protocol": "ospf",
+            "metric": 20
+          }
+        ]
+      },
+      "note": "next-hop と interface が変更",
+      "evidence_before": {
+        "source_id": "leaf01-before",
+        "start_line": 13,
+        "end_line": 14,
+        "command_id": "route_ipv4_all_vrfs"
+      },
+      "evidence_after": {
+        "source_id": "leaf01-after",
+        "start_line": 12,
+        "end_line": 13,
+        "command_id": "route_ipv4_all_vrfs"
+      },
+      "change_type": "MODIFIED",
+      "mode_changes": {
+        "route-only": "UNCHANGED",
+        "route-ad": "UNCHANGED",
+        "route-ad-cost": "UNCHANGED",
+        "nexthop-include": "MODIFIED",
+        "route-ad-cost-nexthop": "MODIFIED"
+      },
+      "reason_codes": [
+        "NEXTHOP_CHANGED"
+      ],
+      "field_summary": [
+        {
+          "field": "admin_distance",
+          "label": "AD",
+          "before": [
+            110
+          ],
+          "after": [
+            110
+          ],
+          "changed": false
+        },
+        {
+          "field": "metric",
+          "label": "Cost",
+          "before": [
+            20
+          ],
+          "after": [
+            20
+          ],
+          "changed": false
+        },
+        {
+          "field": "next_hops",
+          "label": "NextHop",
+          "before": [
+            [
+              "ip",
+              "ipv4",
+              "192.0.2.1",
+              "Ethernet1/1",
+              "TENANT-A"
+            ]
+          ],
+          "after": [
+            [
+              "ip",
+              "ipv4",
+              "192.0.2.2",
+              "Ethernet1/2",
+              "TENANT-A"
+            ]
+          ],
+          "changed": true
+        },
+        {
+          "field": "path_count",
+          "label": "path 数",
+          "before": 1,
+          "after": 1,
+          "changed": false
+        }
+      ],
+      "mode_reason_codes": {
+        "route-only": [],
+        "route-ad": [],
+        "route-ad-cost": [],
+        "nexthop-include": [
+          "NEXTHOP_CHANGED"
+        ],
+        "route-ad-cost-nexthop": [
+          "NEXTHOP_CHANGED"
+        ]
+      },
+      "status": "OBSERVED",
+      "evaluation": "NOT_EVALUATED",
+      "expectation_status": "NOT_CONFIGURED",
+      "expectation_rule_id": ""
+    },
+    {
+      "device": "leaf01",
+      "vrf": "TENANT-A",
+      "family": "ipv6",
+      "prefix": "2001:db8:100::/64",
+      "before": {
+        "prefix": "2001:db8:100::/64",
+        "paths": [
+          {
+            "kind": "ip",
+            "next_hop_family": "ipv6",
+            "address": "fe80::1",
+            "interface": "Ethernet1/1",
+            "next_hop_vrf": "TENANT-A",
+            "admin_distance": 110,
+            "protocol": "ospf",
+            "metric": 20
+          }
+        ]
+      },
+      "after": {
+        "prefix": "2001:db8:100::/64",
+        "paths": [
+          {
+            "kind": "ip",
+            "next_hop_family": "ipv6",
+            "address": "fe80::1",
+            "interface": "Ethernet1/2",
+            "next_hop_vrf": "TENANT-A",
+            "admin_distance": 110,
+            "protocol": "ospf",
+            "metric": 20
+          }
+        ]
+      },
+      "note": "同じ link-local address でも interface 変更を検出",
+      "evidence_before": {
+        "source_id": "leaf01-before",
+        "start_line": 27,
+        "end_line": 28,
+        "command_id": "route_ipv6_all_vrfs"
+      },
+      "evidence_after": {
+        "source_id": "leaf01-after",
+        "start_line": 26,
+        "end_line": 27,
+        "command_id": "route_ipv6_all_vrfs"
+      },
+      "change_type": "MODIFIED",
+      "mode_changes": {
+        "route-only": "UNCHANGED",
+        "route-ad": "UNCHANGED",
+        "route-ad-cost": "UNCHANGED",
+        "nexthop-include": "MODIFIED",
+        "route-ad-cost-nexthop": "MODIFIED"
+      },
+      "reason_codes": [
+        "NEXTHOP_CHANGED"
+      ],
+      "field_summary": [
+        {
+          "field": "admin_distance",
+          "label": "AD",
+          "before": [
+            110
+          ],
+          "after": [
+            110
+          ],
+          "changed": false
+        },
+        {
+          "field": "metric",
+          "label": "Cost",
+          "before": [
+            20
+          ],
+          "after": [
+            20
+          ],
+          "changed": false
+        },
+        {
+          "field": "next_hops",
+          "label": "NextHop",
+          "before": [
+            [
+              "ip",
+              "ipv6",
+              "fe80::1",
+              "Ethernet1/1",
+              "TENANT-A"
+            ]
+          ],
+          "after": [
+            [
+              "ip",
+              "ipv6",
+              "fe80::1",
+              "Ethernet1/2",
+              "TENANT-A"
+            ]
+          ],
+          "changed": true
+        },
+        {
+          "field": "path_count",
+          "label": "path 数",
+          "before": 1,
+          "after": 1,
+          "changed": false
+        }
+      ],
+      "mode_reason_codes": {
+        "route-only": [],
+        "route-ad": [],
+        "route-ad-cost": [],
+        "nexthop-include": [
+          "NEXTHOP_CHANGED"
+        ],
+        "route-ad-cost-nexthop": [
+          "NEXTHOP_CHANGED"
+        ]
+      },
+      "status": "OBSERVED",
+      "evaluation": "NOT_EVALUATED",
+      "expectation_status": "NOT_CONFIGURED",
+      "expectation_rule_id": ""
+    },
+    {
+      "device": "leaf01",
+      "vrf": "TENANT-A",
+      "family": "ipv6",
+      "prefix": "2001:db8:300::/64",
+      "before": {
+        "prefix": "2001:db8:300::/64",
+        "paths": [
+          {
+            "kind": "ip",
+            "next_hop_family": "ipv6",
+            "address": "::ffff:192.0.2.1",
+            "interface": null,
+            "next_hop_vrf": "default",
+            "admin_distance": 200,
+            "protocol": "bgp",
+            "metric": 20
+          }
+        ]
+      },
+      "after": {
+        "prefix": "2001:db8:300::/64",
+        "paths": [
+          {
+            "kind": "ip",
+            "next_hop_family": "ipv6",
+            "address": "::ffff:192.0.2.1",
+            "interface": null,
+            "next_hop_vrf": "TENANT-B",
+            "admin_distance": 200,
+            "protocol": "bgp",
+            "metric": 20
+          }
+        ]
+      },
+      "note": "IPv4-mapped IPv6 を保持し、参照先 VRF の変更を検出",
+      "evidence_before": {
+        "source_id": "leaf01-before",
+        "start_line": 31,
+        "end_line": 32,
+        "command_id": "route_ipv6_all_vrfs"
+      },
+      "evidence_after": {
+        "source_id": "leaf01-after",
+        "start_line": 30,
+        "end_line": 31,
+        "command_id": "route_ipv6_all_vrfs"
+      },
+      "change_type": "MODIFIED",
+      "mode_changes": {
+        "route-only": "UNCHANGED",
+        "route-ad": "UNCHANGED",
+        "route-ad-cost": "UNCHANGED",
+        "nexthop-include": "MODIFIED",
+        "route-ad-cost-nexthop": "MODIFIED"
+      },
+      "reason_codes": [
+        "NEXTHOP_CHANGED"
+      ],
+      "field_summary": [
+        {
+          "field": "admin_distance",
+          "label": "AD",
+          "before": [
+            200
+          ],
+          "after": [
+            200
+          ],
+          "changed": false
+        },
+        {
+          "field": "metric",
+          "label": "Cost",
+          "before": [
+            20
+          ],
+          "after": [
+            20
+          ],
+          "changed": false
+        },
+        {
+          "field": "next_hops",
+          "label": "NextHop",
+          "before": [
+            [
+              "ip",
+              "ipv6",
+              "::ffff:192.0.2.1",
+              null,
+              "default"
+            ]
+          ],
+          "after": [
+            [
+              "ip",
+              "ipv6",
+              "::ffff:192.0.2.1",
+              null,
+              "TENANT-B"
+            ]
+          ],
+          "changed": true
+        },
+        {
+          "field": "path_count",
+          "label": "path 数",
+          "before": 1,
+          "after": 1,
+          "changed": false
+        }
+      ],
+      "mode_reason_codes": {
+        "route-only": [],
+        "route-ad": [],
+        "route-ad-cost": [],
+        "nexthop-include": [
+          "NEXTHOP_CHANGED"
+        ],
+        "route-ad-cost-nexthop": [
+          "NEXTHOP_CHANGED"
+        ]
+      },
+      "status": "OBSERVED",
+      "evaluation": "NOT_EVALUATED",
+      "expectation_status": "NOT_CONFIGURED",
+      "expectation_rule_id": ""
+    },
+    {
+      "device": "leaf01",
+      "vrf": "TENANT-A",
+      "family": "ipv4",
+      "prefix": "192.0.2.64/26",
+      "before": {
+        "prefix": "192.0.2.64/26",
+        "paths": [
+          {
+            "kind": "ip",
+            "next_hop_family": "ipv4",
+            "address": "192.0.2.1",
+            "interface": "Ethernet1/1",
+            "next_hop_vrf": "TENANT-A",
+            "admin_distance": 110,
+            "protocol": "ospf",
+            "metric": 20
+          }
+        ]
+      },
+      "after": {
+        "prefix": "192.0.2.64/26",
+        "paths": [
+          {
+            "kind": "ip",
+            "next_hop_family": "ipv4",
+            "address": "192.0.2.1",
+            "interface": "Ethernet1/1",
+            "next_hop_vrf": "TENANT-A",
+            "admin_distance": 110,
+            "protocol": "ospf",
+            "metric": 30
+          }
+        ]
+      },
+      "note": "Cost のみ 20 → 30。[110/20] → [110/30]",
+      "evidence_before": {
+        "source_id": "leaf01-before",
+        "start_line": 18,
+        "end_line": 19,
+        "command_id": "route_ipv4_all_vrfs"
+      },
+      "evidence_after": {
+        "source_id": "leaf01-after",
+        "start_line": 17,
+        "end_line": 18,
+        "command_id": "route_ipv4_all_vrfs"
+      },
+      "change_type": "MODIFIED",
+      "mode_changes": {
+        "route-only": "UNCHANGED",
+        "route-ad": "UNCHANGED",
+        "route-ad-cost": "MODIFIED",
+        "nexthop-include": "UNCHANGED",
+        "route-ad-cost-nexthop": "MODIFIED"
+      },
+      "reason_codes": [
+        "METRIC_CHANGED"
+      ],
+      "field_summary": [
+        {
+          "field": "admin_distance",
+          "label": "AD",
+          "before": [
+            110
+          ],
+          "after": [
+            110
+          ],
+          "changed": false
+        },
+        {
+          "field": "metric",
+          "label": "Cost",
+          "before": [
+            20
+          ],
+          "after": [
+            30
+          ],
+          "changed": true
+        },
+        {
+          "field": "next_hops",
+          "label": "NextHop",
+          "before": [
+            [
+              "ip",
+              "ipv4",
+              "192.0.2.1",
+              "Ethernet1/1",
+              "TENANT-A"
+            ]
+          ],
+          "after": [
+            [
+              "ip",
+              "ipv4",
+              "192.0.2.1",
+              "Ethernet1/1",
+              "TENANT-A"
+            ]
+          ],
+          "changed": false
+        },
+        {
+          "field": "path_count",
+          "label": "path 数",
+          "before": 1,
+          "after": 1,
+          "changed": false
+        }
+      ],
+      "mode_reason_codes": {
+        "route-only": [],
+        "route-ad": [],
+        "route-ad-cost": [
+          "METRIC_CHANGED"
+        ],
+        "nexthop-include": [],
+        "route-ad-cost-nexthop": [
+          "METRIC_CHANGED"
+        ]
+      },
+      "status": "OBSERVED",
+      "evaluation": "NOT_EVALUATED",
+      "expectation_status": "NOT_CONFIGURED",
+      "expectation_rule_id": ""
+    },
+    {
+      "device": "leaf01",
+      "vrf": "TENANT-A",
+      "family": "ipv6",
+      "prefix": "2001:db8:500::/64",
+      "before": {
+        "prefix": "2001:db8:500::/64",
+        "paths": [
+          {
+            "kind": "ip",
+            "next_hop_family": "ipv6",
+            "address": "fe80::5",
+            "interface": "Ethernet1/5",
+            "next_hop_vrf": "TENANT-A",
+            "admin_distance": 110,
+            "protocol": "ospfv3",
+            "metric": 20
+          }
+        ]
+      },
+      "after": {
+        "prefix": "2001:db8:500::/64",
+        "paths": [
+          {
+            "kind": "ip",
+            "next_hop_family": "ipv6",
+            "address": "fe80::5",
+            "interface": "Ethernet1/5",
+            "next_hop_vrf": "TENANT-A",
+            "admin_distance": 110,
+            "protocol": "ospfv3",
+            "metric": 40
+          }
+        ]
+      },
+      "note": "IPv6 の Cost のみ 20 → 40",
+      "evidence_before": {
+        "source_id": "leaf01-before",
+        "start_line": 33,
+        "end_line": 34,
+        "command_id": "route_ipv6_all_vrfs"
+      },
+      "evidence_after": {
+        "source_id": "leaf01-after",
+        "start_line": 32,
+        "end_line": 33,
+        "command_id": "route_ipv6_all_vrfs"
+      },
+      "change_type": "MODIFIED",
+      "mode_changes": {
+        "route-only": "UNCHANGED",
+        "route-ad": "UNCHANGED",
+        "route-ad-cost": "MODIFIED",
+        "nexthop-include": "UNCHANGED",
+        "route-ad-cost-nexthop": "MODIFIED"
+      },
+      "reason_codes": [
+        "METRIC_CHANGED"
+      ],
+      "field_summary": [
+        {
+          "field": "admin_distance",
+          "label": "AD",
+          "before": [
+            110
+          ],
+          "after": [
+            110
+          ],
+          "changed": false
+        },
+        {
+          "field": "metric",
+          "label": "Cost",
+          "before": [
+            20
+          ],
+          "after": [
+            40
+          ],
+          "changed": true
+        },
+        {
+          "field": "next_hops",
+          "label": "NextHop",
+          "before": [
+            [
+              "ip",
+              "ipv6",
+              "fe80::5",
+              "Ethernet1/5",
+              "TENANT-A"
+            ]
+          ],
+          "after": [
+            [
+              "ip",
+              "ipv6",
+              "fe80::5",
+              "Ethernet1/5",
+              "TENANT-A"
+            ]
+          ],
+          "changed": false
+        },
+        {
+          "field": "path_count",
+          "label": "path 数",
+          "before": 1,
+          "after": 1,
+          "changed": false
+        }
+      ],
+      "mode_reason_codes": {
+        "route-only": [],
+        "route-ad": [],
+        "route-ad-cost": [
+          "METRIC_CHANGED"
+        ],
+        "nexthop-include": [],
+        "route-ad-cost-nexthop": [
+          "METRIC_CHANGED"
+        ]
+      },
+      "status": "OBSERVED",
+      "evaluation": "NOT_EVALUATED",
+      "expectation_status": "NOT_CONFIGURED",
+      "expectation_rule_id": ""
+    }
+  ],
+  "diagnostics": [
+    {
+      "device": "leaf03",
+      "vrf": "TENANT-A",
+      "family": "ipv4",
+      "coverage": "UNKNOWN",
+      "reason": "after の出力が path 行の途中で終了。prefix 消失として数えない",
+      "evidence_before": {
+        "source_id": "leaf03-before",
+        "start_line": 1,
+        "end_line": 5
+      },
+      "evidence_after": {
+        "source_id": "leaf03-after",
+        "start_line": 1,
+        "end_line": 4
+      }
+    }
+  ],
+  "comparison_fingerprint": "sha256:a636f446de6ad82b90311e86e13de1bc73e5d764f65275170d5425ae1c4c7bf9"
+}

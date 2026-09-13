@@ -59,6 +59,27 @@ uv run --python 3.11 --group build --frozen pyinstaller \
 - 直接コマンドライン引数で build する場合も、少なくとも `--collect-submodules netmiko` が必要です
 - Linux Docker buildは`packaging/linux/requirements-build.lock`を共用し、runtime依存とPyInstallerのversionを`uv.lock`と一致させます
 
+## Route Diff の配布確認
+
+source、install 済み wheel、native binary に同じ合成ログを渡す smoke runner を用意しています。
+Python 3.11 以降の開発環境で、repository root から実行します。
+`--output` には未作成の directory を指定してください。
+
+```bash
+python scripts/smoke_route_diff.py --command python alred.py --output /tmp/route-smoke-source
+python scripts/smoke_route_diff.py --command /path/to/installed/alred --output /tmp/route-smoke-wheel
+python scripts/smoke_route_diff.py --command /absolute/path/to/dist/alred --output /tmp/route-smoke-binary
+```
+
+`--version` / `--help`、5 方式の差分件数、directory 入力、全体収集ログ、Health profile、before / after 比較、
+公開 report の全 file hash を確認し、`calls.json` と `result.json` に記録します。
+GitHub Actions の binary smoke job でもこの runner を実行します。
+機器接続はありません。標準 Linux binary は glibc 2.17 環境内でも同じ runner を実行します。
+この確認だけでは機種別受入や Release 公開は完了しません。
+
+大規模性能の測定手順と制約は
+[Route Diff 性能記録](docs/implementation/ROUTE_DIFF_PERFORMANCE_REPORT.md)を参照してください。
+
 ## Docker build for glibc variants
 
 Linux binary を配布先の `glibc` に合わせて build したい場合は、対応する container で build します。

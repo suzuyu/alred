@@ -41,6 +41,8 @@ Accepted ADRの内容を変更する場合は本文を上書きせず、新し�
 | [ADR-0019](./0019-auto-select-latest-evidence-source.md) | Evidence Package の最新成功 before source を自動選択する | Accepted |
 | [ADR-0020](./0020-separate-underlay-and-evpn-diagrams.md) | Underlay routing と EVPN control-plane diagram を分離する | Accepted |
 | [ADR-0021](./0021-model-overlay-services-and-route-leaks-separately.md) | Overlay Service と VRF 間 route leak を独立 model で表す | Accepted |
+| [ADR-0022](./0022-release-route-diff-offline-before-webui.md) | Route Diff の CLI・オフライン出力を Web UI に先行してリリースする | Accepted |
+| [ADR-0023](./0023-preserve-route-forwarding-attributes-and-completion-evidence.md) | Route Diff の転送属性と取得完了の証跡を保持する | Accepted |
 
 ## 追加基準
 

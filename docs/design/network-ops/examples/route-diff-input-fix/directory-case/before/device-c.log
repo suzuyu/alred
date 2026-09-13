@@ -1,0 +1,45 @@
+### COMMAND_LIST
+show version
+show ip route vrf all
+show ipv6 route vrf all
+show interface brief
+
+### COMMAND: show version
+### COLLECTED_AT: 2026-09-13T10:00:00+09:00
+### STATUS: OK
+### TRANSPORT: ssh
+leaf03# show version
+Synthetic device output for design review
+
+### COMMAND: show ip route vrf all
+### COLLECTED_AT: 2026-09-13T10:00:00+09:00
+### STATUS: OK
+### TRANSPORT: ssh
+leaf03# show ip route vrf all
+IP Route Table for VRF "TENANT-A"
+'*' denotes best ucast next-hop
+'**' denotes best mcast next-hop
+'[x/y]' denotes [preference/metric]
+'%<string>' in via output denotes VRF <string>
+
+192.0.2.10/32, ubest/mbest: 1/0, attached
+    *via 192.0.2.10, Vlan100, [190/0], 00:10:00, hmm
+198.51.100.0/24, ubest/mbest: 1/0
+    *via 203.0.113.1%default, [200/0], 1w5d, bgp-65001, internal, tag 65001, segid: 19001 (Asymmetric) tunnelid: 0xcb007101 encap: VXLAN
+
+### COMMAND: show ipv6 route vrf all
+### COLLECTED_AT: 2026-09-13T10:00:00+09:00
+### STATUS: OK
+### TRANSPORT: ssh
+leaf03# show ipv6 route vrf all
+IPv6 Routing Table for VRF "EMPTY-VRF"
+'*' denotes best ucast next-hop
+'**' denotes best mcast next-hop
+'[x/y]' denotes [preference/metric]
+
+### COMMAND: show interface brief
+### COLLECTED_AT: 2026-09-13T10:00:00+09:00
+### STATUS: OK
+### TRANSPORT: ssh
+leaf03# show interface brief
+Synthetic interface output for design review

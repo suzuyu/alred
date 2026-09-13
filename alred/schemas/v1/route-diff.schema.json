@@ -1,0 +1,1976 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:alred:v1:route-diff",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "kind": {
+      "const": "RouteDiff"
+    },
+    "versions": {
+      "type": "object",
+      "properties": {
+        "terminal_adapter": {
+          "type": "string",
+          "minLength": 1
+        },
+        "parser": {
+          "type": "string",
+          "minLength": 1
+        },
+        "normalizer": {
+          "type": "string",
+          "minLength": 1
+        },
+        "comparator": {
+          "type": "string",
+          "minLength": 1
+        },
+        "evaluator": {
+          "type": "string",
+          "minLength": 1
+        },
+        "renderer": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "terminal_adapter",
+        "parser",
+        "normalizer",
+        "comparator",
+        "evaluator",
+        "renderer"
+      ],
+      "additionalProperties": true
+    },
+    "snapshot_ids": {
+      "type": "object",
+      "properties": {
+        "before": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "after": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "before",
+        "after"
+      ],
+      "additionalProperties": true
+    },
+    "comparison_fingerprint": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "comparison": {
+      "type": "object",
+      "properties": {
+        "primary_mode": {
+          "enum": [
+            "route-only",
+            "route-ad",
+            "route-ad-cost",
+            "nexthop-include",
+            "route-ad-cost-nexthop"
+          ]
+        },
+        "modes": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "route-only",
+              "route-ad",
+              "route-ad-cost",
+              "nexthop-include",
+              "route-ad-cost-nexthop"
+            ]
+          }
+        },
+        "selected_scopes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "device": {
+                "type": "string",
+                "minLength": 1
+              },
+              "vrf": {
+                "type": "string",
+                "minLength": 1
+              },
+              "family": {
+                "enum": [
+                  "ipv4",
+                  "ipv6"
+                ]
+              }
+            },
+            "required": [
+              "device",
+              "vrf",
+              "family"
+            ],
+            "additionalProperties": true
+          }
+        }
+      },
+      "required": [
+        "primary_mode",
+        "modes",
+        "selected_scopes"
+      ],
+      "additionalProperties": true
+    },
+    "policy": {
+      "anyOf": [
+        {
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "policy_sha256": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "sources": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Source"
+      }
+    },
+    "summary": {
+      "type": "object",
+      "properties": {
+        "coverage": {
+          "enum": [
+            "COMPLETE",
+            "PARTIAL",
+            "UNKNOWN"
+          ]
+        },
+        "complete_scope_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "unknown_scope_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "unknown_source_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "modes": {
+          "type": "object",
+          "properties": {
+            "route-only": {
+              "$ref": "#/$defs/Counts"
+            },
+            "route-ad": {
+              "$ref": "#/$defs/Counts"
+            },
+            "route-ad-cost": {
+              "$ref": "#/$defs/Counts"
+            },
+            "nexthop-include": {
+              "$ref": "#/$defs/Counts"
+            },
+            "route-ad-cost-nexthop": {
+              "$ref": "#/$defs/Counts"
+            }
+          },
+          "required": [
+            "route-only",
+            "route-ad",
+            "route-ad-cost",
+            "nexthop-include",
+            "route-ad-cost-nexthop"
+          ],
+          "additionalProperties": true
+        }
+      },
+      "required": [
+        "coverage",
+        "complete_scope_count",
+        "unknown_scope_count",
+        "unknown_source_count",
+        "modes"
+      ],
+      "additionalProperties": true
+    },
+    "scopes": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/ComparisonScope"
+      }
+    },
+    "entries": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Entry"
+      }
+    },
+    "policy_results": {
+      "type": "object",
+      "properties": {
+        "required_routes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/RequiredDecision"
+          }
+        },
+        "expected_changes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ExpectedDecision"
+          }
+        },
+        "exclusions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ExclusionDecision"
+          }
+        },
+        "general_changes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/GeneralDecision"
+          }
+        }
+      },
+      "required": [
+        "required_routes",
+        "expected_changes",
+        "exclusions",
+        "general_changes"
+      ],
+      "additionalProperties": true
+    },
+    "evaluation": {
+      "enum": [
+        "PASS",
+        "WARN",
+        "FAIL",
+        "UNKNOWN",
+        "EXCLUDED",
+        "NOT_EVALUATED"
+      ]
+    },
+    "exit_code": {
+      "enum": [
+        0,
+        1,
+        3,
+        4
+      ]
+    },
+    "diagnostics": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    }
+  },
+  "required": [
+    "schema_version",
+    "kind",
+    "versions",
+    "snapshot_ids",
+    "comparison_fingerprint",
+    "comparison",
+    "policy",
+    "policy_sha256",
+    "sources",
+    "summary",
+    "scopes",
+    "entries",
+    "policy_results",
+    "evaluation",
+    "exit_code",
+    "diagnostics"
+  ],
+  "additionalProperties": true,
+  "$defs": {
+    "Evidence": {
+      "type": "object",
+      "properties": {
+        "source_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "start_line": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "end_line": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "start_byte": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "end_byte": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "source_id",
+        "start_line",
+        "end_line",
+        "start_byte",
+        "end_byte"
+      ],
+      "additionalProperties": true
+    },
+    "Command": {
+      "type": "object",
+      "properties": {
+        "command_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "family": {
+          "enum": [
+            "ipv4",
+            "ipv6"
+          ]
+        },
+        "vrf": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "command": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "evidence": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Evidence"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "acquisition_evidence": {
+          "type": "object",
+          "required": [
+            "header",
+            "prompt",
+            "body",
+            "block",
+            "declared_status",
+            "collected_at",
+            "transport",
+            "completion_kind",
+            "completion_evidence",
+            "manifest_record_sha256"
+          ],
+          "properties": {
+            "header": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Evidence"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "prompt": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Evidence"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "body": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Evidence"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "block": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Evidence"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "completion_evidence": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Evidence"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "declared_status": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "collected_at": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "transport": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "manifest_record_sha256": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "completion_kind": {
+              "enum": [
+                "next_prompt",
+                "next_collect_header",
+                "manifest_record",
+                "eof_unverified"
+              ]
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "command_id",
+        "family",
+        "vrf",
+        "command",
+        "evidence",
+        "acquisition_evidence"
+      ],
+      "additionalProperties": true
+    },
+    "Path": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "enum": [
+            "ip",
+            "discard",
+            "connected",
+            "local"
+          ]
+        },
+        "next_hop_family": {
+          "anyOf": [
+            {
+              "enum": [
+                "ipv4",
+                "ipv6"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "address": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "interface": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "next_hop_vrf": {
+          "type": "string",
+          "minLength": 1
+        },
+        "admin_distance": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "metric": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "next_hop_table_family": {
+          "enum": [
+            null,
+            "ipv4",
+            "ipv6"
+          ]
+        },
+        "evidence": {
+          "$ref": "#/$defs/Evidence"
+        },
+        "encapsulation": {
+          "enum": [
+            null,
+            "vxlan"
+          ]
+        },
+        "segment_id": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1,
+          "maximum": 16777215
+        },
+        "tunnel_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^0[xX][0-9a-fA-F]{1,8}$"
+        },
+        "asymmetric": {
+          "enum": [
+            null,
+            true
+          ]
+        }
+      },
+      "required": [
+        "kind",
+        "next_hop_family",
+        "address",
+        "interface",
+        "next_hop_vrf",
+        "admin_distance",
+        "metric",
+        "evidence",
+        "next_hop_table_family",
+        "encapsulation",
+        "segment_id",
+        "tunnel_id",
+        "asymmetric"
+      ],
+      "additionalProperties": true
+    },
+    "Route": {
+      "type": "object",
+      "properties": {
+        "device": {
+          "type": "string",
+          "minLength": 1
+        },
+        "vrf": {
+          "type": "string",
+          "minLength": 1
+        },
+        "family": {
+          "enum": [
+            "ipv4",
+            "ipv6"
+          ]
+        },
+        "prefix": {
+          "type": "string",
+          "minLength": 1
+        },
+        "paths": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Path"
+          }
+        },
+        "non_selected_paths": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Path"
+          }
+        },
+        "parse_status": {
+          "enum": [
+            "COMPLETE",
+            "UNKNOWN"
+          ]
+        },
+        "ubest": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "mbest": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "evidence": {
+          "$ref": "#/$defs/Evidence"
+        }
+      },
+      "required": [
+        "device",
+        "vrf",
+        "family",
+        "prefix",
+        "paths",
+        "non_selected_paths",
+        "parse_status",
+        "ubest",
+        "mbest",
+        "evidence"
+      ],
+      "additionalProperties": true
+    },
+    "Scope": {
+      "type": "object",
+      "properties": {
+        "device": {
+          "type": "string",
+          "minLength": 1
+        },
+        "vrf": {
+          "type": "string",
+          "minLength": 1
+        },
+        "family": {
+          "enum": [
+            "ipv4",
+            "ipv6"
+          ]
+        },
+        "coverage": {
+          "enum": [
+            "COMPLETE",
+            "UNKNOWN"
+          ]
+        },
+        "parse_status": {
+          "enum": [
+            "COMPLETE",
+            "UNKNOWN"
+          ]
+        },
+        "verification": {
+          "enum": [
+            "verified",
+            "user_asserted",
+            "unknown"
+          ]
+        },
+        "health_eligible": {
+          "type": "boolean"
+        },
+        "command_scope": {
+          "$ref": "#/$defs/Command"
+        },
+        "diagnostics": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "observed_prefix_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "parsed_prefix_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "parsed_path_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "explicit_empty": {
+          "type": "boolean"
+        },
+        "evidence": {
+          "$ref": "#/$defs/Evidence"
+        },
+        "empty_basis": {
+          "enum": [
+            null,
+            "explicit_marker",
+            "closed_section"
+          ]
+        },
+        "empty_evidence": {
+          "type": [
+            "object",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "device",
+        "vrf",
+        "family",
+        "coverage",
+        "parse_status",
+        "verification",
+        "health_eligible",
+        "command_scope",
+        "diagnostics",
+        "observed_prefix_count",
+        "parsed_prefix_count",
+        "parsed_path_count",
+        "explicit_empty",
+        "evidence",
+        "empty_basis",
+        "empty_evidence"
+      ],
+      "additionalProperties": true
+    },
+    "Source": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "device": {
+          "type": "string",
+          "minLength": 1
+        },
+        "side": {
+          "enum": [
+            "before",
+            "after"
+          ]
+        },
+        "path": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "normalized_sha256": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "raw_size": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "selected_range": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "start_line": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "end_line": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              },
+              "required": [
+                "start_line",
+                "end_line"
+              ],
+              "additionalProperties": true
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "mapping": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "normalized_line": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "raw_start_line": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "raw_end_line": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "raw_start_byte": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "raw_end_byte": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "required": [
+              "normalized_line",
+              "raw_start_line",
+              "raw_end_line",
+              "raw_start_byte",
+              "raw_end_byte"
+            ],
+            "additionalProperties": true
+          }
+        },
+        "commands": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Command"
+          }
+        },
+        "diagnostics": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "input_format": {
+          "enum": [
+            "nxos-transcript",
+            "nxos-route-text",
+            "alred-collect"
+          ]
+        },
+        "versions": {
+          "$ref": "#/$defs/Versions"
+        },
+        "collection_provenance": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "adapter_version",
+            "status",
+            "collected_at",
+            "manifest_record_sha256",
+            "command",
+            "start_line",
+            "end_line"
+          ],
+          "properties": {
+            "adapter_version": {
+              "const": "1.1"
+            },
+            "status": {
+              "const": "success"
+            },
+            "collected_at": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "manifest_record_sha256": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
+            "command": {
+              "type": "string",
+              "minLength": 1
+            },
+            "start_line": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "end_line": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        },
+        "display_name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "container_format": {
+          "enum": [
+            "plain-transcript",
+            "alred-collect",
+            "route-text"
+          ]
+        },
+        "notices": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        }
+      },
+      "required": [
+        "id",
+        "device",
+        "side",
+        "path",
+        "sha256",
+        "normalized_sha256",
+        "raw_size",
+        "selected_range",
+        "mapping",
+        "commands",
+        "diagnostics",
+        "input_format",
+        "versions",
+        "container_format",
+        "notices"
+      ],
+      "additionalProperties": true
+    },
+    "Versions": {
+      "type": "object",
+      "properties": {
+        "terminal_adapter": {
+          "type": "string",
+          "minLength": 1
+        },
+        "parser": {
+          "type": "string",
+          "minLength": 1
+        },
+        "normalizer": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "terminal_adapter",
+        "parser",
+        "normalizer"
+      ],
+      "additionalProperties": true
+    },
+    "Counts": {
+      "type": "object",
+      "properties": {
+        "before_count": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "after_count": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "ADDED": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "REMOVED": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "MODIFIED": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "UNCHANGED": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "changed_count": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "has_diff": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "before_count",
+        "after_count",
+        "ADDED",
+        "REMOVED",
+        "MODIFIED",
+        "UNCHANGED",
+        "changed_count",
+        "has_diff"
+      ],
+      "additionalProperties": true
+    },
+    "Projection": {
+      "type": "object",
+      "properties": {
+        "change_type": {
+          "enum": [
+            "ADDED",
+            "REMOVED",
+            "MODIFIED",
+            "UNCHANGED"
+          ]
+        },
+        "reason_codes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "field_summary": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "change_type",
+        "reason_codes",
+        "field_summary"
+      ],
+      "additionalProperties": true
+    },
+    "Entry": {
+      "type": "object",
+      "properties": {
+        "device": {
+          "type": "string",
+          "minLength": 1
+        },
+        "vrf": {
+          "type": "string",
+          "minLength": 1
+        },
+        "family": {
+          "enum": [
+            "ipv4",
+            "ipv6"
+          ]
+        },
+        "prefix": {
+          "type": "string",
+          "minLength": 1
+        },
+        "entry_key": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "mode": {
+          "enum": [
+            "route-only",
+            "route-ad",
+            "route-ad-cost",
+            "nexthop-include",
+            "route-ad-cost-nexthop"
+          ]
+        },
+        "change_type": {
+          "enum": [
+            "ADDED",
+            "REMOVED",
+            "MODIFIED"
+          ]
+        },
+        "before": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Route"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "after": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Route"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "evidence_before": {
+          "$ref": "#/$defs/Evidence"
+        },
+        "evidence_after": {
+          "$ref": "#/$defs/Evidence"
+        },
+        "reason_codes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "field_summary": {
+          "type": "object"
+        },
+        "modes": {
+          "type": "object",
+          "properties": {
+            "route-only": {
+              "$ref": "#/$defs/Projection"
+            },
+            "route-ad": {
+              "$ref": "#/$defs/Projection"
+            },
+            "route-ad-cost": {
+              "$ref": "#/$defs/Projection"
+            },
+            "nexthop-include": {
+              "$ref": "#/$defs/Projection"
+            },
+            "route-ad-cost-nexthop": {
+              "$ref": "#/$defs/Projection"
+            }
+          },
+          "required": [
+            "route-only",
+            "route-ad",
+            "route-ad-cost",
+            "nexthop-include",
+            "route-ad-cost-nexthop"
+          ],
+          "additionalProperties": true
+        },
+        "evaluation": {
+          "enum": [
+            "PASS",
+            "WARN",
+            "FAIL",
+            "UNKNOWN",
+            "EXCLUDED",
+            "NOT_EVALUATED"
+          ]
+        },
+        "classification": {
+          "type": "string",
+          "minLength": 1
+        },
+        "expectation_status": {
+          "enum": [
+            "NOT_CONFIGURED",
+            "MATCHED",
+            "MISMATCH",
+            "NOT_APPLIED",
+            "UNVERIFIABLE"
+          ]
+        },
+        "expectation_rule_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "device",
+        "vrf",
+        "family",
+        "prefix",
+        "entry_key",
+        "mode",
+        "change_type",
+        "before",
+        "after",
+        "evidence_before",
+        "evidence_after",
+        "reason_codes",
+        "field_summary",
+        "modes",
+        "evaluation",
+        "classification",
+        "expectation_status",
+        "expectation_rule_id"
+      ],
+      "additionalProperties": true
+    },
+    "ComparisonScope": {
+      "type": "object",
+      "properties": {
+        "device": {
+          "type": "string",
+          "minLength": 1
+        },
+        "vrf": {
+          "type": "string",
+          "minLength": 1
+        },
+        "family": {
+          "enum": [
+            "ipv4",
+            "ipv6"
+          ]
+        },
+        "coverage": {
+          "enum": [
+            "COMPLETE",
+            "UNKNOWN",
+            "NOT_SELECTED"
+          ]
+        },
+        "before": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Scope"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "after": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Scope"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "modes": {
+          "type": "object",
+          "properties": {
+            "route-only": {
+              "$ref": "#/$defs/Counts"
+            },
+            "route-ad": {
+              "$ref": "#/$defs/Counts"
+            },
+            "route-ad-cost": {
+              "$ref": "#/$defs/Counts"
+            },
+            "nexthop-include": {
+              "$ref": "#/$defs/Counts"
+            },
+            "route-ad-cost-nexthop": {
+              "$ref": "#/$defs/Counts"
+            }
+          },
+          "required": [
+            "route-only",
+            "route-ad",
+            "route-ad-cost",
+            "nexthop-include",
+            "route-ad-cost-nexthop"
+          ],
+          "additionalProperties": true
+        },
+        "diagnostics": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        }
+      },
+      "required": [
+        "device",
+        "vrf",
+        "family",
+        "coverage",
+        "before",
+        "after",
+        "modes",
+        "diagnostics"
+      ],
+      "additionalProperties": true
+    },
+    "PolicyPath": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "enum": [
+            "ip",
+            "discard",
+            "connected",
+            "local"
+          ]
+        },
+        "next_hop_family": {
+          "anyOf": [
+            {
+              "enum": [
+                "ipv4",
+                "ipv6"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "address": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "interface": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "next_hop_vrf": {
+          "type": "string",
+          "minLength": 1
+        },
+        "admin_distance": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "metric": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "next_hop_table_family": {
+          "enum": [
+            null,
+            "ipv4",
+            "ipv6"
+          ]
+        },
+        "encapsulation": {
+          "enum": [
+            null,
+            "vxlan"
+          ]
+        },
+        "segment_id": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1,
+          "maximum": 16777215
+        },
+        "tunnel_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^0[xX][0-9a-fA-F]{1,8}$"
+        },
+        "asymmetric": {
+          "enum": [
+            null,
+            true
+          ]
+        }
+      },
+      "required": [
+        "kind",
+        "next_hop_family",
+        "address",
+        "interface",
+        "next_hop_vrf",
+        "admin_distance",
+        "metric"
+      ],
+      "additionalProperties": false
+    },
+    "RequiredDecision": {
+      "type": "object",
+      "properties": {
+        "device": {
+          "type": "string",
+          "minLength": 1
+        },
+        "vrf": {
+          "type": "string",
+          "minLength": 1
+        },
+        "family": {
+          "enum": [
+            "ipv4",
+            "ipv6"
+          ]
+        },
+        "prefix": {
+          "type": "string",
+          "minLength": 1
+        },
+        "result": {
+          "enum": [
+            "PASS",
+            "WARN",
+            "FAIL",
+            "UNKNOWN",
+            "EXCLUDED",
+            "NOT_EVALUATED"
+          ]
+        },
+        "classification": {
+          "type": "string",
+          "minLength": 1
+        },
+        "evidence_before": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Evidence"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "evidence_after": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Evidence"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "before_result": {
+          "enum": [
+            "PASS",
+            "FAIL",
+            "UNKNOWN"
+          ]
+        },
+        "after_result": {
+          "enum": [
+            "PASS",
+            "FAIL",
+            "UNKNOWN"
+          ]
+        },
+        "violations": {
+          "type": "object",
+          "properties": {
+            "before": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "after": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "required": [
+            "before",
+            "after"
+          ],
+          "additionalProperties": true
+        },
+        "recovered": {
+          "type": "boolean"
+        },
+        "rule": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "device",
+        "vrf",
+        "family",
+        "prefix",
+        "result",
+        "classification",
+        "evidence_before",
+        "evidence_after",
+        "before_result",
+        "after_result",
+        "violations",
+        "recovered",
+        "rule"
+      ],
+      "additionalProperties": true
+    },
+    "ExpectedDecision": {
+      "type": "object",
+      "properties": {
+        "device": {
+          "type": "string",
+          "minLength": 1
+        },
+        "vrf": {
+          "type": "string",
+          "minLength": 1
+        },
+        "family": {
+          "enum": [
+            "ipv4",
+            "ipv6"
+          ]
+        },
+        "prefix": {
+          "type": "string",
+          "minLength": 1
+        },
+        "result": {
+          "enum": [
+            "PASS",
+            "WARN",
+            "FAIL",
+            "UNKNOWN",
+            "EXCLUDED",
+            "NOT_EVALUATED"
+          ]
+        },
+        "classification": {
+          "type": "string",
+          "minLength": 1
+        },
+        "evidence_before": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Evidence"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "evidence_after": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Evidence"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        },
+        "expectation_status": {
+          "enum": [
+            "MATCHED",
+            "MISMATCH",
+            "NOT_APPLIED",
+            "UNVERIFIABLE"
+          ]
+        },
+        "expected": {
+          "type": "object",
+          "properties": {
+            "before": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "prefix": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "paths": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/$defs/PolicyPath"
+                      },
+                      "minItems": 1
+                    }
+                  },
+                  "required": [
+                    "prefix",
+                    "paths"
+                  ],
+                  "additionalProperties": true
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "after": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "prefix": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "paths": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/$defs/PolicyPath"
+                      },
+                      "minItems": 1
+                    }
+                  },
+                  "required": [
+                    "prefix",
+                    "paths"
+                  ],
+                  "additionalProperties": true
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "before",
+            "after"
+          ],
+          "additionalProperties": true
+        },
+        "observed": {
+          "type": "object",
+          "properties": {
+            "before": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Route"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "after": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Route"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "before",
+            "after"
+          ],
+          "additionalProperties": true
+        },
+        "observed_known": {
+          "type": "object",
+          "properties": {
+            "before": {
+              "type": "boolean"
+            },
+            "after": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "before",
+            "after"
+          ],
+          "additionalProperties": true
+        },
+        "mismatch_fields": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "required": [
+        "device",
+        "vrf",
+        "family",
+        "prefix",
+        "result",
+        "classification",
+        "evidence_before",
+        "evidence_after",
+        "id",
+        "reason",
+        "expectation_status",
+        "expected",
+        "observed",
+        "observed_known",
+        "mismatch_fields"
+      ],
+      "additionalProperties": true
+    },
+    "ExclusionDecision": {
+      "type": "object",
+      "properties": {
+        "device": {
+          "type": "string",
+          "minLength": 1
+        },
+        "vrf": {
+          "type": "string",
+          "minLength": 1
+        },
+        "family": {
+          "enum": [
+            "ipv4",
+            "ipv6"
+          ]
+        },
+        "prefix": {
+          "type": "string",
+          "minLength": 1
+        },
+        "result": {
+          "enum": [
+            "PASS",
+            "WARN",
+            "FAIL",
+            "UNKNOWN",
+            "EXCLUDED",
+            "NOT_EVALUATED"
+          ]
+        },
+        "classification": {
+          "type": "string",
+          "minLength": 1
+        },
+        "evidence_before": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Evidence"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "evidence_after": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Evidence"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "device",
+        "vrf",
+        "family",
+        "prefix",
+        "result",
+        "classification",
+        "evidence_before",
+        "evidence_after",
+        "reason"
+      ],
+      "additionalProperties": true
+    },
+    "GeneralDecision": {
+      "type": "object",
+      "properties": {
+        "device": {
+          "type": "string",
+          "minLength": 1
+        },
+        "vrf": {
+          "type": "string",
+          "minLength": 1
+        },
+        "family": {
+          "enum": [
+            "ipv4",
+            "ipv6"
+          ]
+        },
+        "prefix": {
+          "type": "string",
+          "minLength": 1
+        },
+        "result": {
+          "enum": [
+            "PASS",
+            "WARN",
+            "FAIL",
+            "UNKNOWN",
+            "EXCLUDED",
+            "NOT_EVALUATED"
+          ]
+        },
+        "classification": {
+          "type": "string",
+          "minLength": 1
+        },
+        "evidence_before": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Evidence"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "evidence_after": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Evidence"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "reason_codes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "required": [
+        "device",
+        "vrf",
+        "family",
+        "prefix",
+        "result",
+        "classification",
+        "evidence_before",
+        "evidence_after",
+        "reason_codes"
+      ],
+      "additionalProperties": true
+    }
+  }
+}

@@ -27,6 +27,44 @@
       "type": "string",
       "pattern": "^sha256:[0-9a-f]{64}$"
     },
+    "route_diff": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "sha256",
+        "snapshot_id",
+        "versions",
+        "adapter_version",
+        "config_sha256"
+      ],
+      "properties": {
+        "path": {
+          "const": "route-snapshot.json"
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "snapshot_id": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "config_sha256": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "versions": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "adapter_version": {
+          "type": "string"
+        }
+      }
+    },
     "link_evidence": {
       "type": "object",
       "additionalProperties": false,

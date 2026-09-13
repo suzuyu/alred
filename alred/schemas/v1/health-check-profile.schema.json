@@ -69,6 +69,34 @@
             }
           }
         },
+        "route_diff": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "families": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "enum": [
+                  "ipv4",
+                  "ipv6"
+                ]
+              }
+            },
+            "vrfs": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "policy": {
+              "type": "object"
+            }
+          }
+        },
         "convergence": {
           "type": "object",
           "additionalProperties": false,

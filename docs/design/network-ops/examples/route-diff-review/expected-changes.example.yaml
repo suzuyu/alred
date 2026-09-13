@@ -1,0 +1,39 @@
+# 設計用入力例。現行 CLI / モックはこの YAML を評価しない。
+api_version: alred/v1
+kind: RouteDiffPolicy
+metadata:
+  name: expected-cost-change-example
+spec:
+  required_routes:
+    - device: leaf01
+      vrf: TENANT-A
+      family: ipv4
+      prefix: 192.0.2.64/26
+      min_paths: 1
+  expected_changes:
+    - id: cost-20-to-30
+      reason: 作業計画で指定した Cost 変更
+      device: leaf01
+      vrf: TENANT-A
+      family: ipv4
+      prefix: 192.0.2.64/26
+      before:
+        prefix: 192.0.2.64/26
+        paths:
+          - kind: ip
+            next_hop_family: ipv4
+            address: 192.0.2.1
+            interface: Ethernet1/1
+            next_hop_vrf: TENANT-A
+            admin_distance: 110
+            metric: 20
+      after:
+        prefix: 192.0.2.64/26
+        paths:
+          - kind: ip
+            next_hop_family: ipv4
+            address: 192.0.2.1
+            interface: Ethernet1/1
+            next_hop_vrf: TENANT-A
+            admin_distance: 110
+            metric: 30

@@ -36,5 +36,6 @@ overlay-check
 prepare-hosts
 push-config
 push-config-dir
+route-diff-nxos
 support-bundle
 write-memory

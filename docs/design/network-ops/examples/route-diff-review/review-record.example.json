@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "kind": "RouteDiffReview",
+  "design_status": "draft",
+  "synthetic": true,
+  "comparison_fingerprint": "sha256:a636f446de6ad82b90311e86e13de1bc73e5d764f65275170d5425ae1c4c7bf9",
+  "entries": [
+    {
+      "entry_key": "sha256:077f07116d329216eb8deaa493eb9f9218e198025de9d3c9fce6b07a5741c689",
+      "resource": {
+        "device": "leaf01",
+        "vrf": "TENANT-A",
+        "family": "ipv4",
+        "prefix": "192.0.2.64/26"
+      },
+      "mode": "route-ad-cost-nexthop",
+      "status": "REVIEWED",
+      "comment": "入力例: Cost 20 → 30 の表示を確認。Health 判定や投入承認を意味しない。",
+      "reviewed_at": "2026-09-13T12:00:00+09:00"
+    }
+  ]
+}

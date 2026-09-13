@@ -1,0 +1,569 @@
+{
+  "schema_version": 1,
+  "synthetic": true,
+  "kind": "TerminalInputExamples",
+  "status": "UTF-8 encode で raw bytes を再現する合成 fixture。実機対応の証明ではない。",
+  "cases": [
+    {
+      "id": "sgr-crlf",
+      "title": "BOM / CRLF / ANSI の色指定",
+      "raw_text": "﻿leaf01# show ip route vrf all\r\nIP Route Table for VRF \"TENANT-A\"\r\n\u001b[32m192.0.2.64/26\u001b[0m, ubest/mbest: 1/0\r\n    *via 192.0.2.1, Ethernet1/1, [110/20], 00:01:00, ospf-UNDERLAY, intra\r\nleaf01#\r\n",
+      "raw_sha256": "sha256:e08a26db6c31d3ee6626c07df6dfcc74df1db61ce5690e5ebcdf4c208041eb5f",
+      "input_contract": {
+        "host": "leaf01",
+        "input_format": "nxos-transcript",
+        "command_id": "route_ipv4_all_vrfs",
+        "completeness": "not_asserted"
+      },
+      "expected_normalized_text": "leaf01# show ip route vrf all\nIP Route Table for VRF \"TENANT-A\"\n192.0.2.64/26, ubest/mbest: 1/0\n    *via 192.0.2.1, Ethernet1/1, [110/20], 00:01:00, ospf-UNDERLAY, intra\nleaf01#\n",
+      "normalized_sha256": "sha256:a8fe19141b203e521c2db63e85cf687cce6cb553c6f8d725cc3cfc1db6842a77",
+      "parse_status": "COMPLETE",
+      "verification": "verified",
+      "health_eligible": true,
+      "expected_mapping": [
+        {
+          "raw_start_line": 1,
+          "raw_end_line": 1,
+          "raw_start_byte": 0,
+          "raw_end_byte": 34,
+          "normalized_line": 1
+        },
+        {
+          "raw_start_line": 2,
+          "raw_end_line": 2,
+          "raw_start_byte": 34,
+          "raw_end_byte": 69,
+          "normalized_line": 2
+        },
+        {
+          "raw_start_line": 3,
+          "raw_end_line": 3,
+          "raw_start_byte": 69,
+          "raw_end_byte": 111,
+          "normalized_line": 3
+        },
+        {
+          "raw_start_line": 4,
+          "raw_end_line": 4,
+          "raw_start_byte": 111,
+          "raw_end_byte": 186,
+          "normalized_line": 4
+        },
+        {
+          "raw_start_line": 5,
+          "raw_end_line": 5,
+          "raw_start_byte": 186,
+          "raw_end_byte": 195,
+          "normalized_line": 5
+        }
+      ],
+      "expected_operations": [
+        {
+          "kind": "UTF8_BOM",
+          "raw_start_byte": 0,
+          "raw_end_byte": 3
+        },
+        {
+          "kind": "CRLF_TO_LF",
+          "raw_start_byte": 32,
+          "raw_end_byte": 34
+        },
+        {
+          "kind": "CRLF_TO_LF",
+          "raw_start_byte": 67,
+          "raw_end_byte": 69
+        },
+        {
+          "kind": "SGR_REMOVED",
+          "raw_start_byte": 69,
+          "raw_end_byte": 74
+        },
+        {
+          "kind": "SGR_REMOVED",
+          "raw_start_byte": 87,
+          "raw_end_byte": 91
+        },
+        {
+          "kind": "CRLF_TO_LF",
+          "raw_start_byte": 109,
+          "raw_end_byte": 111
+        },
+        {
+          "kind": "CRLF_TO_LF",
+          "raw_start_byte": 184,
+          "raw_end_byte": 186
+        },
+        {
+          "kind": "CRLF_TO_LF",
+          "raw_start_byte": 193,
+          "raw_end_byte": 195
+        }
+      ],
+      "expected_diagnostics": [],
+      "transformations_or_diagnostics": [
+        "UTF8_BOM",
+        "CRLF_TO_LF",
+        "SGR_REMOVED"
+      ],
+      "note": "既知の SGR と改行だけを解析用に整形。"
+    },
+    {
+      "id": "asserted",
+      "title": "終端のない本文を完全取得と申告",
+      "raw_text": "IP Route Table for VRF \"TENANT-A\"\n192.0.2.64/26, ubest/mbest: 1/0\n    *via 192.0.2.1, Ethernet1/1, [110/20], 00:01:00, ospf-UNDERLAY, intra",
+      "raw_sha256": "sha256:fb25c40d3054467a833c45c16c509dea3e19f6ba69526aa5a2ca75fe8de6d62b",
+      "input_contract": {
+        "host": "leaf01",
+        "input_format": "nxos-route-text",
+        "command_id": "route_ipv4_all_vrfs",
+        "completeness": "asserted"
+      },
+      "expected_normalized_text": "IP Route Table for VRF \"TENANT-A\"\n192.0.2.64/26, ubest/mbest: 1/0\n    *via 192.0.2.1, Ethernet1/1, [110/20], 00:01:00, ospf-UNDERLAY, intra",
+      "normalized_sha256": "sha256:fb25c40d3054467a833c45c16c509dea3e19f6ba69526aa5a2ca75fe8de6d62b",
+      "parse_status": "COMPLETE",
+      "verification": "user_asserted",
+      "health_eligible": false,
+      "expected_mapping": [
+        {
+          "raw_start_line": 1,
+          "raw_end_line": 1,
+          "raw_start_byte": 0,
+          "raw_end_byte": 34,
+          "normalized_line": 1
+        },
+        {
+          "raw_start_line": 2,
+          "raw_end_line": 2,
+          "raw_start_byte": 34,
+          "raw_end_byte": 66,
+          "normalized_line": 2
+        },
+        {
+          "raw_start_line": 3,
+          "raw_end_line": 3,
+          "raw_start_byte": 66,
+          "raw_end_byte": 139,
+          "normalized_line": 3
+        }
+      ],
+      "expected_operations": [],
+      "expected_diagnostics": [],
+      "transformations_or_diagnostics": [],
+      "note": "構文正常。観測比較は可能、Health 用証跡は不足。"
+    },
+    {
+      "id": "asserted-broken",
+      "title": "破損した本文を完全取得と申告",
+      "raw_text": "IP Route Table for VRF \"TENANT-A\"\n192.0.2.64/26, ubest/mbest: 1/0\n    *via 192.0.2.",
+      "raw_sha256": "sha256:a9c96bda68e8500c08dbfc300f117f95e364a9e095b52d2d9a389bc03db5a45a",
+      "input_contract": {
+        "host": "leaf01",
+        "input_format": "nxos-route-text",
+        "command_id": "route_ipv4_all_vrfs",
+        "completeness": "asserted"
+      },
+      "expected_normalized_text": null,
+      "normalized_sha256": null,
+      "parse_status": "UNKNOWN",
+      "verification": "unknown",
+      "health_eligible": false,
+      "expected_mapping": [
+        {
+          "raw_start_line": 1,
+          "raw_end_line": 1,
+          "raw_start_byte": 0,
+          "raw_end_byte": 34,
+          "normalized_line": null
+        },
+        {
+          "raw_start_line": 2,
+          "raw_end_line": 2,
+          "raw_start_byte": 34,
+          "raw_end_byte": 66,
+          "normalized_line": null
+        },
+        {
+          "raw_start_line": 3,
+          "raw_end_line": 3,
+          "raw_start_byte": 66,
+          "raw_end_byte": 83,
+          "normalized_line": null
+        }
+      ],
+      "expected_operations": [],
+      "expected_diagnostics": [
+        {
+          "code": "INCOMPLETE_PATH",
+          "raw_start_byte": 66,
+          "raw_end_byte": 83,
+          "raw_start_line": 3,
+          "raw_end_line": 3
+        }
+      ],
+      "transformations_or_diagnostics": [
+        "INCOMPLETE_PATH"
+      ],
+      "note": "利用者申告でも途中 path の破損を免除しない。"
+    },
+    {
+      "id": "wrapped",
+      "title": "address が terminal 幅で折り返し",
+      "raw_text": "leaf01# show ip route vrf all\nIP Route Table for VRF \"TENANT-A\"\n192.0.2.64/26, ubest/mbest: 1/0\n    *via 192.0.\n2.1, Ethernet1/1, [110/20], 00:01:00, ospf-UNDERLAY, intra\nleaf01#\n",
+      "raw_sha256": "sha256:0167bc9bbea6c0558964a597be57f9971f3295c08e77a61e7f6f230b24a4603b",
+      "input_contract": {
+        "host": "leaf01",
+        "input_format": "nxos-transcript",
+        "command_id": "route_ipv4_all_vrfs",
+        "completeness": "not_asserted"
+      },
+      "expected_normalized_text": null,
+      "normalized_sha256": null,
+      "parse_status": "UNKNOWN",
+      "verification": "unknown",
+      "health_eligible": false,
+      "expected_mapping": [
+        {
+          "raw_start_line": 1,
+          "raw_end_line": 1,
+          "raw_start_byte": 0,
+          "raw_end_byte": 30,
+          "normalized_line": null
+        },
+        {
+          "raw_start_line": 2,
+          "raw_end_line": 2,
+          "raw_start_byte": 30,
+          "raw_end_byte": 64,
+          "normalized_line": null
+        },
+        {
+          "raw_start_line": 3,
+          "raw_end_line": 3,
+          "raw_start_byte": 64,
+          "raw_end_byte": 96,
+          "normalized_line": null
+        },
+        {
+          "raw_start_line": 4,
+          "raw_end_line": 4,
+          "raw_start_byte": 96,
+          "raw_end_byte": 112,
+          "normalized_line": null
+        },
+        {
+          "raw_start_line": 5,
+          "raw_end_line": 5,
+          "raw_start_byte": 112,
+          "raw_end_byte": 171,
+          "normalized_line": null
+        },
+        {
+          "raw_start_line": 6,
+          "raw_end_line": 6,
+          "raw_start_byte": 171,
+          "raw_end_byte": 179,
+          "normalized_line": null
+        }
+      ],
+      "expected_operations": [],
+      "expected_diagnostics": [
+        {
+          "code": "AMBIGUOUS_WRAP",
+          "raw_start_byte": 105,
+          "raw_end_byte": 115,
+          "raw_start_line": 4,
+          "raw_end_line": 5
+        }
+      ],
+      "transformations_or_diagnostics": [
+        "AMBIGUOUS_WRAP"
+      ],
+      "note": "折り返しの復元を推測しない。"
+    },
+    {
+      "id": "pager",
+      "title": "ページャー表示の混入",
+      "raw_text": "leaf01# show ip route vrf all\nIP Route Table for VRF \"TENANT-A\"\n192.0.2.64/26, ubest/mbest: 1/0\n--More--\n    *via 192.0.2.1, Ethernet1/1, [110/20], 00:01:00, ospf-UNDERLAY, intra\nleaf01#\n",
+      "raw_sha256": "sha256:37133b85e1fd072c132610935fc755a735f9de1a4a84f749ad39bcc3298bd6fc",
+      "input_contract": {
+        "host": "leaf01",
+        "input_format": "nxos-transcript",
+        "command_id": "route_ipv4_all_vrfs",
+        "completeness": "not_asserted"
+      },
+      "expected_normalized_text": null,
+      "normalized_sha256": null,
+      "parse_status": "UNKNOWN",
+      "verification": "unknown",
+      "health_eligible": false,
+      "expected_mapping": [
+        {
+          "raw_start_line": 1,
+          "raw_end_line": 1,
+          "raw_start_byte": 0,
+          "raw_end_byte": 30,
+          "normalized_line": null
+        },
+        {
+          "raw_start_line": 2,
+          "raw_end_line": 2,
+          "raw_start_byte": 30,
+          "raw_end_byte": 64,
+          "normalized_line": null
+        },
+        {
+          "raw_start_line": 3,
+          "raw_end_line": 3,
+          "raw_start_byte": 64,
+          "raw_end_byte": 96,
+          "normalized_line": null
+        },
+        {
+          "raw_start_line": 4,
+          "raw_end_line": 4,
+          "raw_start_byte": 96,
+          "raw_end_byte": 105,
+          "normalized_line": null
+        },
+        {
+          "raw_start_line": 5,
+          "raw_end_line": 5,
+          "raw_start_byte": 105,
+          "raw_end_byte": 179,
+          "normalized_line": null
+        },
+        {
+          "raw_start_line": 6,
+          "raw_end_line": 6,
+          "raw_start_byte": 179,
+          "raw_end_byte": 187,
+          "normalized_line": null
+        }
+      ],
+      "expected_operations": [],
+      "expected_diagnostics": [
+        {
+          "code": "PAGER_UNSUPPORTED",
+          "raw_start_byte": 96,
+          "raw_end_byte": 104,
+          "raw_start_line": 4,
+          "raw_end_line": 4
+        }
+      ],
+      "transformations_or_diagnostics": [
+        "PAGER_UNSUPPORTED"
+      ],
+      "note": "ページャーを消すだけでは完全取得にしない。"
+    },
+    {
+      "id": "cursor",
+      "title": "cursor 移動の混入",
+      "raw_text": "leaf01# show ip route vrf all\nIP Route Table for VRF \"TENANT-A\"\n192.0.2.64/26, ubest/mbest: 1/0\n    *via \u001b[2D192.0.2.1, Ethernet1/1, [110/20], 00:01:00, ospf-UNDERLAY, intra\nleaf01#\n",
+      "raw_sha256": "sha256:ef06097897a9a1c7955bd005140f7011a32041eb6fad2c2e9d8f63880171bbdf",
+      "input_contract": {
+        "host": "leaf01",
+        "input_format": "nxos-transcript",
+        "command_id": "route_ipv4_all_vrfs",
+        "completeness": "not_asserted"
+      },
+      "expected_normalized_text": null,
+      "normalized_sha256": null,
+      "parse_status": "UNKNOWN",
+      "verification": "unknown",
+      "health_eligible": false,
+      "expected_mapping": [
+        {
+          "raw_start_line": 1,
+          "raw_end_line": 1,
+          "raw_start_byte": 0,
+          "raw_end_byte": 30,
+          "normalized_line": null
+        },
+        {
+          "raw_start_line": 2,
+          "raw_end_line": 2,
+          "raw_start_byte": 30,
+          "raw_end_byte": 64,
+          "normalized_line": null
+        },
+        {
+          "raw_start_line": 3,
+          "raw_end_line": 3,
+          "raw_start_byte": 64,
+          "raw_end_byte": 96,
+          "normalized_line": null
+        },
+        {
+          "raw_start_line": 4,
+          "raw_end_line": 4,
+          "raw_start_byte": 96,
+          "raw_end_byte": 174,
+          "normalized_line": null
+        },
+        {
+          "raw_start_line": 5,
+          "raw_end_line": 5,
+          "raw_start_byte": 174,
+          "raw_end_byte": 182,
+          "normalized_line": null
+        }
+      ],
+      "expected_operations": [],
+      "expected_diagnostics": [
+        {
+          "code": "CONTROL_UNSUPPORTED",
+          "raw_start_byte": 105,
+          "raw_end_byte": 109,
+          "raw_start_line": 4,
+          "raw_end_line": 4
+        }
+      ],
+      "transformations_or_diagnostics": [
+        "CONTROL_UNSUPPORTED"
+      ],
+      "note": "画面の再描画を復元しない。"
+    },
+    {
+      "id": "backspace",
+      "title": "backspace の混入",
+      "raw_text": "leaf01# show ip route vrf all\nIP Route Table for VRF \"TENANT-A\"\n192.0.2.64/26, ubest/mbest: 1/0\n    *via 192.0.2.9\b1, Ethernet1/1, [110/20], 00:01:00, ospf-UNDERLAY, intra\nleaf01#\n",
+      "raw_sha256": "sha256:8e807a73e987d3ff0ec4524917ecbc4c679669e7c7a92a352b2819d4ef813edb",
+      "input_contract": {
+        "host": "leaf01",
+        "input_format": "nxos-transcript",
+        "command_id": "route_ipv4_all_vrfs",
+        "completeness": "not_asserted"
+      },
+      "expected_normalized_text": null,
+      "normalized_sha256": null,
+      "parse_status": "UNKNOWN",
+      "verification": "unknown",
+      "health_eligible": false,
+      "expected_mapping": [
+        {
+          "raw_start_line": 1,
+          "raw_end_line": 1,
+          "raw_start_byte": 0,
+          "raw_end_byte": 30,
+          "normalized_line": null
+        },
+        {
+          "raw_start_line": 2,
+          "raw_end_line": 2,
+          "raw_start_byte": 30,
+          "raw_end_byte": 64,
+          "normalized_line": null
+        },
+        {
+          "raw_start_line": 3,
+          "raw_end_line": 3,
+          "raw_start_byte": 64,
+          "raw_end_byte": 96,
+          "normalized_line": null
+        },
+        {
+          "raw_start_line": 4,
+          "raw_end_line": 4,
+          "raw_start_byte": 96,
+          "raw_end_byte": 172,
+          "normalized_line": null
+        },
+        {
+          "raw_start_line": 5,
+          "raw_end_line": 5,
+          "raw_start_byte": 172,
+          "raw_end_byte": 180,
+          "normalized_line": null
+        }
+      ],
+      "expected_operations": [],
+      "expected_diagnostics": [
+        {
+          "code": "CONTROL_UNSUPPORTED",
+          "raw_start_byte": 114,
+          "raw_end_byte": 115,
+          "raw_start_line": 4,
+          "raw_end_line": 4
+        }
+      ],
+      "transformations_or_diagnostics": [
+        "CONTROL_UNSUPPORTED"
+      ],
+      "note": "前文字を削除して address を確定しない。"
+    },
+    {
+      "id": "bare-cr",
+      "title": "単独 CR の混入",
+      "raw_text": "leaf01# show ip route vrf all\nIP Route Table for VRF \"TENANT-A\"\n192.0.2.64/26, ubest/mbest: 1/0\n    *via 192.0.2.9\r192.0.2.1, Ethernet1/1, [110/20], 00:01:00, ospf-UNDERLAY, intra\nleaf01#\n",
+      "raw_sha256": "sha256:1fc83c572cc8c450731d04466d6489d85c04f2a86b6170366c0bfb7dc4a8a40b",
+      "input_contract": {
+        "host": "leaf01",
+        "input_format": "nxos-transcript",
+        "command_id": "route_ipv4_all_vrfs",
+        "completeness": "not_asserted"
+      },
+      "expected_normalized_text": null,
+      "normalized_sha256": null,
+      "parse_status": "UNKNOWN",
+      "verification": "unknown",
+      "health_eligible": false,
+      "expected_mapping": [
+        {
+          "raw_start_line": 1,
+          "raw_end_line": 1,
+          "raw_start_byte": 0,
+          "raw_end_byte": 30,
+          "normalized_line": null
+        },
+        {
+          "raw_start_line": 2,
+          "raw_end_line": 2,
+          "raw_start_byte": 30,
+          "raw_end_byte": 64,
+          "normalized_line": null
+        },
+        {
+          "raw_start_line": 3,
+          "raw_end_line": 3,
+          "raw_start_byte": 64,
+          "raw_end_byte": 96,
+          "normalized_line": null
+        },
+        {
+          "raw_start_line": 4,
+          "raw_end_line": 4,
+          "raw_start_byte": 96,
+          "raw_end_byte": 180,
+          "normalized_line": null
+        },
+        {
+          "raw_start_line": 5,
+          "raw_end_line": 5,
+          "raw_start_byte": 180,
+          "raw_end_byte": 188,
+          "normalized_line": null
+        }
+      ],
+      "expected_operations": [],
+      "expected_diagnostics": [
+        {
+          "code": "CONTROL_UNSUPPORTED",
+          "raw_start_byte": 114,
+          "raw_end_byte": 115,
+          "raw_start_line": 4,
+          "raw_end_line": 4
+        }
+      ],
+      "transformations_or_diagnostics": [
+        "CONTROL_UNSUPPORTED"
+      ],
+      "note": "単独 CR を改行や上書きと仮定しない。"
+    }
+  ],
+  "invalid_encoding_example": {
+    "raw_bytes_hex": "6c65616630312320ff0a",
+    "expected": "INPUT_VALIDATION_ERROR",
+    "exit_code": 2,
+    "reason": "不正な UTF-8 を置換して route parser へ渡さない。"
+  }
+}

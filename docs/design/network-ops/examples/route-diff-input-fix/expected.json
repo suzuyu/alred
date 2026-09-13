@@ -1,0 +1,91 @@
+{
+  "kind": "RouteDiffDesignExpectation",
+  "design_only": true,
+  "implementation_status": "NOT_IMPLEMENTED",
+  "inputs": [
+    "before.txt",
+    "after.txt"
+  ],
+  "coverage": "COMPLETE",
+  "exit_code": 0,
+  "complete_scope_count": 2,
+  "unknown_scope_count": 0,
+  "modes": {
+    "route-only": {
+      "before_count": 2,
+      "after_count": 2,
+      "ADDED": 0,
+      "REMOVED": 0,
+      "MODIFIED": 0,
+      "UNCHANGED": 2
+    },
+    "route-ad": {
+      "before_count": 2,
+      "after_count": 2,
+      "ADDED": 0,
+      "REMOVED": 0,
+      "MODIFIED": 0,
+      "UNCHANGED": 2
+    },
+    "route-ad-cost": {
+      "before_count": 2,
+      "after_count": 2,
+      "ADDED": 0,
+      "REMOVED": 0,
+      "MODIFIED": 0,
+      "UNCHANGED": 2
+    },
+    "nexthop-include": {
+      "before_count": 2,
+      "after_count": 2,
+      "ADDED": 0,
+      "REMOVED": 0,
+      "MODIFIED": 1,
+      "UNCHANGED": 1
+    },
+    "route-ad-cost-nexthop": {
+      "before_count": 2,
+      "after_count": 2,
+      "ADDED": 0,
+      "REMOVED": 0,
+      "MODIFIED": 1,
+      "UNCHANGED": 1
+    }
+  },
+  "changed_resource": {
+    "device": "leaf01",
+    "vrf": "TENANT-A",
+    "family": "ipv4",
+    "prefix": "198.51.100.0/24"
+  },
+  "reason_codes": [
+    "NEXTHOP_CHANGED",
+    "SEGMENT_ID_CHANGED"
+  ],
+  "field_change": {
+    "segment_id": {
+      "before": 19001,
+      "after": 19002
+    }
+  },
+  "empty_scope": {
+    "device": "leaf01",
+    "vrf": "EMPTY-VRF",
+    "family": "ipv6",
+    "before_count": 0,
+    "after_count": 0,
+    "empty_basis": "closed_section",
+    "explicit_empty": false
+  },
+  "incomplete_case": {
+    "inputs": [
+      "before.txt",
+      "after-incomplete.txt"
+    ],
+    "coverage": "PARTIAL",
+    "exit_code": 3,
+    "complete_scope_count": 1,
+    "unknown_scope_count": 1,
+    "unknown_family": "ipv6"
+  }
+}

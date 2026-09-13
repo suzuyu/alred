@@ -1,0 +1,44 @@
+{
+  "kind": "RouteDiffDirectoryDesignExpectation",
+  "design_only": true,
+  "implementation_status": "NOT_IMPLEMENTED",
+  "host_pairing": [
+    {
+      "host": "leaf01",
+      "before": [
+        "before/device-a.log"
+      ],
+      "after": [
+        "after/post-leaf01.txt"
+      ],
+      "coverage": "COMPLETE"
+    },
+    {
+      "host": "leaf02",
+      "before": [
+        "before/device-b.log"
+      ],
+      "after": [
+        "after/device-b-renamed.log"
+      ],
+      "coverage": "COMPLETE"
+    },
+    {
+      "host": "leaf03",
+      "before": [
+        "before/device-c.log"
+      ],
+      "after": [],
+      "coverage": "UNKNOWN"
+    }
+  ],
+  "before_source_count": 3,
+  "after_source_count": 2,
+  "matched_host_count": 2,
+  "before_only_host_count": 1,
+  "after_only_host_count": 0,
+  "coverage": "PARTIAL",
+  "exit_code": 3,
+  "complete_scope_count": 4,
+  "unknown_scope_count": 2
+}

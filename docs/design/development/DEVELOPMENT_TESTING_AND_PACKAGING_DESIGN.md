@@ -66,6 +66,12 @@ wheelには実行に必要なPython moduleと次のpackage dataを必ず含め�
 resourceを追加・移動した場合はsource treeだけでなく、wheel installとPyInstaller binaryからも解決できるtestを
 追加する。Hatchのinclude設定とPyInstaller specを同じ変更で更新する。
 
+Route Diff の配布確認には [smoke runner](../../../scripts/smoke_route_diff.py) を使う。
+source / install 済み wheel / native binary の起動 command を渡し、同じ合成 transcript から
+standalone と Health の before / after を生成する。5 比較方式の期待件数、追加 profile、
+Health 判定、全 report file の hash を照合する。実機接続は行わず、新規出力 directory に証跡を保存する。
+検証 binary の build・実行は version 採番や Release 作成・公開とは区別する。
+
 ## 6. PyInstaller binary
 
 PyInstallerはPython 3.11でone-file console binaryを作る。netmikoのdynamic importと全package dataをbundleし、
@@ -131,7 +137,8 @@ noteへ記載する。
 
 - wheel／sdist install smokeを通常CIへ追加する余地がある。
 - native binary smokeは`--version`、`--help`、sample config生成までであり、schema、health profile、
-  capability、templateを個別に解決する包括的smokeは未実装である。
+  capability、templateを個別に解決する包括的smokeは未実装である。Route Diff に限り、上記 runner で
+  schema / profile / template を使う standalone / Health の一連の処理を検証できる。
 - glibc Docker buildの定期検証は未実装である。
 - SBOM、artifact署名、provenance attestationは未実装である。
 - Linux x86_64以外は継続的なbuild pipelineがないため、正式な配布対象として扱う前にmatrixとtestを定義する。

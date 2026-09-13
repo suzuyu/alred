@@ -1,0 +1,18 @@
+leaf02# show ip route vrf all
+'*' denotes best ucast next-hop
+'**' denotes best mcast next-hop
+
+IP Route Table for VRF "default"
+203.0.113.0/24, ubest/mbest: 1/0
+    *via Null0, [1/0], 00:12:34, static
+
+leaf02#
+leaf02# show ipv6 route vrf all
+'*' denotes best ucast next-hop
+'**' denotes best mcast next-hop
+
+IPv6 Routing Table for VRF "default"
+2001:db8:400::/64, ubest/mbest: 1/0
+    *via 2001:db8::2, Ethernet1/4, [110/20], 00:12:34, ospf-UNDERLAY, intra
+
+leaf02#

@@ -8,6 +8,10 @@
 
 ## 2. 出力原則
 
+詳細 Route profile を追加した場合、Health Snapshot の `route_diff` 参照と report の
+`route_diff/` を保存する。HTML、5 方式の件数、Health 判定の表示、完了 manifest と
+atomic 公開は [Route Diff 設計 18](ROUTE_DIFF_DESIGN.md#18-health-統合契約p6)に従う。
+
 - 作業全体のrootは`operations/<change-id>/`とする
 - 正常性確認成果物は`health/`、設定生成物は`generated-config/`、Overlay差分は`overlay/`へ分離する
 - 端末には作業判断に必要な短いsummaryだけを表示する
@@ -1076,6 +1080,10 @@ NX-OSコマンドを出力する。`Evidence Files`にはsourceとdeviceごと�
 [Overlay Change Management Design](./OVERLAY_CHANGE_MANAGEMENT_DESIGN.md#81-health-check-vni-mapping成果物)を正本とする。
 
 ## 14. 出力の互換性
+
+追加検討中の `route_diff/`、ホスト別 5 方式の Markdown、左右比較 HTML、全体サマリーは
+[Route Diff 設計案](ROUTE_DIFF_DESIGN.md)と同書の UI モックを参照する。これらはレビュー用であり、
+現行 Health Check が生成する成果物ではない。
 
 - JSON/YAMLには`schema_version`を必須とする
 - field追加は後方互換とし、削除・意味変更ではschema versionを更新する

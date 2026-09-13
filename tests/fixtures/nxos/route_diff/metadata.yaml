@@ -1,0 +1,17 @@
+source_type: synthetic
+sanitized: true
+model: null
+release: null
+purpose:
+  - route-input-foundation
+origin: hand-authored design scenarios
+release_certification: false
+fixtures:
+  - synthetic/leaf01-before-route.txt
+  - synthetic/leaf01-after-route.txt
+  - synthetic/leaf02-before-route.txt
+  - synthetic/leaf02-after-route.txt
+  - synthetic/leaf03-before-route.txt
+  - synthetic/leaf03-after-route.txt
+  - synthetic/default-vrf.txt
+  - synthetic/specific-vrf.txt

@@ -97,3 +97,9 @@ jobs:
             jq -e \
               '.hosts.leaf01.sources.inventory.parse_status == "parsed" and .hosts.leaf01.sources.license_usage.parse_status == "parsed"' \
               {} \;
+
+      - name: Smoke-test Route Diff and Health integration
+        run: >-
+          uv run --frozen python scripts/smoke_route_diff.py
+          --command ./dist/alred
+          --output "${RUNNER_TEMP}/alred-route-smoke"

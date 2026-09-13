@@ -1,0 +1,1147 @@
+{
+  "schema_version": 1,
+  "synthetic": true,
+  "kind": "RouteDiffAcceptanceExamples",
+  "status": "手作業で定義した期待値。別途実装した comparator / evaluator の受け入れテストにも使用する。",
+  "expectations": [
+    {
+      "id": "matched",
+      "title": "予定どおりの Cost 変更",
+      "resource": {
+        "device": "leaf01",
+        "vrf": "TENANT-A",
+        "family": "ipv4",
+        "prefix": "192.0.2.64/26"
+      },
+      "expected": {
+        "before": {
+          "prefix": "192.0.2.64/26",
+          "paths": [
+            {
+              "kind": "ip",
+              "next_hop_family": "ipv4",
+              "address": "192.0.2.1",
+              "interface": "Ethernet1/1",
+              "next_hop_vrf": "TENANT-A",
+              "admin_distance": 110,
+              "metric": 20
+            }
+          ]
+        },
+        "after": {
+          "prefix": "192.0.2.64/26",
+          "paths": [
+            {
+              "kind": "ip",
+              "next_hop_family": "ipv4",
+              "address": "192.0.2.1",
+              "interface": "Ethernet1/1",
+              "next_hop_vrf": "TENANT-A",
+              "admin_distance": 110,
+              "metric": 30
+            }
+          ]
+        }
+      },
+      "observed": {
+        "before": {
+          "prefix": "192.0.2.64/26",
+          "paths": [
+            {
+              "kind": "ip",
+              "next_hop_family": "ipv4",
+              "address": "192.0.2.1",
+              "interface": "Ethernet1/1",
+              "next_hop_vrf": "TENANT-A",
+              "admin_distance": 110,
+              "metric": 20
+            }
+          ]
+        },
+        "after": {
+          "prefix": "192.0.2.64/26",
+          "paths": [
+            {
+              "kind": "ip",
+              "next_hop_family": "ipv4",
+              "address": "192.0.2.1",
+              "interface": "Ethernet1/1",
+              "next_hop_vrf": "TENANT-A",
+              "admin_distance": 110,
+              "metric": 30
+            }
+          ]
+        }
+      },
+      "expectation_status": "MATCHED",
+      "observation": "MODIFIED",
+      "verification": "verified",
+      "health_eligible": true,
+      "health_result": "PASS",
+      "classification": "expected_change",
+      "note": "必須条件も満たした例。この check の PASS は全体 PASS ではありません。",
+      "expectation_rule_id": "cost-20-to-30",
+      "policy": {
+        "required_routes": [
+          {
+            "device": "leaf01",
+            "vrf": "TENANT-A",
+            "family": "ipv4",
+            "prefix": "192.0.2.64/26",
+            "min_paths": 1
+          }
+        ],
+        "expected_changes": [
+          {
+            "id": "cost-20-to-30",
+            "reason": "予定どおりの Cost 変更",
+            "device": "leaf01",
+            "vrf": "TENANT-A",
+            "family": "ipv4",
+            "prefix": "192.0.2.64/26",
+            "before": {
+              "prefix": "192.0.2.64/26",
+              "paths": [
+                {
+                  "kind": "ip",
+                  "next_hop_family": "ipv4",
+                  "address": "192.0.2.1",
+                  "interface": "Ethernet1/1",
+                  "next_hop_vrf": "TENANT-A",
+                  "admin_distance": 110,
+                  "metric": 20
+                }
+              ]
+            },
+            "after": {
+              "prefix": "192.0.2.64/26",
+              "paths": [
+                {
+                  "kind": "ip",
+                  "next_hop_family": "ipv4",
+                  "address": "192.0.2.1",
+                  "interface": "Ethernet1/1",
+                  "next_hop_vrf": "TENANT-A",
+                  "admin_distance": 110,
+                  "metric": 30
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "resolved_policy_sha256": "sha256:e973df471599bce126c62733445f529904c88e26714925b42b465dc0309ddd74",
+      "mismatch_fields": []
+    },
+    {
+      "id": "mismatch",
+      "title": "予定外の Cost 変更",
+      "resource": {
+        "device": "leaf01",
+        "vrf": "TENANT-A",
+        "family": "ipv4",
+        "prefix": "192.0.2.64/26"
+      },
+      "expected": {
+        "before": {
+          "prefix": "192.0.2.64/26",
+          "paths": [
+            {
+              "kind": "ip",
+              "next_hop_family": "ipv4",
+              "address": "192.0.2.1",
+              "interface": "Ethernet1/1",
+              "next_hop_vrf": "TENANT-A",
+              "admin_distance": 110,
+              "metric": 20
+            }
+          ]
+        },
+        "after": {
+          "prefix": "192.0.2.64/26",
+          "paths": [
+            {
+              "kind": "ip",
+              "next_hop_family": "ipv4",
+              "address": "192.0.2.1",
+              "interface": "Ethernet1/1",
+              "next_hop_vrf": "TENANT-A",
+              "admin_distance": 110,
+              "metric": 30
+            }
+          ]
+        }
+      },
+      "observed": {
+        "before": {
+          "prefix": "192.0.2.64/26",
+          "paths": [
+            {
+              "kind": "ip",
+              "next_hop_family": "ipv4",
+              "address": "192.0.2.1",
+              "interface": "Ethernet1/1",
+              "next_hop_vrf": "TENANT-A",
+              "admin_distance": 110,
+              "metric": 20
+            }
+          ]
+        },
+        "after": {
+          "prefix": "192.0.2.64/26",
+          "paths": [
+            {
+              "kind": "ip",
+              "next_hop_family": "ipv4",
+              "address": "192.0.2.1",
+              "interface": "Ethernet1/1",
+              "next_hop_vrf": "TENANT-A",
+              "admin_distance": 110,
+              "metric": 40
+            }
+          ]
+        }
+      },
+      "expectation_status": "MISMATCH",
+      "observation": "MODIFIED",
+      "verification": "verified",
+      "health_eligible": true,
+      "health_result": "WARN",
+      "classification": "unexpected_change",
+      "note": "予定は 20 → 30、観測は 20 → 40。metric が不一致。",
+      "expectation_rule_id": "cost-20-to-30",
+      "policy": {
+        "required_routes": [
+          {
+            "device": "leaf01",
+            "vrf": "TENANT-A",
+            "family": "ipv4",
+            "prefix": "192.0.2.64/26",
+            "min_paths": 1
+          }
+        ],
+        "expected_changes": [
+          {
+            "id": "cost-20-to-30",
+            "reason": "予定外の Cost 変更",
+            "device": "leaf01",
+            "vrf": "TENANT-A",
+            "family": "ipv4",
+            "prefix": "192.0.2.64/26",
+            "before": {
+              "prefix": "192.0.2.64/26",
+              "paths": [
+                {
+                  "kind": "ip",
+                  "next_hop_family": "ipv4",
+                  "address": "192.0.2.1",
+                  "interface": "Ethernet1/1",
+                  "next_hop_vrf": "TENANT-A",
+                  "admin_distance": 110,
+                  "metric": 20
+                }
+              ]
+            },
+            "after": {
+              "prefix": "192.0.2.64/26",
+              "paths": [
+                {
+                  "kind": "ip",
+                  "next_hop_family": "ipv4",
+                  "address": "192.0.2.1",
+                  "interface": "Ethernet1/1",
+                  "next_hop_vrf": "TENANT-A",
+                  "admin_distance": 110,
+                  "metric": 30
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "resolved_policy_sha256": "sha256:87e160e9575e48ae09fc6a81bc4d4bbde0733d0f75129d68dd0b588a64e6ed02",
+      "mismatch_fields": [
+        "after.paths.metric"
+      ]
+    },
+    {
+      "id": "not-applied",
+      "title": "予定した変更が未成立",
+      "resource": {
+        "device": "leaf01",
+        "vrf": "TENANT-A",
+        "family": "ipv4",
+        "prefix": "192.0.2.64/26"
+      },
+      "expected": {
+        "before": {
+          "prefix": "192.0.2.64/26",
+          "paths": [
+            {
+              "kind": "ip",
+              "next_hop_family": "ipv4",
+              "address": "192.0.2.1",
+              "interface": "Ethernet1/1",
+              "next_hop_vrf": "TENANT-A",
+              "admin_distance": 110,
+              "metric": 20
+            }
+          ]
+        },
+        "after": {
+          "prefix": "192.0.2.64/26",
+          "paths": [
+            {
+              "kind": "ip",
+              "next_hop_family": "ipv4",
+              "address": "192.0.2.1",
+              "interface": "Ethernet1/1",
+              "next_hop_vrf": "TENANT-A",
+              "admin_distance": 110,
+              "metric": 30
+            }
+          ]
+        }
+      },
+      "observed": {
+        "before": {
+          "prefix": "192.0.2.64/26",
+          "paths": [
+            {
+              "kind": "ip",
+              "next_hop_family": "ipv4",
+              "address": "192.0.2.1",
+              "interface": "Ethernet1/1",
+              "next_hop_vrf": "TENANT-A",
+              "admin_distance": 110,
+              "metric": 20
+            }
+          ]
+        },
+        "after": {
+          "prefix": "192.0.2.64/26",
+          "paths": [
+            {
+              "kind": "ip",
+              "next_hop_family": "ipv4",
+              "address": "192.0.2.1",
+              "interface": "Ethernet1/1",
+              "next_hop_vrf": "TENANT-A",
+              "admin_distance": 110,
+              "metric": 20
+            }
+          ]
+        }
+      },
+      "expectation_status": "NOT_APPLIED",
+      "observation": "UNCHANGED",
+      "verification": "verified",
+      "health_eligible": true,
+      "health_result": "WARN",
+      "classification": "unexpected_change",
+      "note": "観測差分は UNCHANGED でも rule の結果一覧には残します。",
+      "expectation_rule_id": "cost-20-to-30",
+      "policy": {
+        "required_routes": [
+          {
+            "device": "leaf01",
+            "vrf": "TENANT-A",
+            "family": "ipv4",
+            "prefix": "192.0.2.64/26",
+            "min_paths": 1
+          }
+        ],
+        "expected_changes": [
+          {
+            "id": "cost-20-to-30",
+            "reason": "予定した変更が未成立",
+            "device": "leaf01",
+            "vrf": "TENANT-A",
+            "family": "ipv4",
+            "prefix": "192.0.2.64/26",
+            "before": {
+              "prefix": "192.0.2.64/26",
+              "paths": [
+                {
+                  "kind": "ip",
+                  "next_hop_family": "ipv4",
+                  "address": "192.0.2.1",
+                  "interface": "Ethernet1/1",
+                  "next_hop_vrf": "TENANT-A",
+                  "admin_distance": 110,
+                  "metric": 20
+                }
+              ]
+            },
+            "after": {
+              "prefix": "192.0.2.64/26",
+              "paths": [
+                {
+                  "kind": "ip",
+                  "next_hop_family": "ipv4",
+                  "address": "192.0.2.1",
+                  "interface": "Ethernet1/1",
+                  "next_hop_vrf": "TENANT-A",
+                  "admin_distance": 110,
+                  "metric": 30
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "resolved_policy_sha256": "sha256:69aba00bd9e4414d6e72e13ad7211754b8a89a20ec271e843110a5bc6bfd95d0",
+      "mismatch_fields": [
+        "after.paths.metric"
+      ]
+    },
+    {
+      "id": "extra-hop",
+      "title": "Cost は予定どおりだが NextHop も変更",
+      "resource": {
+        "device": "leaf01",
+        "vrf": "TENANT-A",
+        "family": "ipv4",
+        "prefix": "192.0.2.64/26"
+      },
+      "expected": {
+        "before": {
+          "prefix": "192.0.2.64/26",
+          "paths": [
+            {
+              "kind": "ip",
+              "next_hop_family": "ipv4",
+              "address": "192.0.2.1",
+              "interface": "Ethernet1/1",
+              "next_hop_vrf": "TENANT-A",
+              "admin_distance": 110,
+              "metric": 20
+            }
+          ]
+        },
+        "after": {
+          "prefix": "192.0.2.64/26",
+          "paths": [
+            {
+              "kind": "ip",
+              "next_hop_family": "ipv4",
+              "address": "192.0.2.1",
+              "interface": "Ethernet1/1",
+              "next_hop_vrf": "TENANT-A",
+              "admin_distance": 110,
+              "metric": 30
+            }
+          ]
+        }
+      },
+      "observed": {
+        "before": {
+          "prefix": "192.0.2.64/26",
+          "paths": [
+            {
+              "kind": "ip",
+              "next_hop_family": "ipv4",
+              "address": "192.0.2.1",
+              "interface": "Ethernet1/1",
+              "next_hop_vrf": "TENANT-A",
+              "admin_distance": 110,
+              "metric": 20
+            }
+          ]
+        },
+        "after": {
+          "prefix": "192.0.2.64/26",
+          "paths": [
+            {
+              "kind": "ip",
+              "next_hop_family": "ipv4",
+              "address": "192.0.2.2",
+              "interface": "Ethernet1/2",
+              "next_hop_vrf": "TENANT-A",
+              "admin_distance": 110,
+              "metric": 30
+            }
+          ]
+        }
+      },
+      "expectation_status": "MISMATCH",
+      "observation": "MODIFIED",
+      "verification": "verified",
+      "health_eligible": true,
+      "health_result": "WARN",
+      "classification": "unexpected_change",
+      "note": "AD / Cost だけの一致では期待変更にしません。",
+      "expectation_rule_id": "cost-20-to-30",
+      "policy": {
+        "required_routes": [
+          {
+            "device": "leaf01",
+            "vrf": "TENANT-A",
+            "family": "ipv4",
+            "prefix": "192.0.2.64/26",
+            "min_paths": 1
+          }
+        ],
+        "expected_changes": [
+          {
+            "id": "cost-20-to-30",
+            "reason": "Cost は予定どおりだが NextHop も変更",
+            "device": "leaf01",
+            "vrf": "TENANT-A",
+            "family": "ipv4",
+            "prefix": "192.0.2.64/26",
+            "before": {
+              "prefix": "192.0.2.64/26",
+              "paths": [
+                {
+                  "kind": "ip",
+                  "next_hop_family": "ipv4",
+                  "address": "192.0.2.1",
+                  "interface": "Ethernet1/1",
+                  "next_hop_vrf": "TENANT-A",
+                  "admin_distance": 110,
+                  "metric": 20
+                }
+              ]
+            },
+            "after": {
+              "prefix": "192.0.2.64/26",
+              "paths": [
+                {
+                  "kind": "ip",
+                  "next_hop_family": "ipv4",
+                  "address": "192.0.2.1",
+                  "interface": "Ethernet1/1",
+                  "next_hop_vrf": "TENANT-A",
+                  "admin_distance": 110,
+                  "metric": 30
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "resolved_policy_sha256": "sha256:a4870adb7952890ef39fb1f17770e36dd8d059b842b87b51a70e4e965ef0f07e",
+      "mismatch_fields": [
+        "after.paths.address",
+        "after.paths.interface"
+      ]
+    },
+    {
+      "id": "before-mismatch",
+      "title": "before が計画と不一致",
+      "resource": {
+        "device": "leaf01",
+        "vrf": "TENANT-A",
+        "family": "ipv4",
+        "prefix": "192.0.2.64/26"
+      },
+      "expected": {
+        "before": {
+          "prefix": "192.0.2.64/26",
+          "paths": [
+            {
+              "kind": "ip",
+              "next_hop_family": "ipv4",
+              "address": "192.0.2.1",
+              "interface": "Ethernet1/1",
+              "next_hop_vrf": "TENANT-A",
+              "admin_distance": 110,
+              "metric": 20
+            }
+          ]
+        },
+        "after": {
+          "prefix": "192.0.2.64/26",
+          "paths": [
+            {
+              "kind": "ip",
+              "next_hop_family": "ipv4",
+              "address": "192.0.2.1",
+              "interface": "Ethernet1/1",
+              "next_hop_vrf": "TENANT-A",
+              "admin_distance": 110,
+              "metric": 30
+            }
+          ]
+        }
+      },
+      "observed": {
+        "before": {
+          "prefix": "192.0.2.64/26",
+          "paths": [
+            {
+              "kind": "ip",
+              "next_hop_family": "ipv4",
+              "address": "192.0.2.1",
+              "interface": "Ethernet1/1",
+              "next_hop_vrf": "TENANT-A",
+              "admin_distance": 110,
+              "metric": 10
+            }
+          ]
+        },
+        "after": {
+          "prefix": "192.0.2.64/26",
+          "paths": [
+            {
+              "kind": "ip",
+              "next_hop_family": "ipv4",
+              "address": "192.0.2.1",
+              "interface": "Ethernet1/1",
+              "next_hop_vrf": "TENANT-A",
+              "admin_distance": 110,
+              "metric": 30
+            }
+          ]
+        }
+      },
+      "expectation_status": "MISMATCH",
+      "observation": "MODIFIED",
+      "verification": "verified",
+      "health_eligible": true,
+      "health_result": "WARN",
+      "classification": "unexpected_change",
+      "note": "after だけを照合せず、before の metric 不一致も残します。",
+      "expectation_rule_id": "cost-20-to-30",
+      "policy": {
+        "required_routes": [
+          {
+            "device": "leaf01",
+            "vrf": "TENANT-A",
+            "family": "ipv4",
+            "prefix": "192.0.2.64/26",
+            "min_paths": 1
+          }
+        ],
+        "expected_changes": [
+          {
+            "id": "cost-20-to-30",
+            "reason": "before が計画と不一致",
+            "device": "leaf01",
+            "vrf": "TENANT-A",
+            "family": "ipv4",
+            "prefix": "192.0.2.64/26",
+            "before": {
+              "prefix": "192.0.2.64/26",
+              "paths": [
+                {
+                  "kind": "ip",
+                  "next_hop_family": "ipv4",
+                  "address": "192.0.2.1",
+                  "interface": "Ethernet1/1",
+                  "next_hop_vrf": "TENANT-A",
+                  "admin_distance": 110,
+                  "metric": 20
+                }
+              ]
+            },
+            "after": {
+              "prefix": "192.0.2.64/26",
+              "paths": [
+                {
+                  "kind": "ip",
+                  "next_hop_family": "ipv4",
+                  "address": "192.0.2.1",
+                  "interface": "Ethernet1/1",
+                  "next_hop_vrf": "TENANT-A",
+                  "admin_distance": 110,
+                  "metric": 30
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "resolved_policy_sha256": "sha256:dff7ccba5f91a4bfc8e579f6815d5dd10f916a3a2ccc4174c08bf4a38effbfe3",
+      "mismatch_fields": [
+        "before.paths.metric"
+      ]
+    },
+    {
+      "id": "required-fail",
+      "title": "予定した削除だが必須経路違反",
+      "resource": {
+        "device": "leaf01",
+        "vrf": "TENANT-A",
+        "family": "ipv4",
+        "prefix": "192.0.2.64/26"
+      },
+      "expected": {
+        "before": {
+          "prefix": "192.0.2.64/26",
+          "paths": [
+            {
+              "kind": "ip",
+              "next_hop_family": "ipv4",
+              "address": "192.0.2.1",
+              "interface": "Ethernet1/1",
+              "next_hop_vrf": "TENANT-A",
+              "admin_distance": 110,
+              "metric": 20
+            }
+          ]
+        },
+        "after": null
+      },
+      "observed": {
+        "before": {
+          "prefix": "192.0.2.64/26",
+          "paths": [
+            {
+              "kind": "ip",
+              "next_hop_family": "ipv4",
+              "address": "192.0.2.1",
+              "interface": "Ethernet1/1",
+              "next_hop_vrf": "TENANT-A",
+              "admin_distance": 110,
+              "metric": 20
+            }
+          ]
+        },
+        "after": null
+      },
+      "expectation_status": "MATCHED",
+      "observation": "REMOVED",
+      "verification": "verified",
+      "health_eligible": true,
+      "health_result": "FAIL",
+      "classification": "regression",
+      "note": "この例だけ期待 after は null。required prefix 欠落は独立して FAIL。",
+      "expectation_rule_id": "remove-required-route",
+      "policy": {
+        "required_routes": [
+          {
+            "device": "leaf01",
+            "vrf": "TENANT-A",
+            "family": "ipv4",
+            "prefix": "192.0.2.64/26",
+            "min_paths": 1
+          }
+        ],
+        "expected_changes": [
+          {
+            "id": "remove-required-route",
+            "reason": "予定した削除だが必須経路違反",
+            "device": "leaf01",
+            "vrf": "TENANT-A",
+            "family": "ipv4",
+            "prefix": "192.0.2.64/26",
+            "before": {
+              "prefix": "192.0.2.64/26",
+              "paths": [
+                {
+                  "kind": "ip",
+                  "next_hop_family": "ipv4",
+                  "address": "192.0.2.1",
+                  "interface": "Ethernet1/1",
+                  "next_hop_vrf": "TENANT-A",
+                  "admin_distance": 110,
+                  "metric": 20
+                }
+              ]
+            },
+            "after": null
+          }
+        ]
+      },
+      "resolved_policy_sha256": "sha256:ae498693f510d6d01e4110f3987118552463ca870af63ec71caae6e8d526b8ca",
+      "mismatch_fields": []
+    },
+    {
+      "id": "unverified",
+      "title": "申告ログでは Health 用証跡不足",
+      "resource": {
+        "device": "leaf01",
+        "vrf": "TENANT-A",
+        "family": "ipv4",
+        "prefix": "192.0.2.64/26"
+      },
+      "expected": {
+        "before": {
+          "prefix": "192.0.2.64/26",
+          "paths": [
+            {
+              "kind": "ip",
+              "next_hop_family": "ipv4",
+              "address": "192.0.2.1",
+              "interface": "Ethernet1/1",
+              "next_hop_vrf": "TENANT-A",
+              "admin_distance": 110,
+              "metric": 20
+            }
+          ]
+        },
+        "after": {
+          "prefix": "192.0.2.64/26",
+          "paths": [
+            {
+              "kind": "ip",
+              "next_hop_family": "ipv4",
+              "address": "192.0.2.1",
+              "interface": "Ethernet1/1",
+              "next_hop_vrf": "TENANT-A",
+              "admin_distance": 110,
+              "metric": 30
+            }
+          ]
+        }
+      },
+      "observed": {
+        "before": {
+          "prefix": "192.0.2.64/26",
+          "paths": [
+            {
+              "kind": "ip",
+              "next_hop_family": "ipv4",
+              "address": "192.0.2.1",
+              "interface": "Ethernet1/1",
+              "next_hop_vrf": "TENANT-A",
+              "admin_distance": 110,
+              "metric": 20
+            }
+          ]
+        },
+        "after": {
+          "prefix": "192.0.2.64/26",
+          "paths": [
+            {
+              "kind": "ip",
+              "next_hop_family": "ipv4",
+              "address": "192.0.2.1",
+              "interface": "Ethernet1/1",
+              "next_hop_vrf": "TENANT-A",
+              "admin_distance": 110,
+              "metric": 30
+            }
+          ]
+        }
+      },
+      "expectation_status": "UNVERIFIABLE",
+      "observation": "MODIFIED",
+      "verification": "user_asserted",
+      "health_eligible": false,
+      "health_result": "UNKNOWN",
+      "classification": "collection_error",
+      "note": "構文は完全で観測比較可能でも user_asserted だけでは Health 判定に採用しません。",
+      "expectation_rule_id": "cost-20-to-30",
+      "policy": {
+        "required_routes": [
+          {
+            "device": "leaf01",
+            "vrf": "TENANT-A",
+            "family": "ipv4",
+            "prefix": "192.0.2.64/26",
+            "min_paths": 1
+          }
+        ],
+        "expected_changes": [
+          {
+            "id": "cost-20-to-30",
+            "reason": "申告ログでは Health 用証跡不足",
+            "device": "leaf01",
+            "vrf": "TENANT-A",
+            "family": "ipv4",
+            "prefix": "192.0.2.64/26",
+            "before": {
+              "prefix": "192.0.2.64/26",
+              "paths": [
+                {
+                  "kind": "ip",
+                  "next_hop_family": "ipv4",
+                  "address": "192.0.2.1",
+                  "interface": "Ethernet1/1",
+                  "next_hop_vrf": "TENANT-A",
+                  "admin_distance": 110,
+                  "metric": 20
+                }
+              ]
+            },
+            "after": {
+              "prefix": "192.0.2.64/26",
+              "paths": [
+                {
+                  "kind": "ip",
+                  "next_hop_family": "ipv4",
+                  "address": "192.0.2.1",
+                  "interface": "Ethernet1/1",
+                  "next_hop_vrf": "TENANT-A",
+                  "admin_distance": 110,
+                  "metric": 30
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "resolved_policy_sha256": "sha256:8149855d8e53341a9e64a947a7fc7a1259924a429bdf63df88c6ff4755474bba",
+      "mismatch_fields": []
+    }
+  ],
+  "ecmp": [
+    {
+      "id": "same-hop",
+      "title": "同じ NextHop の Cost 変更",
+      "route": {
+        "device": "leaf01",
+        "vrf": "TENANT-A",
+        "family": "ipv4",
+        "prefix": "198.51.100.128/25",
+        "before": {
+          "prefix": "198.51.100.128/25",
+          "paths": [
+            {
+              "kind": "ip",
+              "next_hop_family": "ipv4",
+              "address": "192.0.2.1",
+              "interface": "Ethernet1/1",
+              "next_hop_vrf": "TENANT-A",
+              "admin_distance": 110,
+              "protocol": "ospf",
+              "metric": 20
+            },
+            {
+              "kind": "ip",
+              "next_hop_family": "ipv4",
+              "address": "192.0.2.2",
+              "interface": "Ethernet1/2",
+              "next_hop_vrf": "TENANT-A",
+              "admin_distance": 110,
+              "protocol": "ospf",
+              "metric": 20
+            }
+          ]
+        },
+        "after": {
+          "prefix": "198.51.100.128/25",
+          "paths": [
+            {
+              "kind": "ip",
+              "next_hop_family": "ipv4",
+              "address": "192.0.2.2",
+              "interface": "Ethernet1/2",
+              "next_hop_vrf": "TENANT-A",
+              "admin_distance": 110,
+              "protocol": "ospf",
+              "metric": 20
+            },
+            {
+              "kind": "ip",
+              "next_hop_family": "ipv4",
+              "address": "192.0.2.1",
+              "interface": "Ethernet1/1",
+              "next_hop_vrf": "TENANT-A",
+              "admin_distance": 110,
+              "protocol": "ospf",
+              "metric": 30
+            }
+          ]
+        },
+        "note": "同じ NextHop の Cost 変更"
+      },
+      "pairs": [
+        {
+          "before": "198.51.100.128/25  AD 110  Cost 20  via 192.0.2.2  dev Ethernet1/2  vrf TENANT-A  nh-af ipv4  kind ip",
+          "after": "198.51.100.128/25  AD 110  Cost 20  via 192.0.2.2  dev Ethernet1/2  vrf TENANT-A  nh-af ipv4  kind ip",
+          "common": true
+        },
+        {
+          "before": "198.51.100.128/25  AD 110  Cost 20  via 192.0.2.1  dev Ethernet1/1  vrf TENANT-A  nh-af ipv4  kind ip",
+          "after": "198.51.100.128/25  AD 110  Cost 30  via 192.0.2.1  dev Ethernet1/1  vrf TENANT-A  nh-af ipv4  kind ip",
+          "common": false
+        }
+      ]
+    },
+    {
+      "id": "exchange",
+      "title": "共通 path を残して複数 NextHop が交換",
+      "route": {
+        "device": "leaf01",
+        "vrf": "TENANT-A",
+        "family": "ipv4",
+        "prefix": "198.51.100.128/25",
+        "before": {
+          "prefix": "198.51.100.128/25",
+          "paths": [
+            {
+              "kind": "ip",
+              "next_hop_family": "ipv4",
+              "address": "192.0.2.1",
+              "interface": "Ethernet1/1",
+              "next_hop_vrf": "TENANT-A",
+              "admin_distance": 110,
+              "protocol": "ospf",
+              "metric": 20
+            },
+            {
+              "kind": "ip",
+              "next_hop_family": "ipv4",
+              "address": "192.0.2.2",
+              "interface": "Ethernet1/2",
+              "next_hop_vrf": "TENANT-A",
+              "admin_distance": 110,
+              "protocol": "ospf",
+              "metric": 20
+            },
+            {
+              "kind": "ip",
+              "next_hop_family": "ipv4",
+              "address": "192.0.2.5",
+              "interface": "Ethernet1/5",
+              "next_hop_vrf": "TENANT-A",
+              "admin_distance": 110,
+              "protocol": "ospf",
+              "metric": 20
+            }
+          ]
+        },
+        "after": {
+          "prefix": "198.51.100.128/25",
+          "paths": [
+            {
+              "kind": "ip",
+              "next_hop_family": "ipv4",
+              "address": "192.0.2.3",
+              "interface": "Ethernet1/3",
+              "next_hop_vrf": "TENANT-A",
+              "admin_distance": 110,
+              "protocol": "ospf",
+              "metric": 20
+            },
+            {
+              "kind": "ip",
+              "next_hop_family": "ipv4",
+              "address": "192.0.2.4",
+              "interface": "Ethernet1/4",
+              "next_hop_vrf": "TENANT-A",
+              "admin_distance": 110,
+              "protocol": "ospf",
+              "metric": 20
+            },
+            {
+              "kind": "ip",
+              "next_hop_family": "ipv4",
+              "address": "192.0.2.5",
+              "interface": "Ethernet1/5",
+              "next_hop_vrf": "TENANT-A",
+              "admin_distance": 110,
+              "protocol": "ospf",
+              "metric": 20
+            }
+          ]
+        },
+        "note": "共通 path を残して複数 NextHop が交換"
+      },
+      "pairs": [
+        {
+          "before": "198.51.100.128/25  AD 110  Cost 20  via 192.0.2.5  dev Ethernet1/5  vrf TENANT-A  nh-af ipv4  kind ip",
+          "after": "198.51.100.128/25  AD 110  Cost 20  via 192.0.2.5  dev Ethernet1/5  vrf TENANT-A  nh-af ipv4  kind ip",
+          "common": true
+        },
+        {
+          "before": "198.51.100.128/25  AD 110  Cost 20  via 192.0.2.1  dev Ethernet1/1  vrf TENANT-A  nh-af ipv4  kind ip",
+          "after": null,
+          "common": false
+        },
+        {
+          "before": "198.51.100.128/25  AD 110  Cost 20  via 192.0.2.2  dev Ethernet1/2  vrf TENANT-A  nh-af ipv4  kind ip",
+          "after": null,
+          "common": false
+        },
+        {
+          "before": null,
+          "after": "198.51.100.128/25  AD 110  Cost 20  via 192.0.2.3  dev Ethernet1/3  vrf TENANT-A  nh-af ipv4  kind ip",
+          "common": false
+        },
+        {
+          "before": null,
+          "after": "198.51.100.128/25  AD 110  Cost 20  via 192.0.2.4  dev Ethernet1/4  vrf TENANT-A  nh-af ipv4  kind ip",
+          "common": false
+        }
+      ]
+    },
+    {
+      "id": "ambiguous",
+      "title": "同じ NextHop に複数の属性候補",
+      "route": {
+        "device": "leaf01",
+        "vrf": "TENANT-A",
+        "family": "ipv4",
+        "prefix": "198.51.100.128/25",
+        "before": {
+          "prefix": "198.51.100.128/25",
+          "paths": [
+            {
+              "kind": "ip",
+              "next_hop_family": "ipv4",
+              "address": "192.0.2.1",
+              "interface": "Ethernet1/1",
+              "next_hop_vrf": "TENANT-A",
+              "admin_distance": 110,
+              "protocol": "ospf",
+              "metric": 20
+            },
+            {
+              "kind": "ip",
+              "next_hop_family": "ipv4",
+              "address": "192.0.2.1",
+              "interface": "Ethernet1/1",
+              "next_hop_vrf": "TENANT-A",
+              "admin_distance": 110,
+              "protocol": "ospf",
+              "metric": 40
+            }
+          ]
+        },
+        "after": {
+          "prefix": "198.51.100.128/25",
+          "paths": [
+            {
+              "kind": "ip",
+              "next_hop_family": "ipv4",
+              "address": "192.0.2.1",
+              "interface": "Ethernet1/1",
+              "next_hop_vrf": "TENANT-A",
+              "admin_distance": 110,
+              "protocol": "ospf",
+              "metric": 30
+            },
+            {
+              "kind": "ip",
+              "next_hop_family": "ipv4",
+              "address": "192.0.2.1",
+              "interface": "Ethernet1/1",
+              "next_hop_vrf": "TENANT-A",
+              "admin_distance": 110,
+              "protocol": "ospf",
+              "metric": 50
+            }
+          ]
+        },
+        "note": "同じ NextHop に複数の属性候補"
+      },
+      "pairs": [
+        {
+          "before": "198.51.100.128/25  AD 110  Cost 20  via 192.0.2.1  dev Ethernet1/1  vrf TENANT-A  nh-af ipv4  kind ip",
+          "after": null,
+          "common": false
+        },
+        {
+          "before": "198.51.100.128/25  AD 110  Cost 40  via 192.0.2.1  dev Ethernet1/1  vrf TENANT-A  nh-af ipv4  kind ip",
+          "after": null,
+          "common": false
+        },
+        {
+          "before": null,
+          "after": "198.51.100.128/25  AD 110  Cost 30  via 192.0.2.1  dev Ethernet1/1  vrf TENANT-A  nh-af ipv4  kind ip",
+          "common": false
+        },
+        {
+          "before": null,
+          "after": "198.51.100.128/25  AD 110  Cost 50  via 192.0.2.1  dev Ethernet1/1  vrf TENANT-A  nh-af ipv4  kind ip",
+          "common": false
+        }
+      ]
+    }
+  ]
+}
